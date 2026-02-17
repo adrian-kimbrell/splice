@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedoc/tauri/v2/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for malloc",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "dialog:default",
+    "dialog:allow-open"
+  ]
+}
