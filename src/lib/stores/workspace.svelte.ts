@@ -82,28 +82,18 @@ class WorkspaceManager {
 
   createEmptyWorkspace(name?: string): Workspace {
     const id = generateId();
-    const paneId = `editor-${generateId().slice(0, 8)}`;
-    const filePath = "untitled-1";
     const ws: Workspace = {
       id,
       name: name ?? "Untitled",
       rootPath: "",
       fileTree: [],
-      openFiles: [{ name: filePath, path: filePath, content: "" }],
-      activeFilePath: filePath,
+      openFiles: [],
+      activeFilePath: null,
       terminalIds: [],
       activeTerminalId: null,
-      layout: { type: "leaf", paneId },
-      panes: {
-        [paneId]: {
-          id: paneId,
-          kind: "editor",
-          title: "Editor",
-          filePaths: [filePath],
-          activeFilePath: filePath,
-        },
-      },
-      activePaneId: paneId,
+      layout: { type: "leaf", paneId: "__empty__" },
+      panes: {},
+      activePaneId: null,
       leftSidebarVisible: false,
     };
 
@@ -392,8 +382,11 @@ class WorkspaceManager {
     if (!ws) return;
     const file = ws.openFiles.find((f) => f.path === path);
     if (file) {
+      if (file.originalContent === undefined) {
+        file.originalContent = file.content;
+      }
       file.content = content;
-      file.dirty = true;
+      file.dirty = content !== file.originalContent;
     }
   }
 
@@ -527,7 +520,7 @@ class WorkspaceManager {
 
   // --- Pane splitting / closing ---
 
-  async splitPane(paneId: string, direction: SplitDirection, workspaceId?: string): Promise<void> {
+  async splitPane(paneId: string, direction: SplitDirection, side: "before" | "after" = "after", workspaceId?: string): Promise<void> {
     const wsId = workspaceId ?? this.activeWorkspaceId;
     if (!wsId) return;
     const ws = this.workspaces[wsId];
@@ -563,7 +556,7 @@ class WorkspaceManager {
         };
       }
 
-      ws.layout = splitNodeInTree(ws.layout, paneId, newPaneId, direction);
+      ws.layout = splitNodeInTreeWithSide(ws.layout, paneId, newPaneId, direction, side);
       ws.activePaneId = newPaneId;
 
       // Open an untitled file in new editor panes
@@ -623,9 +616,10 @@ class WorkspaceManager {
     const newLayout = removeNodeFromTree(ws.layout, paneId);
     ws.layout = newLayout ?? { type: "leaf", paneId: "__empty__" };
 
-    // If no panes remain, close the workspace
+    // If no panes remain, reset to empty layout
     if (Object.keys(ws.panes).length === 0) {
-      this.closeWorkspace(wsId);
+      ws.layout = { type: "leaf", paneId: "__empty__" };
+      ws.activePaneId = null;
     }
   }
 

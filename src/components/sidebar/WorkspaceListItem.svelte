@@ -10,6 +10,7 @@
     compact = false,
     onItemClick,
     onWorkspaceClick,
+    onClose,
   }: {
     workspace: Workspace;
     isActive?: boolean;
@@ -17,6 +18,7 @@
     compact?: boolean;
     onItemClick: (wsId: string, itemId: string) => void;
     onWorkspaceClick: () => void;
+    onClose?: () => void;
   } = $props();
 
   let editing = $state(false);
@@ -69,7 +71,7 @@
 <div class="workspace-group">
   {#if !compact}
     <div
-      class="workspace-header"
+      class="workspace-header group flex items-center"
       onclick={onWorkspaceClick}
       ondblclick={(e) => { e.stopPropagation(); startEditing(); }}
       title="Double-click to rename"
@@ -85,7 +87,16 @@
           onclick={(e) => e.stopPropagation()}
         />
       {:else}
-        <div class="workspace-title" class:text-txt-bright={isActive}>{workspace.name}</div>
+        <div class="workspace-title flex-1 min-w-0 truncate" class:text-txt-bright={isActive}>{workspace.name}</div>
+        {#if onClose}
+          <button
+            class="pane-action-btn close shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-75"
+            title="Close Workspace"
+            onclick={(e) => { e.stopPropagation(); onClose?.(); }}
+          >
+            <i class="bi bi-x-lg" style="font-size: 12px"></i>
+          </button>
+        {/if}
       {/if}
     </div>
   {:else}

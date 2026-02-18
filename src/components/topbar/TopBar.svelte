@@ -2,7 +2,13 @@
   import { ui } from "../../lib/stores/ui.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
 
-  let { workspaceName = "malloc" }: { workspaceName?: string } = $props();
+  let {
+    workspaceName = "malloc",
+    language = "",
+  }: {
+    workspaceName?: string;
+    language?: string;
+  } = $props();
 
   async function handleNewTerminal() {
     await workspaceManager.spawnTerminalInWorkspace();
@@ -10,10 +16,10 @@
 </script>
 
 <div
-  class="col-span-full flex items-center px-2 border-b border-border gap-1"
-  style="grid-row: 1; height: 35px; background: var(--bg-topbar);"
+  class="col-span-full flex items-center px-2 border-t border-border gap-1"
+  style="grid-row: 2; height: 35px; background: var(--bg-topbar);"
 >
-  <!-- Left: search + workspace name -->
+  <!-- Left: actions -->
   <button
     class="topbar-btn"
     title="Command Palette"
@@ -21,7 +27,14 @@
   >
     <i class="bi bi-search"></i>
   </button>
-  <span class="text-xs text-txt-dim ml-1 mr-auto select-none">{workspaceName}</span>
+  <span class="text-xs text-txt-dim ml-1 select-none">{workspaceName}</span>
+
+  <span class="flex-1"></span>
+
+  <!-- Center/Right: status info -->
+  {#if language}
+    <span class="text-[11px] text-txt-dim whitespace-nowrap">{language}</span>
+  {/if}
 
   <!-- Right: actions -->
   <button class="topbar-btn" title="New Workspace" onclick={() => workspaceManager.createEmptyWorkspace()}>

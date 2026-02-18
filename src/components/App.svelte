@@ -5,7 +5,6 @@
   import EditorPane from "./panes/EditorPane.svelte";
   import TerminalPane from "./panes/TerminalPane.svelte";
   import PaneGrid from "./panes/PaneGrid.svelte";
-  import StatusBar from "./statusbar/StatusBar.svelte";
   import TopBar from "./topbar/TopBar.svelte";
   import CommandPalette from "./overlays/CommandPalette.svelte";
   import SettingsModal from "./overlays/SettingsModal.svelte";
@@ -17,8 +16,28 @@
   import { workspaceManager, type Workspace } from "../lib/stores/workspace.svelte";
   import { getLanguageName } from "../lib/utils/language";
 
-  function handleSplitPane(paneId: string, direction: SplitDirection) {
-    workspaceManager.splitPane(paneId, direction);
+  function handleSplitPane(paneId: string, direction: SplitDirection, side: "before" | "after" = "after") {
+    workspaceManager.splitPane(paneId, direction, side);
+  }
+
+  function handlePaneAction(action: string) {
+    switch (action) {
+      case "new-file":
+        workspaceManager.newUntitledFile();
+        break;
+      case "open-file":
+        ui.commandPaletteOpen = true;
+        break;
+      case "search-project":
+        // TODO: project search
+        break;
+      case "search-symbols":
+        // TODO: symbol search
+        break;
+      case "new-terminal":
+        workspaceManager.spawnTerminalInWorkspace();
+        break;
+    }
   }
 
   async function confirmUnsaved(): Promise<boolean> {
@@ -171,7 +190,6 @@
           workspaceManager.createEmptyWorkspace();
         }
         await workspaceManager.openFolderInWorkspace(selected as string);
-        workspaceManager.newUntitledFile();
         ui.leftSidebarVisible = true;
       }
     } catch (e) {
@@ -213,10 +231,8 @@
     ? `${ui.leftSidebarWidth}px 4px`
     : '0px 0px'} minmax(0,1fr) {ui.rightSidebarVisible
     ? `4px ${ui.rightSidebarWidth}px`
-    : '0px 0px'}; grid-template-rows: 35px 1fr 28px;"
+    : '0px 0px'}; grid-template-rows: 1fr 35px;"
 >
-  <!-- TOP BAR -->
-  <TopBar workspaceName={ws?.name ?? "malloc"} />
 
   <!-- LEFT SIDEBAR -->
   <div style:display={ui.leftSidebarVisible ? 'contents' : 'none'}>
@@ -230,7 +246,7 @@
     <!-- Left resize handle -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      style="grid-column: 2; grid-row: 2; cursor: col-resize; background: {draggingSidebar === 'left' ? '#aaaaaa' : 'var(--border)'}; transition: background 100ms;"
+      style="grid-column: 2; grid-row: 1; cursor: col-resize; background: {draggingSidebar === 'left' ? '#aaaaaa' : 'var(--border)'}; transition: background 100ms;"
       onmousedown={(e) => handleSidebarResizeDown('left', e)}
       onmouseenter={(e) => { if (!draggingSidebar) e.currentTarget.style.background = '#888888'; }}
       onmouseleave={(e) => { if (!draggingSidebar) e.currentTarget.style.background = 'var(--border)'; }}
@@ -238,7 +254,7 @@
   </div>
 
   <!-- CENTER: PANE GRID — render ALL workspaces, hide inactive with display:none -->
-  <div class="flex flex-col overflow-hidden min-w-0" style="grid-column: 3; grid-row: 2">
+  <div class="flex flex-col overflow-hidden min-w-0" style="grid-column: 3; grid-row: 1">
     {#each Object.entries(workspaceManager.workspaces) as [wsId, workspace] (wsId)}
       {@const isActive = wsId === workspaceManager.activeWorkspaceId}
       {@const hasContent = workspace.rootPath || (workspace.layout.type !== "leaf" || workspace.layout.paneId !== "__empty__")}
@@ -257,9 +273,9 @@
                 paneId={config.id}
                 onTabClick={(path) => handleTabClick(path, config.id)}
                 onTabClose={(path) => handleTabClose(path, config.id)}
-                onSplitHorizontal={() => handleSplitPane(config.id, "horizontal")}
-                onSplitVertical={() => handleSplitPane(config.id, "vertical")}
+                onSplit={(dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}
+                onAction={handlePaneAction}
                 onContentChange={(content) => {
                   if (config.activeFilePath) {
                     workspaceManager.updateFileContent(config.activeFilePath, content);
@@ -273,8 +289,7 @@
                 branch=""
                 terminalId={config.terminalId ?? 0}
                 active={isActive}
-                onSplitHorizontal={() => handleSplitPane(config.id, "horizontal")}
-                onSplitVertical={() => handleSplitPane(config.id, "vertical")}
+                onSplit={(dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}
               />
             {/if}
@@ -368,7 +383,7 @@
     <!-- Right resize handle -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      style="grid-column: 4; grid-row: 2; cursor: col-resize; background: {draggingSidebar === 'right' ? '#aaaaaa' : 'var(--border)'}; transition: background 100ms;"
+      style="grid-column: 4; grid-row: 1; cursor: col-resize; background: {draggingSidebar === 'right' ? '#aaaaaa' : 'var(--border)'}; transition: background 100ms;"
       onmousedown={(e) => handleSidebarResizeDown('right', e)}
       onmouseenter={(e) => { if (!draggingSidebar) e.currentTarget.style.background = '#888888'; }}
       onmouseleave={(e) => { if (!draggingSidebar) e.currentTarget.style.background = 'var(--border)'; }}
@@ -376,8 +391,8 @@
     <RightSidebar />
   </div>
 
-  <!-- STATUS BAR -->
-  <StatusBar workspaceName={ws?.name ?? ""} language={statusLanguage} />
+  <!-- BOTTOM BAR (was top bar + status bar) -->
+  <TopBar workspaceName={ws?.name ?? "malloc"} language={statusLanguage} />
 
   <!-- OVERLAYS -->
   <CommandPalette />

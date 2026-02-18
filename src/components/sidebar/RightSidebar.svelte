@@ -53,14 +53,7 @@
   }
 </script>
 
-<div class="bg-sidebar border-l border-border flex flex-col overflow-hidden" style="grid-column: 5; grid-row: 2">
-  <div class="sidebar-header" class:justify-center={compact}>
-    {#if !compact}
-      <span class="flex-1 truncate">Workspaces</span>
-    {:else}
-      <i class="bi bi-window-stack text-xs" title="Workspaces"></i>
-    {/if}
-  </div>
+<div class="bg-sidebar border-l border-border flex flex-col overflow-hidden" style="grid-column: 5; grid-row: 1">
   <div class="flex-1 overflow-y-auto flex flex-col">
     {#each wsList as workspace (workspace.id)}
       <WorkspaceListItem
@@ -70,6 +63,7 @@
         {compact}
         onItemClick={handleItemClick}
         onWorkspaceClick={() => workspaceManager.switchWorkspace(workspace.id)}
+        onClose={() => handleCloseWorkspace(workspace.id)}
       />
     {/each}
     {#if wsList.length === 0}

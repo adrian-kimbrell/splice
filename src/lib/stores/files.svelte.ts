@@ -11,4 +11,5 @@ export interface OpenFile {
   path: string;
   content: string;
   dirty?: boolean;
+  originalContent?: string;
 }

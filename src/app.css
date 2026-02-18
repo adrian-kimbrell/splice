@@ -323,6 +323,57 @@ body.tab-dragging * {
   transition: opacity 80ms ease-out;
 }
 
+/* Split dropdown */
+.split-dropdown {
+  position: fixed;
+  z-index: 100;
+  transform: translateX(-100%);
+  background: var(--bg-palette);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  min-width: 130px;
+}
+.split-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.split-dropdown-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+}
+.split-dropdown-item i {
+  font-size: 13px;
+  width: 16px;
+  text-align: center;
+  color: var(--text-dim);
+}
+.split-dropdown-item:hover i {
+  color: var(--text-bright);
+}
+.split-dropdown-item kbd {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--ui-font);
+}
+.split-dropdown-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
 /* Corner drag (multi-handle resize) */
 body.corner-dragging { cursor: move !important; }
 body.corner-dragging * { cursor: move !important; }
