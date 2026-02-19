@@ -1,3 +1,14 @@
+/**
+ * Layout tree contract:
+ * - Ratio changes (resize): in-place mutation on the proxy node (node.ratio = ...)
+ * - Structural changes (split/remove): return a fresh tree of plain objects
+ *
+ * These two strategies are intentionally inconsistent: resize is O(1) and preserves
+ * the Svelte proxy identity, while structural ops must rebuild to avoid reparenting
+ * proxy nodes. Never perform structural ops while a resize drag is active — the fresh
+ * tree would discard the proxy node being mutated.
+ */
+
 export type SplitDirection = "horizontal" | "vertical";
 
 export type LayoutNode =
@@ -18,6 +29,21 @@ export interface PaneConfig {
   activeFilePath?: string | null;
 }
 
+export const MAX_SPLIT_DEPTH = 5;
+
+export function treeDepth(node: LayoutNode): number {
+  if (node.type === "leaf") return 0;
+  return 1 + Math.max(treeDepth(node.children[0]), treeDepth(node.children[1]));
+}
+
+export function collectLeafIds(node: LayoutNode): Set<string> {
+  if (node.type === "leaf") return new Set([node.paneId]);
+  const left = collectLeafIds(node.children[0]);
+  const right = collectLeafIds(node.children[1]);
+  for (const id of right) left.add(id);
+  return left;
+}
+
 // Default layout: single terminal pane
 export function defaultLayout(): LayoutNode {
   return { type: "leaf", paneId: "term-1" };
@@ -30,28 +56,24 @@ export function splitNodeInTree(
   targetPaneId: string,
   newPaneId: string,
   direction: SplitDirection,
-): LayoutNode {
+): { tree: LayoutNode; found: boolean } {
   if (tree.type === "leaf") {
     const fresh: LayoutNode = { type: "leaf", paneId: tree.paneId };
     if (tree.paneId === targetPaneId) {
       return {
-        type: "split",
-        direction,
-        ratio: 0.5,
-        children: [fresh, { type: "leaf", paneId: newPaneId }],
+        tree: { type: "split", direction, ratio: 0.5, children: [fresh, { type: "leaf", paneId: newPaneId }] },
+        found: true,
       };
     }
-    return fresh;
+    return { tree: fresh, found: false };
   }
 
+  const left = splitNodeInTree(tree.children[0], targetPaneId, newPaneId, direction);
+  const right = splitNodeInTree(tree.children[1], targetPaneId, newPaneId, direction);
+
   return {
-    type: "split",
-    direction: tree.direction,
-    ratio: tree.ratio,
-    children: [
-      splitNodeInTree(tree.children[0], targetPaneId, newPaneId, direction),
-      splitNodeInTree(tree.children[1], targetPaneId, newPaneId, direction),
-    ],
+    tree: { type: "split", direction: tree.direction, ratio: tree.ratio, children: [left.tree, right.tree] },
+    found: left.found || right.found,
   };
 }
 
@@ -63,45 +85,73 @@ export function splitNodeInTreeWithSide(
   newPaneId: string,
   direction: SplitDirection,
   side: "before" | "after",
-): LayoutNode {
+): { tree: LayoutNode; found: boolean } {
   if (tree.type === "leaf") {
     const fresh: LayoutNode = { type: "leaf", paneId: tree.paneId };
     if (tree.paneId === targetPaneId) {
       const newLeaf: LayoutNode = { type: "leaf", paneId: newPaneId };
       const children: [LayoutNode, LayoutNode] =
         side === "before" ? [newLeaf, fresh] : [fresh, newLeaf];
-      return { type: "split", direction, ratio: 0.5, children };
+      return { tree: { type: "split", direction, ratio: 0.5, children }, found: true };
     }
-    return fresh;
+    return { tree: fresh, found: false };
   }
 
+  const left = splitNodeInTreeWithSide(tree.children[0], targetPaneId, newPaneId, direction, side);
+  const right = splitNodeInTreeWithSide(tree.children[1], targetPaneId, newPaneId, direction, side);
+
   return {
-    type: "split",
-    direction: tree.direction,
-    ratio: tree.ratio,
-    children: [
-      splitNodeInTreeWithSide(tree.children[0], targetPaneId, newPaneId, direction, side),
-      splitNodeInTreeWithSide(tree.children[1], targetPaneId, newPaneId, direction, side),
-    ],
+    tree: { type: "split", direction: tree.direction, ratio: tree.ratio, children: [left.tree, right.tree] },
+    found: left.found || right.found,
   };
 }
 
-/** Remove a leaf from the tree. Single-child splits collapse. Returns null if empty.
+/** Find the first leaf in the sibling subtree of the target pane.
+ *  Walks up to the parent split, then descends into the other child. */
+export function findSiblingLeaf(tree: LayoutNode, targetPaneId: string): string | null {
+  function walk(node: LayoutNode): { found: boolean; siblingLeaf: string | null } {
+    if (node.type === "leaf") {
+      return { found: node.paneId === targetPaneId, siblingLeaf: null };
+    }
+    const leftResult = walk(node.children[0]);
+    if (leftResult.found) {
+      return { found: true, siblingLeaf: findFirstLeafInNode(node.children[1]) };
+    }
+    const rightResult = walk(node.children[1]);
+    if (rightResult.found) {
+      return { found: true, siblingLeaf: findFirstLeafInNode(node.children[0]) };
+    }
+    return { found: false, siblingLeaf: null };
+  }
+  return walk(tree).siblingLeaf;
+}
+
+function findFirstLeafInNode(node: LayoutNode): string {
+  if (node.type === "leaf") return node.paneId;
+  return findFirstLeafInNode(node.children[0]);
+}
+
+/** Remove a leaf from the tree. Single-child splits collapse. Returns null tree if empty.
  *  Always returns fresh plain objects to avoid Svelte 5 proxy reparenting issues. */
 export function removeNodeFromTree(
   tree: LayoutNode,
   targetPaneId: string,
-): LayoutNode | null {
+): { tree: LayoutNode | null; found: boolean } {
   if (tree.type === "leaf") {
-    return tree.paneId === targetPaneId ? null : { type: "leaf", paneId: tree.paneId };
+    if (tree.paneId === targetPaneId) return { tree: null, found: true };
+    return { tree: { type: "leaf", paneId: tree.paneId }, found: false };
   }
 
   const left = removeNodeFromTree(tree.children[0], targetPaneId);
   const right = removeNodeFromTree(tree.children[1], targetPaneId);
+  const found = left.found || right.found;
 
-  if (!left && !right) return null;
-  if (!left) return right;
-  if (!right) return left;
+  if (!left.tree && !right.tree) return { tree: null, found };
+  if (!left.tree) return { tree: right.tree, found };
+  if (!right.tree) return { tree: left.tree, found };
 
-  return { type: "split", direction: tree.direction, ratio: tree.ratio, children: [left, right] };
+  return {
+    tree: { type: "split", direction: tree.direction, ratio: tree.ratio, children: [left.tree, right.tree] },
+    found,
+  };
 }

@@ -12,7 +12,8 @@
   import { initKeybindings } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
   import type { PaneConfig, SplitDirection } from "../lib/stores/layout.svelte";
-  import type { DropZone } from "../lib/stores/drag.svelte";
+  import { type DropZone, setDropCallback } from "../lib/stores/drag.svelte";
+  import type { TabDragData } from "../lib/stores/drag.svelte";
   import { workspaceManager, type Workspace } from "../lib/stores/workspace.svelte";
   import { getLanguageName } from "../lib/utils/language";
 
@@ -26,7 +27,7 @@
         workspaceManager.newUntitledFile();
         break;
       case "open-file":
-        ui.commandPaletteOpen = true;
+        handleOpenFile();
         break;
       case "search-project":
         // TODO: project search
@@ -201,6 +202,26 @@
     workspaceManager.newUntitledFile();
   }
 
+  async function handleOpenFile() {
+    if (!isTauri) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({ directory: false, multiple: false });
+      if (selected) {
+        if (!workspaceManager.activeWorkspace) {
+          workspaceManager.createEmptyWorkspace();
+        }
+        const { readFile } = await import("../lib/ipc/commands");
+        const filePath = selected as string;
+        const content = await readFile(filePath);
+        const name = filePath.split("/").pop() ?? "untitled";
+        workspaceManager.openFileInWorkspace({ name, path: filePath, content });
+      }
+    } catch (e) {
+      console.error("Failed to open file:", e);
+    }
+  }
+
   // Hide sidebars on welcome screen, but user can toggle them back via drawers
   $effect(() => {
     if (showWelcome) {
@@ -222,6 +243,30 @@
   onMount(() => {
     initKeybindings();
     workspaceManager.initializeWorkspaces();
+
+    setDropCallback((data: TabDragData, targetPaneId: string, zone: DropZone) => {
+      if (!zone || !targetPaneId) return;
+      if (data.sourcePaneId === targetPaneId && zone === "center") return;
+
+      // Check single-tab same-pane drag
+      const ws = workspaceManager.activeWorkspace;
+      if (data.sourcePaneId === targetPaneId && ws) {
+        const cfg = ws.panes[targetPaneId];
+        if (cfg?.filePaths && cfg.filePaths.length <= 1) return;
+      }
+
+      let direction: SplitDirection = "horizontal";
+      let side: "before" | "after" = "after";
+
+      if (zone === "left") { direction = "horizontal"; side = "before"; }
+      else if (zone === "right") { direction = "horizontal"; side = "after"; }
+      else if (zone === "top") { direction = "vertical"; side = "before"; }
+      else if (zone === "bottom") { direction = "vertical"; side = "after"; }
+
+      handleTabDrop(data.filePath, data.sourcePaneId, targetPaneId, direction, side, zone);
+    });
+
+    return () => setDropCallback(null);
   });
 </script>
 
@@ -257,7 +302,7 @@
   <div class="flex flex-col overflow-hidden min-w-0" style="grid-column: 3; grid-row: 1">
     {#each Object.entries(workspaceManager.workspaces) as [wsId, workspace] (wsId)}
       {@const isActive = wsId === workspaceManager.activeWorkspaceId}
-      {@const hasContent = workspace.rootPath || (workspace.layout.type !== "leaf" || workspace.layout.paneId !== "__empty__")}
+      {@const hasContent = workspace.rootPath || workspace.layout !== null}
       <div
         class="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0"
         style:display={isActive ? "flex" : "none"}
@@ -291,9 +336,11 @@
                 active={isActive}
                 onSplit={(dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}
+                onAction={handlePaneAction}
               />
             {/if}
           {/snippet}
+          {#if workspace.layout}
           <div class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
             <div class="flex-1 flex overflow-hidden min-w-0 min-h-0" style:visibility={isActive && ui.zoomedPaneId && workspace.panes[ui.zoomedPaneId] ? 'hidden' : 'visible'}>
               <PaneGrid
@@ -303,7 +350,6 @@
                 isRoot={true}
                 activePaneId={workspace.activePaneId}
                 onPaneClick={handlePaneClick}
-                onTabDrop={handleTabDrop}
               />
             </div>
             {#if isActive && ui.zoomedPaneId && workspace.panes[ui.zoomedPaneId]}
@@ -312,6 +358,7 @@
               </div>
             {/if}
           </div>
+          {/if}
         {:else}
           <div class="flex-1 flex items-center justify-center">
             <div class="text-center">
@@ -328,6 +375,10 @@
                     <span style="flex: none;">Open Folder</span>
                   </button>
                 {/if}
+                <button class="welcome-item" style="justify-content: center; width: auto; padding: 6px 16px; border-radius: 4px; border: 1px solid var(--border);" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
+                  <i class="bi bi-terminal"></i>
+                  <span style="flex: none;">Terminal</span>
+                </button>
               </div>
             </div>
           </div>

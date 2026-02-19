@@ -34,12 +34,12 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="group flex items-center px-4 h-full text-xs cursor-pointer border-r border-border border-t-2 whitespace-nowrap select-none transition-opacity duration-100"
+  class="group flex items-center px-4 h-full text-xs cursor-pointer border-r border-border border-b-2 whitespace-nowrap select-none transition-opacity duration-100"
   class:text-txt-bright={active && !isBeingDragged}
   class:bg-tab-active={active && !isBeingDragged}
-  class:border-t-tab-indicator={active && !isBeingDragged}
+  class:border-b-tab-indicator={active && !isBeingDragged}
   class:text-txt-dim={!active || isBeingDragged}
-  class:border-t-transparent={!active || isBeingDragged}
+  class:border-b-transparent={!active || isBeingDragged}
   class:hover:text-txt={!active}
   class:hover:bg-hover={!active}
   style:opacity={isBeingDragged ? "0.35" : "1"}

@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, keymap } from "@codemirror/view";
+  import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, scrollPastEnd, placeholder, keymap } from "@codemirror/view";
   import { EditorState, Compartment } from "@codemirror/state";
-  import { syntaxHighlighting, bracketMatching, HighlightStyle } from "@codemirror/language";
+  import { syntaxHighlighting, bracketMatching, indentOnInput, foldGutter, foldKeymap, indentUnit, HighlightStyle } from "@codemirror/language";
   import { classHighlighter, tags } from "@lezer/highlight";
-  import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-  import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
+  import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from "@codemirror/commands";
+  import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from "@codemirror/autocomplete";
+  import { search, searchKeymap, highlightSelectionMatches, gotoLine } from "@codemirror/search";
+  import { cursorMatchingBracket } from "@codemirror/commands";
 
   let {
     content,
@@ -97,6 +99,85 @@
     ".cm-scroller": {
       overflow: "auto",
     },
+    // Fold gutter
+    ".cm-foldGutter .cm-gutterElement": {
+      padding: "0 4px",
+      cursor: "pointer",
+      color: "var(--text-dim)",
+      fontSize: "11px",
+      lineHeight: "inherit",
+    },
+    ".cm-foldGutter .cm-gutterElement:hover": {
+      color: "var(--text)",
+    },
+    // Search panel
+    ".cm-panels": {
+      backgroundColor: "var(--bg-sidebar)",
+      color: "var(--text)",
+      borderBottom: "1px solid var(--border)",
+    },
+    ".cm-panels input, .cm-panels button": {
+      fontFamily: "var(--ui-font)",
+      fontSize: "12px",
+      color: "var(--text)",
+    },
+    ".cm-panels input": {
+      backgroundColor: "var(--bg-input)",
+      border: "1px solid var(--border)",
+      borderRadius: "3px",
+      padding: "2px 6px",
+      outline: "none",
+    },
+    ".cm-panels input:focus": {
+      borderColor: "var(--accent)",
+    },
+    ".cm-panels button": {
+      backgroundColor: "transparent",
+      border: "1px solid var(--border)",
+      borderRadius: "3px",
+      cursor: "pointer",
+      padding: "2px 8px",
+    },
+    ".cm-panels button:hover": {
+      backgroundColor: "var(--bg-hover)",
+    },
+    ".cm-panels label": {
+      fontSize: "12px",
+      color: "var(--text-dim)",
+    },
+    ".cm-panel.cm-search": {
+      padding: "6px 8px",
+    },
+    // Go-to-line dialog
+    ".cm-panel.cm-gotoLine": {
+      padding: "6px 8px",
+    },
+    ".cm-searchMatch": {
+      backgroundColor: "rgba(255, 213, 0, 0.2)",
+      outline: "1px solid rgba(255, 213, 0, 0.4)",
+    },
+    ".cm-searchMatch-selected": {
+      backgroundColor: "rgba(255, 213, 0, 0.4)",
+    },
+    // Selection match highlighting
+    ".cm-selectionMatch": {
+      backgroundColor: "rgba(255, 255, 255, 0.08)",
+    },
+    // Autocomplete tooltip
+    ".cm-tooltip": {
+      backgroundColor: "var(--bg-sidebar)",
+      border: "1px solid var(--border)",
+      color: "var(--text)",
+    },
+    ".cm-tooltip-autocomplete ul li[aria-selected]": {
+      backgroundColor: "var(--bg-selected)",
+      color: "var(--text-bright)",
+    },
+    // Placeholder
+    ".cm-placeholder": {
+      color: "var(--text-dim)",
+      fontStyle: "italic",
+    },
     // classHighlighter token classes (fallback)
     ".tok-keyword": { color: "#c678dd" },
     ".tok-string, .tok-string2": { color: "#98c379" },
@@ -180,10 +261,34 @@
         highlightActiveLine(),
         highlightActiveLineGutter(),
         drawSelection(),
+        dropCursor(),
+        rectangularSelection(),
+        crosshairCursor(),
         bracketMatching(),
         closeBrackets(),
+        autocompletion(),
+        indentOnInput(),
+        indentUnit.of("  "),
+        foldGutter(),
+        search({ top: true }),
+        highlightSelectionMatches(),
+        scrollPastEnd(),
+        placeholder("Start typing…"),
         history(),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...closeBracketsKeymap]),
+        EditorState.tabSize.of(2),
+        EditorState.allowMultipleSelections.of(true),
+        keymap.of([
+          indentWithTab,
+          { key: "Mod-/", run: toggleComment },
+          { key: "Mod-g", run: gotoLine },
+          { key: "Mod-m", run: cursorMatchingBracket },
+          ...closeBracketsKeymap,
+          ...searchKeymap,
+          ...foldKeymap,
+          ...completionKeymap,
+          ...historyKeymap,
+          ...defaultKeymap,
+        ]),
         langCompartment.of([]),
         EditorState.readOnly.of(readonly),
         EditorView.updateListener.of((update) => {

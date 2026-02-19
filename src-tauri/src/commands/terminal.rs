@@ -1,4 +1,5 @@
 use crate::state::AppState;
+use std::io::Write;
 use std::sync::Mutex;
 use tauri::{AppHandle, State};
 
@@ -28,12 +29,22 @@ pub fn write_to_terminal(
     id: u32,
     data: Vec<u8>,
 ) -> Result<(), String> {
-    let state = state.lock().map_err(|e| e.to_string())?;
-    let session = state
-        .terminals
-        .get(&id)
-        .ok_or_else(|| format!("Terminal {} not found", id))?;
-    session.write(&data)
+    // Clone Arc refs quickly, then release the AppState lock before writing
+    let (writer, scroll_offset) = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        let session = state
+            .terminals
+            .get(&id)
+            .ok_or_else(|| format!("Terminal {} not found", id))?;
+        (
+            std::sync::Arc::clone(&session.writer),
+            std::sync::Arc::clone(&session.scroll_offset),
+        )
+    };
+    // Snap to live on any input
+    scroll_offset.store(0, std::sync::atomic::Ordering::Relaxed);
+    let mut w = writer.lock().map_err(|e| e.to_string())?;
+    w.write_all(&data).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -52,13 +63,18 @@ pub fn resize_terminal(
 }
 
 #[tauri::command]
-pub fn get_terminal_buffer(state: State<'_, Mutex<AppState>>, id: u32) -> Result<Vec<u8>, String> {
+pub fn scroll_terminal(
+    state: State<'_, Mutex<AppState>>,
+    id: u32,
+    delta: i32,
+) -> Result<(), String> {
     let state = state.lock().map_err(|e| e.to_string())?;
     let session = state
         .terminals
         .get(&id)
         .ok_or_else(|| format!("Terminal {} not found", id))?;
-    session.get_scrollback()
+    session.scroll(delta);
+    Ok(())
 }
 
 #[tauri::command]

@@ -9,12 +9,14 @@
     branch = "",
     onSplit,
     onClose,
+    onAction,
   }: {
     title: string;
     cwd?: string;
     branch?: string;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
+    onAction?: (action: string) => void;
   } = $props();
 
   let splitMenuOpen = $state(false);
@@ -81,24 +83,92 @@
 
   function onResize() {
     if (splitMenuOpen) updatePos();
+    if (plusMenuOpen) updatePlusPos();
   }
 
-  function closeSplitMenu(e: MouseEvent) {
-    if (splitMenuOpen && !(e.target as HTMLElement).closest(".split-menu-container")) {
-      splitMenuOpen = false;
-    }
+  function closeMenus(e: MouseEvent) {
+    const t = e.target as HTMLElement;
+    if (splitMenuOpen && !t.closest(".split-menu-container")) splitMenuOpen = false;
+    if (plusMenuOpen && !t.closest(".plus-menu-container")) plusMenuOpen = false;
   }
 
   function toggleSplitMenu(e: MouseEvent) {
     e.stopPropagation();
+    plusMenuOpen = false;
     splitMenuOpen = !splitMenuOpen;
   }
 
-  onDestroy(() => removeDropdown());
+  // --- Plus dropdown ---
+  let plusMenuOpen = $state(false);
+  let plusBtnEl = $state<HTMLButtonElement>();
+  let plusDropdownEl: HTMLDivElement | null = null;
+
+  function createPlusDropdown() {
+    if (plusDropdownEl) return;
+    plusDropdownEl = document.createElement("div");
+    plusDropdownEl.className = "split-dropdown plus-menu-container";
+    plusDropdownEl.innerHTML = `
+      <button class="split-dropdown-item" data-action="new-file">
+        <span>New File</span>
+        <kbd>⌘ N</kbd>
+      </button>
+      <button class="split-dropdown-item" data-action="open-file">
+        <span>Open File</span>
+        <kbd>⌘ P</kbd>
+      </button>
+      <div class="split-dropdown-sep"></div>
+      <button class="split-dropdown-item" data-action="search-project">
+        <span>Search Project</span>
+        <kbd>⌘ F</kbd>
+      </button>
+      <button class="split-dropdown-item" data-action="search-symbols">
+        <span>Search Symbols</span>
+        <kbd>⌘ T</kbd>
+      </button>
+      <div class="split-dropdown-sep"></div>
+      <button class="split-dropdown-item" data-action="new-terminal">
+        <span>New Terminal</span>
+        <kbd>⌃ \`</kbd>
+      </button>
+    `;
+    plusDropdownEl.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest("[data-action]");
+      if (btn) {
+        const action = btn.getAttribute("data-action")!;
+        plusMenuOpen = false;
+        onAction?.(action);
+      }
+    });
+    document.body.appendChild(plusDropdownEl);
+  }
+
+  function removePlusDropdown() {
+    if (plusDropdownEl) { plusDropdownEl.remove(); plusDropdownEl = null; }
+  }
+
+  function updatePlusPos() {
+    if (!plusBtnEl || !plusDropdownEl) return;
+    const r = plusBtnEl.getBoundingClientRect();
+    plusDropdownEl.style.top = r.bottom + "px";
+    plusDropdownEl.style.left = r.right + "px";
+  }
+
+  $effect(() => {
+    if (plusMenuOpen) { createPlusDropdown(); updatePlusPos(); }
+    else { removePlusDropdown(); }
+  });
+
+  function togglePlusMenu(e: MouseEvent) {
+    e.stopPropagation();
+    splitMenuOpen = false;
+    plusMenuOpen = !plusMenuOpen;
+  }
+
+  onDestroy(() => { removeDropdown(); removePlusDropdown(); });
 </script>
 
 <svelte:window onresize={onResize} />
-<svelte:document onclick={closeSplitMenu} />
+<svelte:document onclick={closeMenus} />
 
 <div
   class="flex items-center px-2.5 bg-tab-active border-b border-border text-xs shrink-0 select-none overflow-hidden min-w-0"
@@ -125,6 +195,18 @@
   <span class="flex items-center gap-0.5 ml-2.5 shrink-0">
     {#if ui.zoomedPaneId}
       <span class="text-[10px] uppercase tracking-wide text-accent mr-1 font-medium">Zoomed</span>
+    {/if}
+    {#if onAction}
+      <div class="plus-menu-container">
+        <button
+          bind:this={plusBtnEl}
+          class="pane-action-btn"
+          title="New..."
+          onclick={togglePlusMenu}
+        >
+          <i class="bi bi-plus-lg"></i>
+        </button>
+      </div>
     {/if}
     {#if onSplit}
       <div class="split-menu-container">

@@ -1,7 +1,9 @@
 import type { FileEntry, OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
-import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree } from "./layout.svelte";
+import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, findSiblingLeaf, treeDepth, MAX_SPLIT_DEPTH, collectLeafIds } from "./layout.svelte";
 import { ui } from "./ui.svelte";
+import { isCornerDragActive } from "./corner-drag.svelte";
+import { isDragging as isTabDragging } from "./drag.svelte";
 
 export interface Workspace {
   id: string;
@@ -17,8 +19,8 @@ export interface Workspace {
   terminalIds: number[];
   activeTerminalId: number | null;
 
-  // Pane layout
-  layout: LayoutNode;
+  // Pane layout (null = no panes open)
+  layout: LayoutNode | null;
   panes: Record<string, PaneConfig>;
   activePaneId: string | null;
 
@@ -31,7 +33,8 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
-function findFirstLeaf(node: LayoutNode): string {
+function findFirstLeaf(node: LayoutNode | null): string | null {
+  if (!node) return null;
   if (node.type === "leaf") return node.paneId;
   return findFirstLeaf(node.children[0]);
 }
@@ -91,7 +94,7 @@ class WorkspaceManager {
       activeFilePath: null,
       terminalIds: [],
       activeTerminalId: null,
-      layout: { type: "leaf", paneId: "__empty__" },
+      layout: null,
       panes: {},
       activePaneId: null,
       leftSidebarVisible: false,
@@ -107,7 +110,6 @@ class WorkspaceManager {
   newUntitledFile(): void {
     if (!this.activeWorkspace) {
       this.createEmptyWorkspace("Untitled");
-      return;
     }
     const ws = this.activeWorkspace;
     if (!ws) return;
@@ -179,8 +181,11 @@ class WorkspaceManager {
   }
 
   async spawnTerminalInWorkspace(workspaceId?: string): Promise<number | null> {
-    const wsId = workspaceId ?? this.activeWorkspaceId;
-    if (!wsId) return null;
+    let wsId = workspaceId ?? this.activeWorkspaceId;
+    if (!wsId) {
+      const ws = this.createEmptyWorkspace();
+      wsId = ws.id;
+    }
     const ws = this.workspaces[wsId];
     if (!ws) return null;
 
@@ -201,14 +206,29 @@ class WorkspaceManager {
       };
 
       // Add to layout tree
-      const isEmptyLayout = ws.layout.type === "leaf" && ws.layout.paneId === "__empty__";
+      const isEmptyLayout = ws.layout === null;
+
+      if (!isEmptyLayout && treeDepth(ws.layout) >= MAX_SPLIT_DEPTH) {
+        console.warn("Split depth limit reached, cannot add more panes");
+        // Still register the terminal, just don't split
+        ws.activePaneId = paneId;
+        return terminalId;
+      }
 
       if (isEmptyLayout) {
         ws.layout = { type: "leaf", paneId };
       } else {
-        // Find a valid split target: use activePaneId, or find the first leaf in the tree
-        const targetId = ws.activePaneId ?? findFirstLeaf(ws.layout);
-        ws.layout = splitNodeInTree(ws.layout, targetId, paneId, "vertical");
+        // Find a valid split target: use activePaneId if it still exists, otherwise first leaf
+        const targetId = (ws.activePaneId && ws.panes[ws.activePaneId])
+          ? ws.activePaneId
+          : findFirstLeaf(ws.layout);
+        if (!targetId) {
+          ws.layout = { type: "leaf", paneId };
+        } else {
+          const splitResult = splitNodeInTree(ws.layout!, targetId, paneId, "vertical");
+          if (!splitResult.found) console.warn(`splitNodeInTree: target "${targetId}" not found in layout`);
+          ws.layout = splitResult.tree;
+        }
       }
 
       ws.activePaneId = paneId;
@@ -303,11 +323,8 @@ class WorkspaceManager {
       activeFilePath: filePaths?.[0] ?? null,
     };
 
-    // Check if layout is empty (no real panes)
-    const hasRealPanes = ws.layout.type === "leaf" && ws.layout.paneId !== "__empty__";
-    const hasSplit = ws.layout.type === "split";
-
-    if (!hasRealPanes && !hasSplit) {
+    // Check if layout is empty (no panes)
+    if (!ws.layout) {
       ws.layout = { type: "leaf", paneId: editorPaneId };
     } else {
       ws.layout = {
@@ -323,6 +340,7 @@ class WorkspaceManager {
 
     if (filePaths?.[0]) ws.activeFilePath = filePaths[0];
     ws.activePaneId = editorPaneId;
+    this.validateLayout(ws);
     return editorPaneId;
   }
 
@@ -421,6 +439,11 @@ class WorkspaceManager {
     const ws = this.activeWorkspace;
     if (!ws) return;
 
+    if (ws.layout && treeDepth(ws.layout) >= MAX_SPLIT_DEPTH) {
+      console.warn("Split depth limit reached, cannot create new pane from tab drop");
+      return;
+    }
+
     // Remove file from source pane
     const sourcePaneConfig = ws.panes[sourcePaneId];
     if (sourcePaneConfig?.filePaths) {
@@ -442,17 +465,21 @@ class WorkspaceManager {
       activeFilePath: filePath,
     };
 
-    // Insert into layout adjacent to target
-    ws.layout = splitNodeInTreeWithSide(ws.layout, targetPaneId, newPaneId, direction, side);
+    // Insert into layout adjacent to target (layout is non-null since targetPaneId exists in it)
+    const splitResult = splitNodeInTreeWithSide(ws.layout!, targetPaneId, newPaneId, direction, side);
+    if (!splitResult.found) console.warn(`splitNodeInTreeWithSide: target "${targetPaneId}" not found in layout`);
+    ws.layout = splitResult.tree;
 
     // If source pane is now empty, remove it
     if (sourcePaneConfig?.kind === "editor" && sourcePaneConfig.filePaths?.length === 0) {
       delete ws.panes[sourcePaneId];
-      const newLayout = removeNodeFromTree(ws.layout, sourcePaneId);
-      ws.layout = newLayout ?? { type: "leaf", paneId: "__empty__" };
+      const removeResult = removeNodeFromTree(ws.layout!, sourcePaneId);
+      if (!removeResult.found) console.warn(`removeNodeFromTree: target "${sourcePaneId}" not found in layout`);
+      ws.layout = removeResult.tree;
     }
 
     ws.activePaneId = newPaneId;
+    this.validateLayout(ws);
   }
 
   moveTabToExistingPane(
@@ -487,11 +514,13 @@ class WorkspaceManager {
     // If source pane is now empty, remove it
     if (sourcePaneConfig?.kind === "editor" && sourcePaneConfig.filePaths?.length === 0) {
       delete ws.panes[sourcePaneId];
-      const newLayout = removeNodeFromTree(ws.layout, sourcePaneId);
-      ws.layout = newLayout ?? { type: "leaf", paneId: "__empty__" };
+      const removeResult = removeNodeFromTree(ws.layout!, sourcePaneId);
+      if (!removeResult.found) console.warn(`removeNodeFromTree: target "${sourcePaneId}" not found in layout`);
+      ws.layout = removeResult.tree;
     }
 
     ws.activePaneId = targetPaneId;
+    this.validateLayout(ws);
   }
 
   // --- Terminal actions on active workspace ---
@@ -521,6 +550,8 @@ class WorkspaceManager {
   // --- Pane splitting / closing ---
 
   async splitPane(paneId: string, direction: SplitDirection, side: "before" | "after" = "after", workspaceId?: string): Promise<void> {
+    if (isCornerDragActive() || isTabDragging()) return;
+
     const wsId = workspaceId ?? this.activeWorkspaceId;
     if (!wsId) return;
     const ws = this.workspaces[wsId];
@@ -529,16 +560,24 @@ class WorkspaceManager {
     const sourcePane = ws.panes[paneId];
     if (!sourcePane) return;
 
+    if (ws.layout && treeDepth(ws.layout) >= MAX_SPLIT_DEPTH) {
+      console.warn("Split depth limit reached, cannot split further");
+      return;
+    }
+
     try {
       let newPaneId: string;
 
       if (sourcePane.kind === "terminal") {
+        // Spawn a new terminal for the split
         const { spawnTerminal } = await import("../ipc/commands");
-        const terminalId = await spawnTerminal("/bin/zsh", ws.rootPath, 80, 24);
-        newPaneId = `term-${terminalId}`;
+        const cwd = ws.rootPath || (typeof process !== "undefined" ? process.env.HOME : "") || "/";
+        const terminalId = await spawnTerminal("/bin/zsh", cwd, 80, 24);
 
         ws.terminalIds.push(terminalId);
         ws.activeTerminalId = terminalId;
+
+        newPaneId = `term-${terminalId}`;
         ws.panes[newPaneId] = {
           id: newPaneId,
           kind: "terminal",
@@ -556,7 +595,9 @@ class WorkspaceManager {
         };
       }
 
-      ws.layout = splitNodeInTreeWithSide(ws.layout, paneId, newPaneId, direction, side);
+      const splitResult = splitNodeInTreeWithSide(ws.layout!, paneId, newPaneId, direction, side);
+      if (!splitResult.found) console.warn(`splitNodeInTreeWithSide: target "${paneId}" not found in layout`);
+      ws.layout = splitResult.tree;
       ws.activePaneId = newPaneId;
 
       // Open an untitled file in new editor panes
@@ -572,6 +613,8 @@ class WorkspaceManager {
   }
 
   async closePaneInWorkspace(paneId: string, workspaceId?: string): Promise<void> {
+    if (isCornerDragActive()) return;
+
     const wsId = workspaceId ?? this.activeWorkspaceId;
     if (!wsId) return;
     const ws = this.workspaces[wsId];
@@ -613,13 +656,59 @@ class WorkspaceManager {
       delete ws.panes[paneId];
     }
 
-    const newLayout = removeNodeFromTree(ws.layout, paneId);
-    ws.layout = newLayout ?? { type: "leaf", paneId: "__empty__" };
+    // Compute sibling BEFORE removing from tree
+    const siblingLeafId = ws.layout ? findSiblingLeaf(ws.layout, paneId) : null;
 
-    // If no panes remain, reset to empty layout
-    if (Object.keys(ws.panes).length === 0) {
-      ws.layout = { type: "leaf", paneId: "__empty__" };
+    if (ws.layout) {
+      const removeResult = removeNodeFromTree(ws.layout, paneId);
+      if (!removeResult.found) console.warn(`removeNodeFromTree: target "${paneId}" not found in layout`);
+      ws.layout = removeResult.tree;
+    }
+
+    // Update activePaneId: if we just closed the active pane, pick the spatial neighbor
+    const remainingPaneIds = Object.keys(ws.panes);
+    if (remainingPaneIds.length === 0) {
+      ws.layout = null;
       ws.activePaneId = null;
+    } else if (ws.activePaneId === paneId || !ws.panes[ws.activePaneId!]) {
+      // Prefer sibling leaf (spatial neighbor), fall back to first leaf
+      if (siblingLeafId && ws.panes[siblingLeafId]) {
+        ws.activePaneId = siblingLeafId;
+      } else {
+        ws.activePaneId = findFirstLeaf(ws.layout);
+      }
+    }
+
+    this.validateLayout(ws);
+  }
+
+  // --- Layout validation ---
+
+  private validateLayout(ws: Workspace): void {
+    if (!ws.layout) return;
+
+    const leafIds = collectLeafIds(ws.layout);
+    const paneIds = new Set(Object.keys(ws.panes));
+
+    // Delete orphaned pane configs (in panes but not in layout)
+    for (const paneId of paneIds) {
+      if (!leafIds.has(paneId)) {
+        console.warn(`validateLayout: orphaned pane config "${paneId}" — removing`);
+        delete ws.panes[paneId];
+      }
+    }
+
+    // Warn about dangling layout leaves (in layout but not in panes)
+    for (const leafId of leafIds) {
+      if (!paneIds.has(leafId)) {
+        console.warn(`validateLayout: layout leaf "${leafId}" has no pane config`);
+      }
+    }
+
+    // Fix activePaneId if it points to a removed pane
+    if (ws.activePaneId && !ws.panes[ws.activePaneId]) {
+      const remaining = Object.keys(ws.panes);
+      ws.activePaneId = remaining.length > 0 ? findFirstLeaf(ws.layout) : null;
     }
   }
 

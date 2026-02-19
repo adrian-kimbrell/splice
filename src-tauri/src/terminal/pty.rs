@@ -1,17 +1,29 @@
+use crate::terminal::emitter::{spawn_emitter, EmitterNotify};
+use crate::terminal::term::Emulator;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
-use std::collections::VecDeque;
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread::{self, JoinHandle};
 use tauri::{AppHandle, Emitter};
 
-const MAX_SCROLLBACK: usize = 512 * 1024; // 512 KB
-
 pub struct PtySession {
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     master: Box<dyn MasterPty + Send>,
-    scrollback: Arc<Mutex<VecDeque<u8>>>,
-    _reader_handle: thread::JoinHandle<()>,
+    emulator: Arc<RwLock<Emulator>>,
+    version: Arc<AtomicU32>,
+    running: Arc<AtomicBool>,
+    pub scroll_offset: Arc<AtomicI32>,
+    notify: Arc<EmitterNotify>,
+    _reader_handle: JoinHandle<()>,
+    _emitter_handle: JoinHandle<()>,
+}
+
+impl Drop for PtySession {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Relaxed);
+        self.notify.notify(); // wake emitter so it can exit
+    }
 }
 
 impl PtySession {
@@ -35,6 +47,8 @@ impl PtySession {
 
         let mut cmd = CommandBuilder::new(shell);
         cmd.cwd(cwd);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
 
         pair.slave
             .spawn_command(cmd)
@@ -45,63 +59,114 @@ impl PtySession {
             pair.master.take_writer().map_err(|e| e.to_string())?,
         ));
 
-        let scrollback: Arc<Mutex<VecDeque<u8>>> =
-            Arc::new(Mutex::new(VecDeque::with_capacity(MAX_SCROLLBACK)));
-        let scrollback_clone = Arc::clone(&scrollback);
+        let emulator = Arc::new(RwLock::new(Emulator::new(cols, rows)));
+        let version = Arc::new(AtomicU32::new(0));
+        let running = Arc::new(AtomicBool::new(true));
+        let scroll_offset = Arc::new(AtomicI32::new(0));
+        let notify = Arc::new(EmitterNotify::new());
 
-        let output_event = format!("terminal:output:{}", id);
+        // Reader thread: read PTY bytes and feed to emulator
+        let reader_emulator = Arc::clone(&emulator);
+        let reader_version = Arc::clone(&version);
+        let reader_running = Arc::clone(&running);
+        let reader_writer = Arc::clone(&writer);
+        let reader_notify = Arc::clone(&notify);
         let exit_event = format!("terminal:exit:{}", id);
+        let title_event = format!("terminal:title:{}", id);
+        let bell_event = format!("terminal:bell:{}", id);
+        let app_clone = app.clone();
 
         let reader_handle = thread::spawn(move || {
             let mut buf = [0u8; 4096];
             loop {
+                if !reader_running.load(Ordering::Relaxed) {
+                    break;
+                }
                 match reader.read(&mut buf) {
                     Ok(0) => {
-                        let _ = app.emit(&exit_event, 0);
+                        reader_running.store(false, Ordering::Relaxed);
+                        let _ = app_clone.emit(&exit_event, 0);
+                        reader_notify.notify();
                         break;
                     }
                     Ok(n) => {
-                        let data = buf[..n].to_vec();
-                        // Append to scrollback buffer before emitting
-                        if let Ok(mut sb) = scrollback_clone.lock() {
-                            sb.extend(&data);
-                            let overflow = sb.len().saturating_sub(MAX_SCROLLBACK);
-                            if overflow > 0 {
-                                sb.drain(..overflow);
+                        let mut emu = reader_emulator.write().unwrap();
+                        emu.advance(&buf[..n]);
+
+                        // Extract all pending state before dropping the lock
+                        let reply: Vec<u8> = emu.pending_reply.drain(..).collect();
+                        let title = emu.pending_title.take();
+                        let bell = emu.pending_bell;
+                        emu.pending_bell = false;
+                        drop(emu);
+
+                        // Process all independently
+                        if !reply.is_empty() {
+                            if let Ok(mut w) = reader_writer.lock() {
+                                let _ = w.write_all(&reply);
                             }
                         }
-                        let _ = app.emit(&output_event, data);
+                        if let Some(t) = title {
+                            let _ = app_clone.emit(&title_event, t);
+                        }
+                        if bell {
+                            let _ = app_clone.emit(&bell_event, ());
+                        }
+
+                        reader_version.fetch_add(1, Ordering::Relaxed);
+                        reader_notify.notify();
                     }
                     Err(_) => {
-                        let _ = app.emit(&exit_event, 1);
+                        reader_running.store(false, Ordering::Relaxed);
+                        let _ = app_clone.emit(&exit_event, 1);
+                        reader_notify.notify();
                         break;
                     }
                 }
             }
         });
 
+        // Emitter thread: serialize grid state and emit to frontend
+        let emitter_handle = spawn_emitter(
+            app,
+            id,
+            Arc::clone(&emulator),
+            Arc::clone(&version),
+            Arc::clone(&running),
+            Arc::clone(&scroll_offset),
+            Arc::clone(&notify),
+        );
+
         Ok(Self {
             writer,
             master: pair.master,
-            scrollback,
+            emulator,
+            version,
+            running,
+            scroll_offset,
+            notify,
             _reader_handle: reader_handle,
+            _emitter_handle: emitter_handle,
         })
     }
 
-    pub fn write(&self, data: &[u8]) -> Result<(), String> {
-        self.writer
-            .lock()
-            .map_err(|e| e.to_string())?
-            .write_all(data)
-            .map_err(|e| e.to_string())
-    }
-
-    pub fn get_scrollback(&self) -> Result<Vec<u8>, String> {
-        let sb = self.scrollback.lock().map_err(|e| e.to_string())?;
-        Ok(sb.iter().copied().collect())
+    pub fn scroll(&self, delta: i32) {
+        let max = {
+            let emu = self.emulator.read().unwrap();
+            emu.grid.active().scrollback.len() as i32
+        };
+        let old = self.scroll_offset.load(Ordering::Relaxed);
+        let new_val = (old + delta).clamp(0, max);
+        self.scroll_offset.store(new_val, Ordering::Relaxed);
+        self.version.fetch_add(1, Ordering::Relaxed);
+        self.notify.notify();
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
+        {
+            let mut emu = self.emulator.write().map_err(|e| e.to_string())?;
+            emu.resize(cols, rows);
+        }
         self.master
             .resize(PtySize {
                 rows,
@@ -109,6 +174,9 @@ impl PtySession {
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        self.version.fetch_add(1, Ordering::Relaxed);
+        self.notify.notify();
+        Ok(())
     }
 }

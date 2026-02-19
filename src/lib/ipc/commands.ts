@@ -24,9 +24,9 @@ export async function spawnTerminal(
 
 export async function writeToTerminal(
   id: number,
-  data: number[],
+  data: number[] | Uint8Array,
 ): Promise<void> {
-  return invoke("write_to_terminal", { id, data });
+  return invoke("write_to_terminal", { id, data: Array.from(data) });
 }
 
 export async function resizeTerminal(
@@ -37,13 +37,15 @@ export async function resizeTerminal(
   return invoke("resize_terminal", { id, cols, rows });
 }
 
-export async function killTerminal(id: number): Promise<void> {
-  return invoke("kill_terminal", { id });
+export async function scrollTerminal(
+  id: number,
+  delta: number,
+): Promise<void> {
+  return invoke("scroll_terminal", { id, delta });
 }
 
-export async function getTerminalBuffer(id: number): Promise<Uint8Array> {
-  const data: number[] = await invoke("get_terminal_buffer", { id });
-  return new Uint8Array(data);
+export async function killTerminal(id: number): Promise<void> {
+  return invoke("kill_terminal", { id });
 }
 
 export interface RustWorkspace {

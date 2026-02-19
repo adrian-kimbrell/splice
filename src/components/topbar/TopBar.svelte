@@ -16,7 +16,7 @@
 </script>
 
 <div
-  class="col-span-full flex items-center px-2 border-t border-border gap-1"
+  class="col-span-full flex items-center px-2 border-t border-border gap-0"
   style="grid-row: 2; height: 35px; background: var(--bg-topbar);"
 >
   <!-- Left: actions -->

@@ -51,9 +51,53 @@
   async function handleCloseWorkspace(id: string) {
     await workspaceManager.closeWorkspaceWithCleanup(id);
   }
+
+  // --- Context menu ---
+  import { onDestroy } from "svelte";
+
+  let ctxMenuEl: HTMLDivElement | null = null;
+
+  function removeCtxMenu() {
+    if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; }
+  }
+
+  function handleContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    removeCtxMenu();
+    ctxMenuEl = document.createElement("div");
+    ctxMenuEl.className = "split-dropdown ctx-menu-container";
+    ctxMenuEl.style.top = e.clientY + "px";
+    ctxMenuEl.style.left = e.clientX + "px";
+    ctxMenuEl.style.transform = "translateX(-100%)";
+    ctxMenuEl.innerHTML = `
+      <button class="split-dropdown-item" data-action="new-workspace">
+        <i class="bi bi-folder-plus"></i>
+        <span>New Workspace</span>
+      </button>
+    `;
+    ctxMenuEl.addEventListener("click", (ev) => {
+      const btn = (ev.target as HTMLElement).closest("[data-action]");
+      if (btn) {
+        handleCreateWorkspace();
+        removeCtxMenu();
+      }
+    });
+    document.body.appendChild(ctxMenuEl);
+  }
+
+  function closeCtxMenu(e: MouseEvent) {
+    if (ctxMenuEl && !(e.target as HTMLElement).closest(".ctx-menu-container")) {
+      removeCtxMenu();
+    }
+  }
+
+  onDestroy(() => removeCtxMenu());
 </script>
 
-<div class="bg-sidebar border-l border-border flex flex-col overflow-hidden" style="grid-column: 5; grid-row: 1">
+<svelte:document onclick={closeCtxMenu} />
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="bg-sidebar border-l border-border flex flex-col overflow-hidden" style="grid-column: 5; grid-row: 1" oncontextmenu={handleContextMenu}>
   <div class="flex-1 overflow-y-auto flex flex-col">
     {#each wsList as workspace (workspace.id)}
       <WorkspaceListItem

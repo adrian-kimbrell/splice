@@ -18,6 +18,80 @@ function nthLeaf(node: LayoutNode, target: number): { id: string | null; count: 
   return { id: right.id, count: left.count + right.count };
 }
 
+// --- Spatial pane navigation ---
+
+type NavDirection = "left" | "right" | "up" | "down";
+
+/** Build the path from root to a leaf (list of child indices). Returns null if not found. */
+function buildPath(node: LayoutNode, paneId: string, path: number[]): boolean {
+  if (node.type === "leaf") return node.paneId === paneId;
+  for (let i = 0; i < 2; i++) {
+    path.push(i);
+    if (buildPath(node.children[i], paneId, path)) return true;
+    path.pop();
+  }
+  return false;
+}
+
+/** Walk into a subtree, picking the leaf nearest to the edge we're coming from. */
+function nearestLeaf(node: LayoutNode, dir: NavDirection): string {
+  if (node.type === "leaf") return node.paneId;
+  const isHoriz = dir === "left" || dir === "right";
+  const splitIsAligned = (isHoriz && node.direction === "horizontal") ||
+                          (!isHoriz && node.direction === "vertical");
+  if (splitIsAligned) {
+    // Pick the near side: entering from right→take children[1], from left→take children[0], etc.
+    const nearChild = (dir === "right" || dir === "down") ? 0 : 1;
+    return nearestLeaf(node.children[nearChild], dir);
+  }
+  // Perpendicular split — pick first child (consistent default)
+  return nearestLeaf(node.children[0], dir);
+}
+
+/** Find the spatial neighbor of a pane in the given direction. */
+function findNeighbor(root: LayoutNode, paneId: string, dir: NavDirection): string | null {
+  const path: number[] = [];
+  if (!buildPath(root, paneId, path)) return null;
+
+  const isHoriz = dir === "left" || dir === "right";
+  const splitDir = isHoriz ? "horizontal" : "vertical";
+  // Which child index we must be coming FROM to have a neighbor in this direction
+  const fromChild = (dir === "right" || dir === "down") ? 0 : 1;
+
+  // Walk ancestors from deepest to root
+  let node = root;
+  const ancestors: { node: LayoutNode & { type: "split" }; childIdx: number }[] = [];
+  for (const idx of path) {
+    if (node.type === "split") {
+      ancestors.push({ node, childIdx: idx });
+      node = node.children[idx];
+    }
+  }
+
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const { node: split, childIdx } = ancestors[i];
+    if (split.direction === splitDir && childIdx === fromChild) {
+      return nearestLeaf(split.children[1 - fromChild], dir);
+    }
+  }
+
+  return null; // No neighbor in that direction
+}
+
+/** Move DOM focus to the focusable element inside a pane (terminal canvas, editor, etc.) */
+function focusPane(paneId: string) {
+  requestAnimationFrame(() => {
+    const container = document.querySelector(`[data-pane-id="${paneId}"]`);
+    if (!container) return;
+    // Try terminal canvas first, then CodeMirror editor, then any focusable
+    const target =
+      container.querySelector<HTMLElement>("canvas[tabindex]") ??
+      container.querySelector<HTMLElement>(".cm-content") ??
+      container.querySelector<HTMLElement>("[tabindex]");
+    target?.focus();
+  });
+}
+
 export function initKeybindings() {
   document.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
@@ -57,8 +131,8 @@ export function initKeybindings() {
       ui.leftSidebarVisible = !ui.leftSidebarVisible;
     }
 
-    // Alt + Z: Toggle pane zoom
-    if (e.altKey && e.code === "KeyZ") {
+    // Cmd/Ctrl + Z: Toggle pane zoom
+    if (mod && e.code === "KeyZ") {
       e.preventDefault();
       if (ui.zoomedPaneId) {
         ui.zoomedPaneId = null;
@@ -83,6 +157,7 @@ export function initKeybindings() {
         if (id) {
           e.preventDefault();
           workspaceManager.setActivePaneId(id);
+          focusPane(id);
           if (ui.zoomedPaneId) {
             ui.zoomedPaneId = id;
           }
@@ -90,20 +165,42 @@ export function initKeybindings() {
       }
     }
 
-    // Cmd/Ctrl + Shift + [ / ]: Switch workspace prev/next
-    if (mod && e.shiftKey && (e.code === "BracketLeft" || e.code === "BracketRight")) {
+    // Cmd/Ctrl + Option/Alt + Arrow: Spatial pane navigation
+    if (mod && e.altKey && !e.shiftKey &&
+        (e.code === "ArrowLeft" || e.code === "ArrowRight" ||
+         e.code === "ArrowUp" || e.code === "ArrowDown")) {
+      const ws = workspaceManager.activeWorkspace;
+      if (ws?.layout && ws.activePaneId) {
+        const dirMap: Record<string, NavDirection> = {
+          ArrowLeft: "left", ArrowRight: "right",
+          ArrowUp: "up", ArrowDown: "down",
+        };
+        const neighbor = findNeighbor(ws.layout, ws.activePaneId, dirMap[e.code]);
+        if (neighbor) {
+          e.preventDefault();
+          workspaceManager.setActivePaneId(neighbor);
+          focusPane(neighbor);
+          if (ui.zoomedPaneId) {
+            ui.zoomedPaneId = neighbor;
+          }
+        }
+      }
+    }
+
+    // Cmd/Ctrl + Option/Alt + Shift + Left/Right: Switch workspace prev/next
+    if (mod && e.altKey && e.shiftKey &&
+        (e.code === "ArrowLeft" || e.code === "ArrowRight")) {
       const list = workspaceManager.workspaceList;
       if (list.length > 1) {
         e.preventDefault();
         const currentIdx = list.findIndex(w => w.id === workspaceManager.activeWorkspaceId);
         let nextIdx: number;
-        if (e.code === "BracketLeft") {
+        if (e.code === "ArrowLeft") {
           nextIdx = currentIdx <= 0 ? list.length - 1 : currentIdx - 1;
         } else {
           nextIdx = currentIdx >= list.length - 1 ? 0 : currentIdx + 1;
         }
         workspaceManager.switchWorkspace(list[nextIdx].id);
-        // Clear zoom when switching workspaces
         ui.zoomedPaneId = null;
       }
     }

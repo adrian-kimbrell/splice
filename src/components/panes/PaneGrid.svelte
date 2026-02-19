@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { LayoutNode, PaneConfig, SplitDirection } from "../../lib/stores/layout.svelte";
+  import type { LayoutNode, PaneConfig } from "../../lib/stores/layout.svelte";
   import type { Snippet } from "svelte";
   import {
     type DropZone,
@@ -11,7 +11,6 @@
     isDragging,
     registerPane,
     unregisterPane,
-    endDrag,
   } from "../../lib/stores/drag.svelte";
   import { isCornerDragActive } from "../../lib/stores/corner-drag.svelte";
   import CornerDragOverlay from "./CornerDragOverlay.svelte";
@@ -24,7 +23,6 @@
     isRoot = false,
     activePaneId = null,
     onPaneClick,
-    onTabDrop,
   }: {
     node: LayoutNode;
     panes: Record<string, PaneConfig>;
@@ -32,7 +30,6 @@
     isRoot?: boolean;
     activePaneId?: string | null;
     onPaneClick?: (paneId: string) => void;
-    onTabDrop?: (filePath: string, sourcePaneId: string, targetPaneId: string, direction: SplitDirection, side: "before" | "after", zone: DropZone) => void;
   } = $props();
 
   let dragging = $state(false);
@@ -54,37 +51,6 @@
     return () => unregisterPane(paneId, el);
   });
 
-  $effect(() => {
-    if (node.type !== "leaf") return;
-
-    function onTabDropEvent() {
-      const active = getDragActive();
-      const zone = getHoverZone();
-      const targetPaneId = getHoverPaneId();
-      if (!active || !zone || !targetPaneId) { endDrag(); return; }
-      if (targetPaneId !== node.paneId) return;
-
-      if (active.sourcePaneId === targetPaneId && zone === "center") { endDrag(); return; }
-      if (active.sourcePaneId === targetPaneId) {
-        const cfg = panes[targetPaneId];
-        if (cfg?.filePaths && cfg.filePaths.length <= 1) { endDrag(); return; }
-      }
-
-      let direction: SplitDirection = "horizontal";
-      let side: "before" | "after" = "after";
-
-      if (zone === "left") { direction = "horizontal"; side = "before"; }
-      else if (zone === "right") { direction = "horizontal"; side = "after"; }
-      else if (zone === "top") { direction = "vertical"; side = "before"; }
-      else if (zone === "bottom") { direction = "vertical"; side = "after"; }
-
-      onTabDrop?.(active.filePath, active.sourcePaneId, targetPaneId, direction, side, zone);
-      endDrag();
-    }
-
-    document.addEventListener("tab-drop", onTabDropEvent);
-    return () => document.removeEventListener("tab-drop", onTabDropEvent);
-  });
 
   function handleMouseDown(e: MouseEvent) {
     if (node.type !== "split") return;
@@ -143,6 +109,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       bind:this={leafEl}
+      data-pane-id={node.paneId}
       class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative"
       style="contain: layout style paint; border: {node.paneId === activePaneId ? '2px solid var(--pane-border-active)' : '1px solid var(--border)'}"
       onclick={() => onPaneClick?.(node.paneId)}
@@ -171,7 +138,7 @@
       style="flex: 0 0 calc({node.ratio * 100}% - 2px); overflow: hidden; contain: layout style paint;"
       class="flex min-w-0 min-h-0"
     >
-      <PaneGrid node={node.children[0]} {panes} {paneSnippet} {activePaneId} {onPaneClick} {onTabDrop} />
+      <PaneGrid node={node.children[0]} {panes} {paneSnippet} {activePaneId} {onPaneClick} />
     </div>
 
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -188,7 +155,7 @@
     ></div>
 
     <div style="flex: 1; overflow: hidden; contain: layout style paint;" class="flex min-w-0 min-h-0">
-      <PaneGrid node={node.children[1]} {panes} {paneSnippet} {activePaneId} {onPaneClick} {onTabDrop} />
+      <PaneGrid node={node.children[1]} {panes} {paneSnippet} {activePaneId} {onPaneClick} />
     </div>
   </div>
 {/if}

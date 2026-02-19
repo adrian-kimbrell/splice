@@ -25,6 +25,14 @@ let startX = 0;
 let startY = 0;
 const DRAG_THRESHOLD = 4;
 
+// --- Drop callback ---
+type DropCallback = (data: TabDragData, targetPaneId: string, zone: DropZone) => void;
+let dropCallback: DropCallback | null = null;
+
+export function setDropCallback(cb: DropCallback | null) {
+  dropCallback = cb;
+}
+
 // --- Public reactive getters ---
 export function getDragActive(): TabDragData | null { return active; }
 export function getHoverPaneId(): string | null { return hoverPaneId; }
@@ -94,8 +102,13 @@ function onMouseMove(e: MouseEvent) {
 function onMouseUp() {
   if (!active) { cleanup(); return; }
 
-  if (dragging && hoverPaneId && hoverZone) {
-    document.dispatchEvent(new CustomEvent("tab-drop"));
+  if (dragging && hoverPaneId && hoverZone && dropCallback) {
+    const data = active;
+    const targetId = hoverPaneId;
+    const zone = hoverZone;
+    cleanup();
+    dropCallback(data, targetId, zone);
+    return;
   }
 
   cleanup();
