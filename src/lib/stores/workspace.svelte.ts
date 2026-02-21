@@ -309,6 +309,11 @@ class WorkspaceManager {
     const ws = this.activeWorkspace;
     if (!ws) return;
 
+    // Watch file for external changes
+    if (!file.path.startsWith("untitled-")) {
+      import("../ipc/commands").then(({ watchPath }) => watchPath(file.path)).catch(() => {});
+    }
+
     // Add to workspace-level openFiles (content source of truth)
     const existing = ws.openFiles.find((f) => f.path === file.path);
     if (existing) {
@@ -439,6 +444,10 @@ class WorkspaceManager {
     if (!stillReferenced) {
       const fileIdx = ws.openFiles.findIndex((f) => f.path === path);
       if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
+      // Unwatch file
+      if (!path.startsWith("untitled-")) {
+        import("../ipc/commands").then(({ unwatchPath }) => unwatchPath(path)).catch(() => {});
+      }
     }
   }
 
@@ -657,6 +666,19 @@ class WorkspaceManager {
     const ws = this.activeWorkspace;
     if (!ws) return false;
     return ws.openFiles.find((f) => f.path === path)?.dirty ?? false;
+  }
+
+  /** Reorder a tab within the same pane. */
+  reorderTabInPane(paneId: string, fromIndex: number, toIndex: number): void {
+    const ws = this.activeWorkspace;
+    if (!ws) return;
+    const pane = ws.panes[paneId];
+    if (!pane?.filePaths || pane.kind !== "editor") return;
+    if (fromIndex === toIndex) return;
+    if (fromIndex < 0 || fromIndex >= pane.filePaths.length) return;
+    if (toIndex < 0 || toIndex >= pane.filePaths.length) return;
+    const [item] = pane.filePaths.splice(fromIndex, 1);
+    pane.filePaths.splice(toIndex, 0, item);
   }
 
   // --- Tab drag & drop ---

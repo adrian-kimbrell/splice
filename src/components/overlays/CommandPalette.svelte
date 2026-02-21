@@ -32,10 +32,32 @@
   let selectedIndex = $state(0);
 
   const filterLower = $derived(filter.toLowerCase());
+
+  // When filter is empty, prepend recent files as commands
+  const recentFileCommands = $derived<Command[]>(
+    recentFiles.slice(0, 10).map((path) => ({
+      name: path.split("/").pop() ?? path,
+      shortcut: "",
+      action() {
+        (async () => {
+          if (!workspaceManager.activeWorkspace) workspaceManager.createEmptyWorkspace();
+          try {
+            const { readFile } = await import("../../lib/ipc/commands");
+            const content = await readFile(path);
+            const name = path.split("/").pop() ?? "untitled";
+            workspaceManager.openFileInWorkspace({ name, path, content });
+          } catch (e) { console.error("Failed to open recent file:", e); }
+        })();
+      },
+    })),
+  );
+
   const filtered = $derived(
-    COMMANDS.filter((c) =>
-      c.name.toLowerCase().includes(filterLower),
-    ),
+    filterLower === ""
+      ? [...recentFileCommands, ...COMMANDS]
+      : [...recentFileCommands, ...COMMANDS].filter((c) =>
+          c.name.toLowerCase().includes(filterLower),
+        ),
   );
 
   // Reset selection when filter changes

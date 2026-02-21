@@ -6,4 +6,6 @@ export const ui = $state({
   commandPaletteOpen: false,
   zoomedPaneId: null as string | null,
   sidebarMode: "files" as "files" | "search",
+  zenMode: false,
+  zenSnapshot: null as { explorerVisible: boolean; workspacesVisible: boolean } | null,
 });

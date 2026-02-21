@@ -21,6 +21,7 @@ let dragging = $state(false);
 
 // --- Non-reactive bookkeeping ---
 let panes: RegisteredPane[] = [];
+let contentElements = new Map<string, HTMLElement>();
 let startX = 0;
 let startY = 0;
 const DRAG_THRESHOLD = 4;
@@ -51,10 +52,20 @@ export function unregisterPane(paneId: string, el: HTMLElement) {
   panes = panes.filter((p) => !(p.paneId === paneId && p.el === el));
 }
 
+export function registerPaneContent(paneId: string, el: HTMLElement) {
+  contentElements.set(paneId, el);
+}
+
+export function unregisterPaneContent(paneId: string) {
+  contentElements.delete(paneId);
+}
+
 // --- Hit testing ---
 function findPaneAt(x: number, y: number): RegisteredPane | null {
   for (const pane of panes) {
-    const rect = pane.el.getBoundingClientRect();
+    // Use content element for hit testing when available (excludes tab bar area)
+    const el = contentElements.get(pane.paneId) ?? pane.el;
+    const rect = el.getBoundingClientRect();
     if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
       return pane;
     }
@@ -62,8 +73,10 @@ function findPaneAt(x: number, y: number): RegisteredPane | null {
   return null;
 }
 
-function computeZone(x: number, y: number, el: HTMLElement): DropZone {
-  const rect = el.getBoundingClientRect();
+function computeZone(x: number, y: number, el: HTMLElement, paneId: string): DropZone {
+  // Use content element for zone calculation when available
+  const target = contentElements.get(paneId) ?? el;
+  const rect = target.getBoundingClientRect();
   const rx = (x - rect.left) / rect.width;
   const ry = (y - rect.top) / rect.height;
   const margin = 0.25;
@@ -96,7 +109,7 @@ function onMouseMove(e: MouseEvent) {
     return;
   }
   hoverPaneId = pane.paneId;
-  hoverZone = computeZone(e.clientX, e.clientY, pane.el);
+  hoverZone = computeZone(e.clientX, e.clientY, pane.el, pane.paneId);
 }
 
 function onMouseUp() {

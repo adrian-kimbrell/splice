@@ -69,6 +69,8 @@ fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::
         .item(&MenuItemBuilder::with_id("zoom-in", "Zoom In").accelerator("CmdOrCtrl+=").build(app)?)
         .item(&MenuItemBuilder::with_id("zoom-out", "Zoom Out").accelerator("CmdOrCtrl+-").build(app)?)
         .item(&MenuItemBuilder::with_id("zoom-reset", "Reset Zoom").accelerator("CmdOrCtrl+0").build(app)?)
+        .separator()
+        .item(&MenuItemBuilder::with_id("zen-mode", "Zen Mode").accelerator("CmdOrCtrl+Shift+Enter").build(app)?)
         .build()?;
 
     // Window submenu
@@ -131,11 +133,14 @@ pub fn run() {
             commands::fs::get_git_branch,
             commands::fs::get_recent_files,
             commands::fs::add_recent_file,
+            commands::fs::watch_path,
+            commands::fs::unwatch_path,
             commands::terminal::spawn_terminal,
             commands::terminal::write_to_terminal,
             commands::terminal::resize_terminal,
             commands::terminal::scroll_terminal,
             commands::terminal::kill_terminal,
+            commands::terminal::search_terminal,
             commands::terminal::install_claude_hook,
             commands::workspace::get_workspaces,
             commands::workspace::save_workspace,

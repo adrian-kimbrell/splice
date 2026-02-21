@@ -1,5 +1,6 @@
 use crate::terminal::pty::PtySession;
 use crate::workspace::layout::{Settings, Workspace};
+use notify::RecommendedWatcher;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -11,6 +12,7 @@ pub struct AppState {
     pub settings: Settings,
     pub allowed_roots: Vec<PathBuf>,
     pub attention_port: Option<u16>,
+    pub watchers: HashMap<String, RecommendedWatcher>,
 }
 
 impl AppState {
@@ -27,6 +29,7 @@ impl AppState {
             settings: Settings::default(),
             allowed_roots,
             attention_port: None,
+            watchers: HashMap::new(),
         }
     }
 }

@@ -11,7 +11,7 @@ pub struct PtySession {
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pub child_pid: Option<u32>,
     master: Box<dyn MasterPty + Send>,
-    emulator: Arc<RwLock<Emulator>>,
+    pub emulator: Arc<RwLock<Emulator>>,
     version: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
     pub scroll_offset: Arc<AtomicI32>,

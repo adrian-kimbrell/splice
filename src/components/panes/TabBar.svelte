@@ -1,8 +1,53 @@
 <script lang="ts">
   import Tab from "./Tab.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
+  import { getDragActive, isDragging } from "../../lib/stores/drag.svelte";
+  import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
+
+  let reorderIndicatorIndex = $state<number | null>(null);
+  let tabBarEl = $state<HTMLDivElement>();
+
+  function handleTabBarDragOver(e: MouseEvent) {
+    if (!isDragging() || !tabBarEl) return;
+    const drag = getDragActive();
+    if (!drag || drag.sourcePaneId !== paneId) {
+      reorderIndicatorIndex = null;
+      return;
+    }
+
+    // Compute insertion index from mouse position vs tab rects
+    const tabEls = tabBarEl.querySelectorAll("[role='tab']");
+    let insertIdx = tabs.length;
+    for (let i = 0; i < tabEls.length; i++) {
+      const rect = tabEls[i].getBoundingClientRect();
+      const midX = rect.left + rect.width / 2;
+      if (e.clientX < midX) {
+        insertIdx = i;
+        break;
+      }
+    }
+    reorderIndicatorIndex = insertIdx;
+  }
+
+  function handleTabBarDragLeave() {
+    reorderIndicatorIndex = null;
+  }
+
+  function handleTabBarDrop() {
+    if (reorderIndicatorIndex === null) return;
+    const drag = getDragActive();
+    if (!drag || drag.sourcePaneId !== paneId) {
+      reorderIndicatorIndex = null;
+      return;
+    }
+    const fromIndex = tabs.findIndex((t) => t.path === drag.filePath);
+    let toIndex = reorderIndicatorIndex;
+    if (fromIndex < toIndex) toIndex = Math.max(0, toIndex - 1);
+    workspaceManager.reorderTabInPane(paneId, fromIndex, toIndex);
+    reorderIndicatorIndex = null;
+  }
 
   let {
     tabs,
@@ -14,6 +59,9 @@
     onSplit,
     onClose,
     onAction,
+    showPreviewToggle = false,
+    previewMode = "editor",
+    onTogglePreview,
   }: {
     tabs: { name: string; path: string; preview?: boolean; dirty?: boolean }[];
     activeTab: string | null;
@@ -24,6 +72,9 @@
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
     onAction?: (action: string) => void;
+    showPreviewToggle?: boolean;
+    previewMode?: "editor" | "preview";
+    onTogglePreview?: () => void;
   } = $props();
 
   // --- Split dropdown ---
@@ -100,8 +151,17 @@
 />
 
 <div class="flex bg-tab border-b border-border h-8 shrink-0 overflow-hidden min-w-0">
-  <div class="flex flex-1 overflow-x-auto min-w-0">
-    {#each tabs as tab (tab.path)}
+  <div
+    bind:this={tabBarEl}
+    class="flex flex-1 overflow-x-auto min-w-0 relative"
+    onmousemove={handleTabBarDragOver}
+    onmouseleave={handleTabBarDragLeave}
+    onmouseup={handleTabBarDrop}
+  >
+    {#each tabs as tab, tabIdx (tab.path)}
+      {#if reorderIndicatorIndex === tabIdx}
+        <div class="w-0.5 bg-accent shrink-0 self-stretch"></div>
+      {/if}
       <Tab
         name={tab.name}
         path={tab.path}
@@ -114,10 +174,22 @@
         ondblclick={onTabDoubleClick ? () => onTabDoubleClick(tab.path) : undefined}
       />
     {/each}
+    {#if reorderIndicatorIndex === tabs.length}
+      <div class="w-0.5 bg-accent shrink-0 self-stretch"></div>
+    {/if}
   </div>
   <div class="flex items-center gap-0.5 px-1 shrink-0">
     {#if ui.zoomedPaneId}
       <span class="text-[10px] uppercase tracking-wide text-accent mr-1 font-medium">Zoomed</span>
+    {/if}
+    {#if showPreviewToggle && onTogglePreview}
+      <button
+        class="pane-action-btn"
+        title={previewMode === "editor" ? "Show Preview" : "Show Editor"}
+        onclick={onTogglePreview}
+      >
+        <i class="bi {previewMode === 'editor' ? 'bi-eye' : 'bi-eye-slash'}"></i>
+      </button>
     {/if}
     {#if onAction}
       <div class="plus-menu-container">

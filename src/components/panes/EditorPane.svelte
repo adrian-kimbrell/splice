@@ -5,6 +5,8 @@
   import ImagePreview from "./ImagePreview.svelte";
   import MarkdownPreview from "./MarkdownPreview.svelte";
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
+  import { registerPaneContent, unregisterPaneContent } from "../../lib/stores/drag.svelte";
+  import { onMount } from "svelte";
 
   let {
     tabs,
@@ -61,6 +63,14 @@
   function isMdFile(path: string): boolean {
     return path.endsWith(".md") || path.endsWith(".markdown");
   }
+
+  let contentAreaEl = $state<HTMLDivElement>();
+
+  $effect(() => {
+    if (!contentAreaEl || !paneId) return;
+    registerPaneContent(paneId, contentAreaEl);
+    return () => unregisterPaneContent(paneId);
+  });
 </script>
 
 <div class="flex flex-col overflow-hidden bg-editor flex-1 min-w-0">
@@ -72,7 +82,7 @@
   {#if filePath && rootPath && !filePath.startsWith("untitled-")}
     <Breadcrumbs {filePath} {rootPath} />
   {/if}
-  <div class="flex-1 overflow-hidden">
+  <div bind:this={contentAreaEl} class="flex-1 overflow-hidden">
     {#if filePath}
       {#if isImageFile(filePath)}
         <ImagePreview {filePath} />

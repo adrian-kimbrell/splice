@@ -99,6 +99,37 @@ function focusPane(paneId: string) {
   });
 }
 
+async function enterZenMode() {
+  ui.zenSnapshot = {
+    explorerVisible: ui.explorerVisible,
+    workspacesVisible: ui.workspacesVisible,
+  };
+  ui.explorerVisible = false;
+  ui.workspacesVisible = false;
+  ui.zenMode = true;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().setFullscreen(true);
+  } catch {
+    // Not in Tauri
+  }
+}
+
+async function exitZenMode() {
+  if (ui.zenSnapshot) {
+    ui.explorerVisible = ui.zenSnapshot.explorerVisible;
+    ui.workspacesVisible = ui.zenSnapshot.workspacesVisible;
+    ui.zenSnapshot = null;
+  }
+  ui.zenMode = false;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().setFullscreen(false);
+  } catch {
+    // Not in Tauri
+  }
+}
+
 export function initKeybindings() {
   document.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
@@ -121,12 +152,24 @@ export function initKeybindings() {
       ui.commandPaletteOpen = !ui.commandPaletteOpen;
     }
 
-    // Escape: Close overlays, then unzoom
+    // Escape: Close overlays, exit zen mode, then unzoom
     if (e.key === "Escape") {
       if (ui.commandPaletteOpen) {
         ui.commandPaletteOpen = false;
+      } else if (ui.zenMode) {
+        exitZenMode();
       } else if (ui.zoomedPaneId) {
         ui.zoomedPaneId = null;
+      }
+    }
+
+    // Cmd/Ctrl + Shift + Enter: Toggle zen mode
+    if (mod && e.shiftKey && e.key === "Enter") {
+      e.preventDefault();
+      if (ui.zenMode) {
+        exitZenMode();
+      } else {
+        enterZenMode();
       }
     }
 

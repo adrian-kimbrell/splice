@@ -427,6 +427,7 @@
     let unlistenAttention: (() => void) | null = null;
     let unlistenMenu: (() => void) | null = null;
     let unlistenDragDrop: (() => void) | null = null;
+    let unlistenFileChanged: (() => void) | null = null;
 
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
       import("@tauri-apps/api/event").then(({ listen }) => {
@@ -510,6 +511,10 @@
             case "new-terminal":
               workspaceManager.spawnTerminalInWorkspace();
               break;
+            case "zen-mode":
+              // Toggle zen mode via custom event (keybindings handler will pick it up)
+              document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, metaKey: true }));
+              break;
           }
         }).then((fn) => { unlistenMenu = fn; });
       });
@@ -528,6 +533,28 @@
           timestamp: Date.now(),
         });
       });
+
+      // Listen for file watcher events
+      listen<string>("file:changed", async (event) => {
+        const changedPath = event.payload;
+        const ws = workspaceManager.activeWorkspace;
+        if (!ws) return;
+        const file = ws.openFiles.find((f) => f.path === changedPath);
+        if (!file) return;
+        if (file.dirty) {
+          pushToast("File changed externally: " + (changedPath.split("/").pop() ?? changedPath), "warning", 5000);
+        } else {
+          try {
+            const { readFile } = await import("../lib/ipc/commands");
+            const content = await readFile(changedPath);
+            file.content = content;
+            file.originalContent = content;
+            file.dirty = false;
+          } catch {
+            // ignore read errors
+          }
+        }
+      }).then((fn) => { unlistenFileChanged = fn; });
 
       // Listen for native file drag-and-drop
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
@@ -548,6 +575,7 @@
 
     setDropCallback((data: TabDragData, targetPaneId: string, zone: DropZone) => {
       if (!zone || !targetPaneId) return;
+      // Same-pane center drops are handled by TabBar reordering
       if (data.sourcePaneId === targetPaneId && zone === "center") return;
 
       // Check single-tab same-pane drag
@@ -577,17 +605,18 @@
       unlistenAttention?.();
       unlistenMenu?.();
       unlistenDragDrop?.();
+      unlistenFileChanged?.();
     };
   });
 </script>
 
 <div
   class="grid h-screen"
-  style="grid-template-columns: {leftVisible
+  style="grid-template-columns: {leftVisible && !ui.zenMode
     ? `${leftWidth}px 4px`
-    : '0px 0px'} minmax(0,1fr) {rightVisible
+    : '0px 0px'} minmax(0,1fr) {rightVisible && !ui.zenMode
     ? `4px ${rightWidth}px`
-    : '0px 0px'}; grid-template-rows: 1fr var(--topbar-height);"
+    : '0px 0px'}; grid-template-rows: 1fr {ui.zenMode ? '0px' : 'var(--topbar-height)'};"
 >
 
   <!-- LEFT SIDEBAR -->
@@ -662,8 +691,8 @@
               <TerminalPane
                 title={config.title}
                 cwd={workspace.rootPath ?? ""}
-                branch=""
                 terminalId={config.terminalId ?? 0}
+                paneId={config.id}
                 active={isActive}
                 onSplit={(dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}

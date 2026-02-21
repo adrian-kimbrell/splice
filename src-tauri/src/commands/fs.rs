@@ -1,12 +1,13 @@
 use base64::Engine;
 use crate::state::{validate_path, AppState};
 use ignore::WalkBuilder;
+use notify::{EventKind, RecursiveMode, Watcher};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
-use tauri::State;
-use tracing::warn;
+use tauri::{AppHandle, Emitter, State};
+use tracing::{info, warn};
 
 const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
 
@@ -144,7 +145,7 @@ pub fn read_file_base64(
     };
     let canonical = validate_path(&path, &allowed_roots)?;
     let bytes = fs::read(&canonical).map_err(|e| format!("Failed to read {}: {}", path, e))?;
-    Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes))
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
 #[tauri::command]
@@ -288,4 +289,54 @@ pub fn search_files(
         truncated,
         total_files_searched: total_files,
     })
+}
+
+#[tauri::command]
+pub fn watch_path(
+    app: AppHandle,
+    state: State<'_, Mutex<AppState>>,
+    path: String,
+) -> Result<(), String> {
+    let watch_path = path.clone();
+    let emit_path = path.clone();
+
+    // Debounce: track last emit time per path
+    let last_emit = std::sync::Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+
+    let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+        if let Ok(event) = res {
+            match event.kind {
+                EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => {
+                    let mut last = last_emit.lock().unwrap();
+                    if last.elapsed() < std::time::Duration::from_millis(200) {
+                        return;
+                    }
+                    *last = std::time::Instant::now();
+                    let _ = app.emit("file:changed", emit_path.clone());
+                }
+                _ => {}
+            }
+        }
+    })
+    .map_err(|e| format!("Failed to create watcher: {}", e))?;
+
+    watcher
+        .watch(Path::new(&watch_path), RecursiveMode::NonRecursive)
+        .map_err(|e| format!("Failed to watch path: {}", e))?;
+
+    info!(path = %watch_path, "Watching file");
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+    state.watchers.insert(watch_path, watcher);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn unwatch_path(
+    state: State<'_, Mutex<AppState>>,
+    path: String,
+) -> Result<(), String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+    state.watchers.remove(&path);
+    info!(path = %path, "Unwatched file");
+    Ok(())
 }

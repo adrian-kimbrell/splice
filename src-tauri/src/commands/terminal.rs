@@ -1,4 +1,5 @@
 use crate::state::AppState;
+use serde::Serialize;
 use std::io::Write;
 use std::sync::Mutex;
 use tauri::{AppHandle, State};
@@ -140,6 +141,71 @@ pub fn kill_terminal(state: State<'_, Mutex<AppState>>, id: u32) -> Result<(), S
         .remove(&id)
         .ok_or_else(|| format!("Terminal {} not found", id))?;
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TerminalSearchMatch {
+    pub row: i64,     // negative = scrollback, 0+ = visible
+    pub col_start: usize,
+    pub col_end: usize,
+}
+
+#[tauri::command]
+pub fn search_terminal(
+    state: State<'_, Mutex<AppState>>,
+    id: u32,
+    query: String,
+    case_sensitive: bool,
+) -> Result<Vec<TerminalSearchMatch>, String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+    let session = state
+        .terminals
+        .get(&id)
+        .ok_or_else(|| format!("Terminal {} not found", id))?;
+
+    let emulator = session.emulator.read().map_err(|e| e.to_string())?;
+    let grid = &emulator.grid;
+    let buf = grid.active();
+
+    let query_lower = if case_sensitive { query.clone() } else { query.to_lowercase() };
+    let mut results = Vec::new();
+
+    // Search scrollback (negative row indices)
+    let scrollback_len = buf.scrollback.len() as i64;
+    for (i, row) in buf.scrollback.iter().enumerate() {
+        let line: String = row.cells.iter().map(|c| c.ch).collect();
+        let line_search = if case_sensitive { line.clone() } else { line.to_lowercase() };
+        let mut start = 0;
+        while let Some(pos) = line_search[start..].find(&query_lower) {
+            let col_start = start + pos;
+            results.push(TerminalSearchMatch {
+                row: i as i64 - scrollback_len,
+                col_start,
+                col_end: col_start + query_lower.len(),
+            });
+            start = col_start + 1;
+            if results.len() >= 1000 { return Ok(results); }
+        }
+    }
+
+    // Search visible lines
+    for (i, row) in buf.lines.iter().enumerate() {
+        let line: String = row.cells.iter().map(|c| c.ch).collect();
+        let line_search = if case_sensitive { line.clone() } else { line.to_lowercase() };
+        let mut start = 0;
+        while let Some(pos) = line_search[start..].find(&query_lower) {
+            let col_start = start + pos;
+            results.push(TerminalSearchMatch {
+                row: i as i64,
+                col_start,
+                col_end: col_start + query_lower.len(),
+            });
+            start = col_start + 1;
+            if results.len() >= 1000 { return Ok(results); }
+        }
+    }
+
+    Ok(results)
 }
 
 #[tauri::command]

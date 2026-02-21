@@ -49,6 +49,20 @@ export async function killTerminal(id: number): Promise<void> {
   return invoke("kill_terminal", { id });
 }
 
+export interface TerminalSearchMatch {
+  row: number;
+  col_start: number;
+  col_end: number;
+}
+
+export async function searchTerminal(
+  id: number,
+  query: string,
+  caseSensitive: boolean,
+): Promise<TerminalSearchMatch[]> {
+  return invoke("search_terminal", { id, query, caseSensitive });
+}
+
 export interface RustWorkspace {
   id: string;
   name: string;
@@ -116,6 +130,14 @@ export async function getRecentFiles(): Promise<string[]> {
 
 export async function addRecentFile(path: string): Promise<void> {
   return invoke("add_recent_file", { path });
+}
+
+export async function watchPath(path: string): Promise<void> {
+  return invoke("watch_path", { path });
+}
+
+export async function unwatchPath(path: string): Promise<void> {
+  return invoke("unwatch_path", { path });
 }
 
 export async function searchFiles(
