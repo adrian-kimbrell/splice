@@ -2,6 +2,7 @@
   import type { Workspace } from "../../lib/stores/workspace.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import type { PaneConfig } from "../../lib/stores/layout.svelte";
+  import { attentionStore } from "../../lib/stores/attention.svelte";
 
   let {
     workspace,
@@ -11,6 +12,7 @@
     onItemClick,
     onWorkspaceClick,
     onClose,
+    onHeaderContextMenu,
   }: {
     workspace: Workspace;
     isActive?: boolean;
@@ -19,6 +21,7 @@
     onItemClick: (wsId: string, itemId: string) => void;
     onWorkspaceClick: () => void;
     onClose?: () => void;
+    onHeaderContextMenu?: (e: MouseEvent) => void;
   } = $props();
 
   let editing = $state(false);
@@ -44,12 +47,12 @@
 
   // Show terminals + individual open files (not editor pane containers)
   const items = $derived.by(() => {
-    const result: { id: string; name: string; type: "terminal" | "file" }[] = [];
+    const result: { id: string; name: string; type: "terminal" | "file"; terminalId?: number }[] = [];
 
     // Add terminal panes
     for (const pane of Object.values(workspace.panes)) {
       if (pane.kind === "terminal") {
-        result.push({ id: pane.id, name: pane.title, type: "terminal" });
+        result.push({ id: pane.id, name: pane.title, type: "terminal", terminalId: pane.terminalId });
       }
     }
 
@@ -74,6 +77,7 @@
       class="workspace-header group flex items-center"
       onclick={onWorkspaceClick}
       ondblclick={(e) => { e.stopPropagation(); startEditing(); }}
+      oncontextmenu={onHeaderContextMenu}
       title="Double-click to rename"
     >
       {#if editing}
@@ -100,7 +104,15 @@
       {/if}
     </div>
   {:else}
-    <div class="workspace-separator"></div>
+    <div
+      class="workspace-header-compact"
+      class:text-txt-bright={isActive}
+      onclick={onWorkspaceClick}
+      oncontextmenu={onHeaderContextMenu}
+      title={workspace.name}
+    >
+      <i class="bi bi-diagram-2"></i>
+    </div>
   {/if}
   <div class="session-list">
   {#each items as item, i}
@@ -112,12 +124,15 @@
         : "bi-file-earmark"}
     {@const itemKey = `${workspace.id}:${item.id}`}
     {@const isSelected = selectedItem === itemKey}
+    {@const attention = item.terminalId != null ? attentionStore.notifications[item.terminalId] ?? null : null}
     <div
       class="session-item"
       class:compact
       class:first={isFirst}
       class:last={isLast}
       class:active={isSelected}
+      class:attention-permission={attention?.type === 'permission'}
+      class:attention-idle={attention?.type === 'idle'}
       onclick={() => onItemClick(workspace.id, item.id)}
       title={item.name}
     >
@@ -125,9 +140,22 @@
         <div class="tree-vertical-line"></div>
         <div class="tree-horizontal-line"></div>
       </div>
-      <div class="session-icon"><i class="bi {iconClass}"></i></div>
+      <div class="session-icon">
+        {#if attention}
+          <i
+            class="bi bi-claude attention-icon"
+            style="color: {attention.type === 'permission' ? 'var(--ansi-red)' : 'var(--ansi-yellow)'};"
+          ></i>
+        {:else}
+          <i class="bi {iconClass}"></i>
+        {/if}
+      </div>
       {#if !compact}
-        <div class="session-info"><div class="session-title">{item.name}</div></div>
+        <div class="session-info">
+          <div class="session-title" style={attention ? `color: ${attention.type === 'permission' ? 'var(--ansi-red)' : 'var(--ansi-yellow)'}` : ''}>
+            {item.name}
+          </div>
+        </div>
       {/if}
     </div>
   {/each}
@@ -138,3 +166,28 @@
   {/if}
   </div>
 </div>
+
+<style>
+  .attention-permission {
+    animation: sidebar-pulse-permission 1.2s ease-in-out infinite;
+  }
+  .attention-idle {
+    animation: sidebar-pulse-idle 1.8s ease-in-out infinite;
+  }
+  .attention-icon {
+    font-size: 9px;
+    animation: bell-throb 1.2s ease-in-out infinite;
+  }
+  @keyframes sidebar-pulse-permission {
+    0%, 100% { background: transparent; }
+    50% { background: rgba(224, 108, 117, 0.12); }
+  }
+  @keyframes sidebar-pulse-idle {
+    0%, 100% { background: transparent; }
+    50% { background: rgba(229, 192, 123, 0.10); }
+  }
+  @keyframes bell-throb {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+</style>

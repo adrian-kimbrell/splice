@@ -1,11 +1,11 @@
 [package]
-name = "malloc"
+name = "splice"
 version = "0.1.0"
 edition = "2021"
 description = "A modern code editor and terminal workspace manager"
 
 [lib]
-name = "malloc_lib"
+name = "splice_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -23,3 +23,23 @@ vte = "0.15"
 dirs = "6"
 smallvec = "1"
 base64 = "0.22"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ignore = "0.4"
+regex = "1"
+notify = "6"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "terminal_grid"
+harness = false
+
+[[bench]]
+name = "terminal_vte"
+harness = false
+
+[[bench]]
+name = "terminal_serialize"
+harness = false

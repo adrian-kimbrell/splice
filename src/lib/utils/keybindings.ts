@@ -1,6 +1,13 @@
 import { ui } from "../stores/ui.svelte";
 import { workspaceManager } from "../stores/workspace.svelte";
+import { settings, debouncedSaveSettings } from "../stores/settings.svelte";
+import { openSettingsWindow } from "./settings-window";
+import { dispatchEditorAction } from "../stores/editor-actions.svelte";
 import type { LayoutNode } from "../stores/layout.svelte";
+
+function isInsideCodeMirror(el: Element | null): boolean {
+  return !!el?.closest(".cm-editor");
+}
 
 function firstLeaf(node: LayoutNode): string {
   if (node.type === "leaf") return node.paneId;
@@ -96,6 +103,12 @@ export function initKeybindings() {
   document.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
 
+    // Cmd/Ctrl + S: Save Active File
+    if (mod && e.key === "s") {
+      e.preventDefault();
+      workspaceManager.saveActiveFile();
+    }
+
     // Cmd/Ctrl + N: New File
     if (mod && e.key === "n") {
       e.preventDefault();
@@ -110,9 +123,7 @@ export function initKeybindings() {
 
     // Escape: Close overlays, then unzoom
     if (e.key === "Escape") {
-      if (ui.settingsOpen) {
-        ui.settingsOpen = false;
-      } else if (ui.commandPaletteOpen) {
+      if (ui.commandPaletteOpen) {
         ui.commandPaletteOpen = false;
       } else if (ui.zoomedPaneId) {
         ui.zoomedPaneId = null;
@@ -122,17 +133,17 @@ export function initKeybindings() {
     // Cmd/Ctrl + ,: Settings
     if (mod && e.key === ",") {
       e.preventDefault();
-      ui.settingsOpen = !ui.settingsOpen;
+      openSettingsWindow();
     }
 
-    // Cmd/Ctrl + B: Toggle left sidebar
+    // Cmd/Ctrl + B: Toggle explorer
     if (mod && e.key === "b") {
       e.preventDefault();
-      ui.leftSidebarVisible = !ui.leftSidebarVisible;
+      ui.explorerVisible = !ui.explorerVisible;
     }
 
-    // Cmd/Ctrl + Z: Toggle pane zoom
-    if (mod && e.code === "KeyZ") {
+    // Cmd/Ctrl + Z: Toggle pane zoom (only when NOT inside a CodeMirror editor, where it means Undo)
+    if (mod && !e.shiftKey && e.code === "KeyZ" && !isInsideCodeMirror(document.activeElement)) {
       e.preventDefault();
       if (ui.zoomedPaneId) {
         ui.zoomedPaneId = null;
@@ -146,6 +157,31 @@ export function initKeybindings() {
           }
         }
       }
+    }
+
+    // Cmd/Ctrl + W: Close active tab
+    if (mod && !e.shiftKey && e.key === "w") {
+      e.preventDefault();
+      document.dispatchEvent(new CustomEvent("splice:close-active-tab"));
+    }
+
+    // Cmd/Ctrl + Shift + S: Save As
+    if (mod && e.shiftKey && !e.altKey && e.key === "S") {
+      e.preventDefault();
+      workspaceManager.saveActiveFileAs();
+    }
+
+    // Cmd/Ctrl + Alt + S: Save All
+    if (mod && e.altKey && !e.shiftKey && e.key === "s") {
+      e.preventDefault();
+      workspaceManager.saveAllDirtyFiles();
+    }
+
+    // Cmd/Ctrl + Shift + F: Find in Files
+    if (mod && e.shiftKey && e.key === "F") {
+      e.preventDefault();
+      ui.sidebarMode = "search";
+      ui.explorerVisible = true;
     }
 
     // Cmd/Ctrl + 1-9: Switch to pane by index
@@ -185,6 +221,27 @@ export function initKeybindings() {
           }
         }
       }
+    }
+
+    // Cmd/Ctrl + =: Zoom in
+    if (mod && (e.key === "=" || e.key === "+")) {
+      e.preventDefault();
+      settings.appearance.ui_scale = Math.min(200, settings.appearance.ui_scale + 10);
+      debouncedSaveSettings();
+    }
+
+    // Cmd/Ctrl + -: Zoom out
+    if (mod && e.key === "-") {
+      e.preventDefault();
+      settings.appearance.ui_scale = Math.max(50, settings.appearance.ui_scale - 10);
+      debouncedSaveSettings();
+    }
+
+    // Cmd/Ctrl + 0: Reset zoom
+    if (mod && e.key === "0") {
+      e.preventDefault();
+      settings.appearance.ui_scale = 100;
+      debouncedSaveSettings();
     }
 
     // Cmd/Ctrl + Option/Alt + Shift + Left/Right: Switch workspace prev/next

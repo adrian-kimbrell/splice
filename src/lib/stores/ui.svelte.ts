@@ -1,10 +1,9 @@
 export const ui = $state({
-  leftSidebarVisible: true,
-  rightSidebarVisible: true,
-  leftSidebarWidth: 240,
-  rightSidebarWidth: 220,
+  explorerVisible: true,
+  workspacesVisible: true,
+  explorerWidth: 240,
+  workspacesWidth: 220,
   commandPaletteOpen: false,
-  settingsOpen: false,
-  settingsPanel: "editor" as "editor" | "appearance" | "terminal",
   zoomedPaneId: null as string | null,
+  sidebarMode: "files" as "files" | "search",
 });

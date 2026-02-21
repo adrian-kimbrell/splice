@@ -1,95 +1,58 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
+  import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
+  import type { AttentionNotification } from "../../lib/stores/attention.svelte";
 
   let {
     title,
     cwd = "",
-    branch = "",
+    notification = null,
     onSplit,
     onClose,
     onAction,
   }: {
     title: string;
     cwd?: string;
-    branch?: string;
+    notification?: AttentionNotification | null;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
     onAction?: (action: string) => void;
   } = $props();
 
   let splitMenuOpen = $state(false);
-  let splitBtnEl = $state<HTMLButtonElement>();
+  let splitBtnEl = $state<HTMLButtonElement | null>(null);
+  let splitDropdown: DropdownMenu;
 
-  let dropdownEl: HTMLDivElement | null = null;
+  const splitItems: DropdownItem[] = [
+    { label: "Split Right", icon: "bi-layout-split", action: "horizontal:after" },
+    { label: "Split Left", icon: "bi-layout-split", iconStyle: "transform: scaleX(-1)", action: "horizontal:before" },
+    { label: "Split Down", icon: "bi-layout-split", iconStyle: "transform: rotate(90deg)", action: "vertical:after" },
+    { label: "Split Up", icon: "bi-layout-split", iconStyle: "transform: rotate(-90deg)", action: "vertical:before" },
+  ];
 
-  function createDropdown() {
-    if (dropdownEl) return;
-    dropdownEl = document.createElement("div");
-    dropdownEl.className = "split-dropdown split-menu-container";
-    dropdownEl.innerHTML = `
-      <button class="split-dropdown-item" data-dir="horizontal" data-side="after">
-        <i class="bi bi-layout-split"></i>
-        <span>Split Right</span>
-      </button>
-      <button class="split-dropdown-item" data-dir="horizontal" data-side="before">
-        <i class="bi bi-layout-split" style="transform: scaleX(-1)"></i>
-        <span>Split Left</span>
-      </button>
-      <button class="split-dropdown-item" data-dir="vertical" data-side="after">
-        <i class="bi bi-layout-split" style="transform: rotate(90deg)"></i>
-        <span>Split Down</span>
-      </button>
-      <button class="split-dropdown-item" data-dir="vertical" data-side="before">
-        <i class="bi bi-layout-split" style="transform: rotate(-90deg)"></i>
-        <span>Split Up</span>
-      </button>
-    `;
-    dropdownEl.addEventListener("click", (e) => {
-      const btn = (e.target as HTMLElement).closest("[data-dir]");
-      if (btn) {
-        const dir = btn.getAttribute("data-dir") as SplitDirection;
-        const side = btn.getAttribute("data-side") as "before" | "after";
-        splitMenuOpen = false;
-        onSplit?.(dir, side);
-      }
-    });
-    document.body.appendChild(dropdownEl);
+  function handleSplitSelect(action: string) {
+    const [dir, side] = action.split(":") as [SplitDirection, "before" | "after"];
+    onSplit?.(dir, side);
   }
 
-  function removeDropdown() {
-    if (dropdownEl) {
-      dropdownEl.remove();
-      dropdownEl = null;
-    }
-  }
+  // --- Plus dropdown ---
+  let plusMenuOpen = $state(false);
+  let plusBtnEl = $state<HTMLButtonElement | null>(null);
+  let plusDropdown: DropdownMenu;
 
-  function updatePos() {
-    if (!splitBtnEl || !dropdownEl) return;
-    const r = splitBtnEl.getBoundingClientRect();
-    dropdownEl.style.top = r.bottom + "px";
-    dropdownEl.style.left = r.right + "px";
-  }
+  const plusItems: DropdownItem[] = [
+    { label: "New File", shortcut: "⌘ N", action: "new-file" },
+    { label: "Open File", shortcut: "⌘ P", action: "open-file" },
+    { label: "", action: "", separator: true },
+    { label: "Search Project", shortcut: "⌘ F", action: "search-project" },
+    { label: "Search Symbols", shortcut: "⌘ T", action: "search-symbols" },
+    { label: "", action: "", separator: true },
+    { label: "New Terminal", shortcut: "⌃ `", action: "new-terminal" },
+  ];
 
-  $effect(() => {
-    if (splitMenuOpen) {
-      createDropdown();
-      updatePos();
-    } else {
-      removeDropdown();
-    }
-  });
-
-  function onResize() {
-    if (splitMenuOpen) updatePos();
-    if (plusMenuOpen) updatePlusPos();
-  }
-
-  function closeMenus(e: MouseEvent) {
-    const t = e.target as HTMLElement;
-    if (splitMenuOpen && !t.closest(".split-menu-container")) splitMenuOpen = false;
-    if (plusMenuOpen && !t.closest(".plus-menu-container")) plusMenuOpen = false;
+  function handlePlusSelect(action: string) {
+    onAction?.(action);
   }
 
   function toggleSplitMenu(e: MouseEvent) {
@@ -98,85 +61,53 @@
     splitMenuOpen = !splitMenuOpen;
   }
 
-  // --- Plus dropdown ---
-  let plusMenuOpen = $state(false);
-  let plusBtnEl = $state<HTMLButtonElement>();
-  let plusDropdownEl: HTMLDivElement | null = null;
-
-  function createPlusDropdown() {
-    if (plusDropdownEl) return;
-    plusDropdownEl = document.createElement("div");
-    plusDropdownEl.className = "split-dropdown plus-menu-container";
-    plusDropdownEl.innerHTML = `
-      <button class="split-dropdown-item" data-action="new-file">
-        <span>New File</span>
-        <kbd>⌘ N</kbd>
-      </button>
-      <button class="split-dropdown-item" data-action="open-file">
-        <span>Open File</span>
-        <kbd>⌘ P</kbd>
-      </button>
-      <div class="split-dropdown-sep"></div>
-      <button class="split-dropdown-item" data-action="search-project">
-        <span>Search Project</span>
-        <kbd>⌘ F</kbd>
-      </button>
-      <button class="split-dropdown-item" data-action="search-symbols">
-        <span>Search Symbols</span>
-        <kbd>⌘ T</kbd>
-      </button>
-      <div class="split-dropdown-sep"></div>
-      <button class="split-dropdown-item" data-action="new-terminal">
-        <span>New Terminal</span>
-        <kbd>⌃ \`</kbd>
-      </button>
-    `;
-    plusDropdownEl.addEventListener("click", (e) => {
-      const btn = (e.target as HTMLElement).closest("[data-action]");
-      if (btn) {
-        const action = btn.getAttribute("data-action")!;
-        plusMenuOpen = false;
-        onAction?.(action);
-      }
-    });
-    document.body.appendChild(plusDropdownEl);
-  }
-
-  function removePlusDropdown() {
-    if (plusDropdownEl) { plusDropdownEl.remove(); plusDropdownEl = null; }
-  }
-
-  function updatePlusPos() {
-    if (!plusBtnEl || !plusDropdownEl) return;
-    const r = plusBtnEl.getBoundingClientRect();
-    plusDropdownEl.style.top = r.bottom + "px";
-    plusDropdownEl.style.left = r.right + "px";
-  }
-
-  $effect(() => {
-    if (plusMenuOpen) { createPlusDropdown(); updatePlusPos(); }
-    else { removePlusDropdown(); }
-  });
-
   function togglePlusMenu(e: MouseEvent) {
     e.stopPropagation();
     splitMenuOpen = false;
     plusMenuOpen = !plusMenuOpen;
   }
 
-  onDestroy(() => { removeDropdown(); removePlusDropdown(); });
+  function onResize() {
+    splitDropdown?.reposition();
+    plusDropdown?.reposition();
+  }
 </script>
 
 <svelte:window onresize={onResize} />
-<svelte:document onclick={closeMenus} />
+
+<DropdownMenu
+  bind:this={splitDropdown}
+  bind:open={splitMenuOpen}
+  triggerEl={splitBtnEl}
+  items={splitItems}
+  onSelect={handleSplitSelect}
+  containerClass="split-menu-container"
+/>
+<DropdownMenu
+  bind:this={plusDropdown}
+  bind:open={plusMenuOpen}
+  triggerEl={plusBtnEl}
+  items={plusItems}
+  onSelect={handlePlusSelect}
+  containerClass="plus-menu-container"
+/>
 
 <div
   class="flex items-center px-2.5 bg-tab-active border-b border-border text-xs shrink-0 select-none overflow-hidden min-w-0"
-  style="height: 28px; min-height: 28px;"
+  style="height: var(--titlebar-height); min-height: var(--titlebar-height);"
 >
   <span class="text-txt-bright font-medium whitespace-nowrap mr-2 overflow-hidden text-ellipsis min-w-0"
     >{title}</span
   >
+  {#if notification}
+    <span
+      class="attention-bell shrink-0 mr-2 flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
+      style="color: {notification.type === 'permission' ? 'var(--ansi-red)' : 'var(--ansi-yellow)'}; background: {notification.type === 'permission' ? 'rgba(224,108,117,0.12)' : 'rgba(229,192,123,0.12)'};"
+    >
+      <i class="bi bi-claude" style="font-size: 9px;"></i>
+      {notification.type === 'permission' ? 'permission' : 'waiting'}
+    </span>
+  {/if}
   <span class="flex-1 min-w-0"></span>
   <span
     class="flex items-center gap-3 text-txt-dim text-[11px] whitespace-nowrap overflow-hidden min-w-0"
@@ -184,11 +115,6 @@
     {#if cwd}
       <span class="overflow-hidden text-ellipsis"
         ><i class="bi bi-folder2 mr-1 text-[11px]"></i>{cwd}</span
-      >
-    {/if}
-    {#if branch}
-      <span class="overflow-hidden text-ellipsis"
-        ><i class="bi bi-git mr-1 text-[11px]"></i>{branch}</span
       >
     {/if}
   </span>
@@ -227,3 +153,13 @@
     {/if}
   </span>
 </div>
+
+<style>
+  .attention-bell {
+    animation: bell-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes bell-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+</style>

@@ -3,9 +3,16 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
 
+  let {
+    side = "right",
+  }: {
+    side?: "left" | "right";
+  } = $props();
+
   const wsList = $derived(Object.values(workspaceManager.workspaces));
   const activeId = $derived(workspaceManager.activeWorkspaceId);
-  const compact = $derived(ui.rightSidebarWidth < 80);
+  const sidebarWidth = $derived(ui.workspacesWidth);
+  const compact = $derived(sidebarWidth < 80);
 
   const selectedItem = $derived.by(() => {
     if (!activeId) return null;
@@ -61,28 +68,69 @@
     if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; }
   }
 
-  function handleContextMenu(e: MouseEvent) {
+  function showCtxMenu(e: MouseEvent, items: { icon: string; label: string; action: string }[], targetWsId?: string) {
     e.preventDefault();
+    e.stopPropagation();
     removeCtxMenu();
     ctxMenuEl = document.createElement("div");
     ctxMenuEl.className = "split-dropdown ctx-menu-container";
     ctxMenuEl.style.top = e.clientY + "px";
     ctxMenuEl.style.left = e.clientX + "px";
-    ctxMenuEl.style.transform = "translateX(-100%)";
-    ctxMenuEl.innerHTML = `
-      <button class="split-dropdown-item" data-action="new-workspace">
-        <i class="bi bi-folder-plus"></i>
-        <span>New Workspace</span>
-      </button>
-    `;
+    // Position menu away from the sidebar edge
+    ctxMenuEl.style.transform = side === "right" ? "translateX(-100%)" : "translateX(0)";
+    ctxMenuEl.innerHTML = items.map(item =>
+      `<button class="split-dropdown-item" data-action="${item.action}">
+        <i class="bi ${item.icon}"></i>
+        <span>${item.label}</span>
+      </button>`
+    ).join("");
     ctxMenuEl.addEventListener("click", (ev) => {
-      const btn = (ev.target as HTMLElement).closest("[data-action]");
-      if (btn) {
-        handleCreateWorkspace();
-        removeCtxMenu();
-      }
+      const btn = (ev.target as HTMLElement).closest<HTMLElement>("[data-action]");
+      if (!btn) return;
+      const action = btn.dataset.action;
+      // Switch to target workspace before executing workspace-scoped actions
+      if (targetWsId) workspaceManager.switchWorkspace(targetWsId);
+      if (action === "new-workspace") handleCreateWorkspace();
+      else if (action === "new-file") workspaceManager.newUntitledFile();
+      else if (action === "new-terminal") workspaceManager.spawnTerminalInWorkspace();
+      else if (action === "open-file") handleOpenFile();
+      removeCtxMenu();
     });
     document.body.appendChild(ctxMenuEl);
+  }
+
+  function handleContextMenu(e: MouseEvent) {
+    showCtxMenu(e, [
+      { icon: "bi-folder-plus", label: "New Workspace", action: "new-workspace" },
+    ]);
+  }
+
+  function handleWorkspaceContextMenu(e: MouseEvent, wsId: string) {
+    showCtxMenu(e, [
+      { icon: "bi-file-earmark-plus", label: "New File", action: "new-file" },
+      { icon: "bi-terminal", label: "New Terminal", action: "new-terminal" },
+      { icon: "bi-folder2-open", label: "Open File", action: "open-file" },
+    ], wsId);
+  }
+
+  async function handleOpenFile() {
+    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+    if (!isTauri) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({ directory: false, multiple: false });
+      if (selected) {
+        // Ensure there's an active workspace
+        if (!workspaceManager.activeWorkspace) {
+          workspaceManager.createEmptyWorkspace();
+        }
+        const filePath = selected as string;
+        const name = filePath.split("/").pop() ?? filePath;
+        workspaceManager.openFileInWorkspace({ name, path: filePath, content: "" });
+      }
+    } catch (e) {
+      console.error("Failed to open file:", e);
+    }
   }
 
   function closeCtxMenu(e: MouseEvent) {
@@ -96,8 +144,15 @@
 
 <svelte:document onclick={closeCtxMenu} />
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="bg-sidebar border-l border-border flex flex-col overflow-hidden" style="grid-column: 5; grid-row: 1" oncontextmenu={handleContextMenu}>
+<div
+  class="bg-sidebar border-border flex flex-col overflow-hidden"
+  class:border-l={side === "right"}
+  class:border-r={side === "left"}
+  style="grid-column: {side === 'right' ? 5 : 1}; grid-row: 1"
+  role="complementary"
+  aria-label="Workspaces"
+  oncontextmenu={handleContextMenu}
+>
   <div class="flex-1 overflow-y-auto flex flex-col">
     {#each wsList as workspace (workspace.id)}
       <WorkspaceListItem
@@ -108,6 +163,7 @@
         onItemClick={handleItemClick}
         onWorkspaceClick={() => workspaceManager.switchWorkspace(workspace.id)}
         onClose={() => handleCloseWorkspace(workspace.id)}
+        onHeaderContextMenu={(e) => handleWorkspaceContextMenu(e, workspace.id)}
       />
     {/each}
     {#if wsList.length === 0}

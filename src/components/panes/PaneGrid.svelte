@@ -105,14 +105,19 @@
 {#if node.type === "leaf"}
   {@const config = panes[node.paneId]}
   {#if config}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       bind:this={leafEl}
       data-pane-id={node.paneId}
       class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative"
       style="contain: layout style paint; border: {node.paneId === activePaneId ? '2px solid var(--pane-border-active)' : '1px solid var(--border)'}"
-      onclick={() => onPaneClick?.(node.paneId)}
+      role="group"
+      onclick={() => {
+        onPaneClick?.(node.paneId);
+        // Focus the inner content element (terminal canvas or CodeMirror editor)
+        const target = leafEl?.querySelector<HTMLElement>('canvas[tabindex], .cm-content');
+        if (target) target.focus();
+      }}
+      onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") onPaneClick?.(node.paneId); }}
     >
       {@render paneSnippet(config)}
       {#if myDropZone}
@@ -141,7 +146,6 @@
       <PaneGrid node={node.children[0]} {panes} {paneSnippet} {activePaneId} {onPaneClick} />
     </div>
 
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="shrink-0 transition-colors duration-100"
       class:cursor-col-resize={node.direction === "horizontal"}
@@ -149,9 +153,25 @@
       style="{node.direction === 'horizontal'
         ? 'width: 4px; min-width: 4px;'
         : 'height: 4px; min-height: 4px;'} background: {dragging ? '#aaaaaa' : 'var(--border)'};"
+      role="separator"
+      tabindex="0"
+      aria-orientation={node.direction === "horizontal" ? "vertical" : "horizontal"}
       onmousedown={handleMouseDown}
       onmouseenter={(e) => { if (!dragging) e.currentTarget.style.background = '#888888'; }}
       onmouseleave={(e) => { if (!dragging) e.currentTarget.style.background = 'var(--border)'; }}
+      onkeydown={(e) => {
+        if (node.type !== "split") return;
+        const step = 0.02;
+        if ((node.direction === "horizontal" && e.key === "ArrowLeft") ||
+            (node.direction === "vertical" && e.key === "ArrowUp")) {
+          e.preventDefault();
+          node.ratio = Math.max(0.1, node.ratio - step);
+        } else if ((node.direction === "horizontal" && e.key === "ArrowRight") ||
+                   (node.direction === "vertical" && e.key === "ArrowDown")) {
+          e.preventDefault();
+          node.ratio = Math.min(0.9, node.ratio + step);
+        }
+      }}
     ></div>
 
     <div style="flex: 1; overflow: hidden; contain: layout style paint;" class="flex min-w-0 min-h-0">

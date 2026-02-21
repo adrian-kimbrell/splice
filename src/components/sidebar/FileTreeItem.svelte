@@ -1,31 +1,33 @@
 <script lang="ts">
   import type { FileEntry } from "../../lib/stores/files.svelte";
   import { getFileIcon } from "../../lib/utils/file-icons";
-  // readDirTree imported dynamically in toggle()
   import FileTreeItem from "./FileTreeItem.svelte";
 
   let {
     entry,
     depth = 0,
     onFileClick,
+    onFileDoubleClick,
     selectedPath,
+    focusedPath = null,
   }: {
     entry: FileEntry;
     depth?: number;
     onFileClick: (entry: FileEntry) => void;
+    onFileDoubleClick?: (entry: FileEntry) => void;
     selectedPath: string | null;
+    focusedPath?: string | null;
   } = $props();
 
   let expanded = $state(false);
   let loading = $state(false);
-  // Local state for children — ensures re-render after async lazy-load
   let children = $state<FileEntry[] | undefined>(undefined);
   const indent = $derived(8 + depth * 16);
   const icon = $derived(entry.is_dir ? null : getFileIcon(entry.name));
   const isSelected = $derived(selectedPath === entry.path);
+  const isFocused = $derived(focusedPath === entry.path);
 
   let hasAutoExpanded = false;
-  // Sync from parent when entry.children is populated externally
   $effect(() => {
     if (entry.children && entry.children.length > 0) {
       children = entry.children;
@@ -36,36 +38,74 @@
     }
   });
 
-  async function toggle() {
-    if (entry.is_dir) {
-      expanded = !expanded;
-      // Lazy-load children if not yet loaded
-      if (expanded && !children) {
-        loading = true;
-        try {
-          const { readDirTree } = await import("../../lib/ipc/commands");
-          const result = await readDirTree(entry.path);
-          entry.children = result; // cache on entry
-          children = result;       // drive local rendering
-        } catch (e) {
-          console.error("Failed to load directory:", e);
-        } finally {
-          loading = false;
-        }
+  let clickTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function toggleDir() {
+    expanded = !expanded;
+    if (expanded && !children) {
+      loading = true;
+      try {
+        const { readDirTree } = await import("../../lib/ipc/commands");
+        const result = await readDirTree(entry.path);
+        entry.children = result;
+        children = result;
+      } catch (e) {
+        console.error("Failed to load directory:", e);
+      } finally {
+        loading = false;
       }
-    } else {
+    }
+  }
+
+  function handleClick() {
+    if (entry.is_dir) {
+      toggleDir();
+      return;
+    }
+    // Single click on file: delay to distinguish from double-click
+    if (clickTimer) clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => {
+      clickTimer = null;
       onFileClick(entry);
+    }, 250);
+  }
+
+  function handleDblClick() {
+    if (entry.is_dir) return;
+    if (clickTimer) {
+      clearTimeout(clickTimer);
+      clickTimer = null;
+    }
+    onFileDoubleClick?.(entry);
+  }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === "ArrowRight" && entry.is_dir) {
+      if (!expanded) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleDir();
+      }
+    } else if (e.key === "ArrowLeft" && entry.is_dir && expanded) {
+      e.preventDefault();
+      e.stopPropagation();
+      expanded = false;
     }
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="tree-item"
   class:active={isSelected}
   style="padding-left: {indent}px; padding-right: 8px; position: relative;"
-  onclick={toggle}
+  role="treeitem"
+  tabindex={isFocused ? 0 : -1}
+  aria-expanded={entry.is_dir ? expanded : undefined}
+  aria-selected={isSelected}
+  data-path={entry.path}
+  onclick={handleClick}
+  ondblclick={handleDblClick}
+  onkeydown={handleKeyDown}
 >
   {#each Array(depth) as _, i}
     <span
@@ -98,12 +138,14 @@
 </div>
 
 {#if entry.is_dir && expanded && children}
-  {#each children as child (child.name)}
+  {#each children as child (child.path)}
     <FileTreeItem
       entry={child}
       depth={depth + 1}
       {onFileClick}
+      {onFileDoubleClick}
       {selectedPath}
+      {focusedPath}
     />
   {/each}
 {/if}

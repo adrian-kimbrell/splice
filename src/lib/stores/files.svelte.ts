@@ -12,4 +12,5 @@ export interface OpenFile {
   content: string;
   dirty?: boolean;
   originalContent?: string;
+  preview?: boolean;
 }

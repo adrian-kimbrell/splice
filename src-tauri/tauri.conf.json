@@ -1,7 +1,7 @@
 {
-  "productName": "malloc",
+  "productName": "Splice",
   "version": "0.1.0",
-  "identifier": "com.malloc.editor",
+  "identifier": "com.splice.editor",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "malloc",
+        "title": "",
         "width": 1280,
         "height": 800,
         "minWidth": 800,
@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://cdn.jsdelivr.net; script-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: https://asset.localhost"
     }
   },
   "bundle": {

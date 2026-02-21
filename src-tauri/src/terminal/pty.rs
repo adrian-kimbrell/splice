@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter};
 
 pub struct PtySession {
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pub child_pid: Option<u32>,
     master: Box<dyn MasterPty + Send>,
     emulator: Arc<RwLock<Emulator>>,
     version: Arc<AtomicU32>,
@@ -50,9 +51,11 @@ impl PtySession {
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
 
-        pair.slave
+        let child = pair.slave
             .spawn_command(cmd)
             .map_err(|e| e.to_string())?;
+        let child_pid = child.process_id();
+        drop(child);
 
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let writer = Arc::new(Mutex::new(
@@ -90,7 +93,15 @@ impl PtySession {
                         break;
                     }
                     Ok(n) => {
-                        let mut emu = reader_emulator.write().unwrap();
+                        let mut emu = match reader_emulator.write() {
+                            Ok(emu) => emu,
+                            Err(_) => {
+                                reader_running.store(false, Ordering::Relaxed);
+                                let _ = app_clone.emit(&exit_event, 1);
+                                reader_notify.notify();
+                                break;
+                            }
+                        };
                         emu.advance(&buf[..n]);
 
                         // Extract all pending state before dropping the lock
@@ -139,6 +150,7 @@ impl PtySession {
 
         Ok(Self {
             writer,
+            child_pid,
             master: pair.master,
             emulator,
             version,
@@ -152,7 +164,10 @@ impl PtySession {
 
     pub fn scroll(&self, delta: i32) {
         let max = {
-            let emu = self.emulator.read().unwrap();
+            let emu = match self.emulator.read() {
+                Ok(emu) => emu,
+                Err(_) => return, // scroll is non-critical
+            };
             emu.grid.active().scrollback.len() as i32
         };
         let old = self.scroll_offset.load(Ordering::Relaxed);

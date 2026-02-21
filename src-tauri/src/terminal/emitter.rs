@@ -23,13 +23,17 @@ impl EmitterNotify {
     }
 
     pub fn notify(&self) {
-        let _lock = self.mutex.lock().unwrap();
-        self.condvar.notify_one();
+        if let Ok(_lock) = self.mutex.lock() {
+            self.condvar.notify_one();
+        }
     }
 
     fn wait_timeout(&self, timeout: Duration) {
-        let lock = self.mutex.lock().unwrap();
-        let _ = self.condvar.wait_timeout(lock, timeout).unwrap();
+        if let Ok(lock) = self.mutex.lock() {
+            let _ = self.condvar.wait_timeout(lock, timeout);
+        } else {
+            thread::sleep(timeout);
+        }
     }
 }
 
@@ -199,10 +203,12 @@ pub fn spawn_emitter(
                 }
                 last_version = current;
                 let offset = scroll_offset.load(Ordering::Relaxed);
-                let b64 = {
-                    let emu = emulator.read().unwrap();
-                    let data = serialize_grid(&emu.grid, offset);
-                    base64::engine::general_purpose::STANDARD.encode(&data)
+                let b64 = match emulator.read() {
+                    Ok(emu) => {
+                        let data = serialize_grid(&emu.grid, offset);
+                        base64::engine::general_purpose::STANDARD.encode(&data)
+                    }
+                    Err(_) => continue, // skip frame on poisoned lock
                 };
                 let _ = app.emit(&event_name, b64);
                 last_emit = Instant::now();

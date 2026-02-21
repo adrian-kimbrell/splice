@@ -42,8 +42,14 @@ pub enum PaneType {
     Editor { file_path: String },
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
+    #[serde(default)]
+    pub general: GeneralSettings,
     pub editor: EditorSettings,
     pub appearance: AppearanceSettings,
     pub terminal: TerminalSettings,
@@ -52,9 +58,38 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            general: GeneralSettings::default(),
             editor: EditorSettings::default(),
             appearance: AppearanceSettings::default(),
             terminal: TerminalSettings::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneralSettings {
+    #[serde(default = "default_auto_save")]
+    pub auto_save: String,
+    #[serde(default = "default_auto_save_delay")]
+    pub auto_save_delay: u32,
+    #[serde(default = "default_true")]
+    pub restore_previous_session: bool,
+}
+
+fn default_auto_save() -> String {
+    "off".to_string()
+}
+
+fn default_auto_save_delay() -> u32 {
+    1000
+}
+
+impl Default for GeneralSettings {
+    fn default() -> Self {
+        Self {
+            auto_save: default_auto_save(),
+            auto_save_delay: default_auto_save_delay(),
+            restore_previous_session: true,
         }
     }
 }
@@ -67,6 +102,18 @@ pub struct EditorSettings {
     pub word_wrap: bool,
     pub line_numbers: bool,
     pub minimap: bool,
+    #[serde(default = "default_true")]
+    pub insert_spaces: bool,
+    #[serde(default = "default_true")]
+    pub bracket_matching: bool,
+    #[serde(default = "default_true")]
+    pub auto_close_brackets: bool,
+    #[serde(default = "default_true")]
+    pub highlight_active_line: bool,
+    #[serde(default = "default_true")]
+    pub scroll_past_end: bool,
+    #[serde(default = "default_true")]
+    pub indent_guides: bool,
 }
 
 impl Default for EditorSettings {
@@ -78,6 +125,12 @@ impl Default for EditorSettings {
             word_wrap: false,
             line_numbers: true,
             minimap: false,
+            insert_spaces: true,
+            bracket_matching: true,
+            auto_close_brackets: true,
+            highlight_active_line: true,
+            scroll_past_end: true,
+            indent_guides: true,
         }
     }
 }
@@ -106,6 +159,14 @@ pub struct TerminalSettings {
     pub cursor_style: String,
     pub cursor_blink: bool,
     pub scrollback_lines: u32,
+    #[serde(default = "default_terminal_font")]
+    pub font_family: String,
+    #[serde(default)]
+    pub copy_on_select: bool,
+}
+
+fn default_terminal_font() -> String {
+    "Menlo".to_string()
 }
 
 impl Default for TerminalSettings {
@@ -116,6 +177,8 @@ impl Default for TerminalSettings {
             cursor_style: "Block".to_string(),
             cursor_blink: true,
             scrollback_lines: 10000,
+            font_family: default_terminal_font(),
+            copy_on_select: false,
         }
     }
 }

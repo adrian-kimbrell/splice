@@ -20,17 +20,14 @@ export function onTerminalExit(id: number, callback: (code: number) => void) {
   });
 }
 
-export function onTerminalTitle(
-  id: number,
-  callback: (title: string) => void,
-) {
-  return listen<string>(`terminal:title:${id}`, (event) => {
-    callback(event.payload);
-  });
+export interface AttentionPayload {
+  terminal_id: number;
+  notification_type: string;
+  message: string;
 }
 
-export function onTerminalBell(id: number, callback: () => void) {
-  return listen<void>(`terminal:bell:${id}`, () => {
-    callback();
+export function onAttentionNotify(callback: (payload: AttentionPayload) => void) {
+  return listen<AttentionPayload>('attention:notify', (event) => {
+    callback(event.payload);
   });
 }

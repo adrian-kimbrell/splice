@@ -25,3 +25,7 @@ Thumbs.db
 
 # Claude Code
 .claude/
+
+# Benchmark results
+bench-results/
+src-tauri/target/criterion/

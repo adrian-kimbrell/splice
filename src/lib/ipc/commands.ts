@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { FileEntry } from "../stores/files.svelte";
+import type { Settings } from "../stores/settings.svelte";
 
 export async function readDirTree(path: string): Promise<FileEntry[]> {
   return invoke("read_dir_tree", { path });
@@ -75,33 +76,58 @@ export async function closeWorkspace(id: string): Promise<number[]> {
   return invoke("close_workspace", { id });
 }
 
-export interface Settings {
-  editor: {
-    font_family: string;
-    font_size: number;
-    tab_size: number;
-    word_wrap: boolean;
-    line_numbers: boolean;
-    minimap: boolean;
-  };
-  appearance: {
-    theme: string;
-    ui_scale: number;
-    show_status_bar: boolean;
-  };
-  terminal: {
-    default_shell: string;
-    font_size: number;
-    cursor_style: string;
-    cursor_blink: boolean;
-    scrollback_lines: number;
-  };
-}
-
 export async function getSettings(): Promise<Settings> {
   return invoke("get_settings");
 }
 
 export async function updateSettings(settings: Settings): Promise<void> {
   return invoke("update_settings", { settings });
+}
+
+export async function installClaudeHook(): Promise<void> {
+  return invoke("install_claude_hook");
+}
+
+export interface SearchMatch {
+  path: string;
+  line_number: number;
+  line_content: string;
+  col_start: number;
+  col_end: number;
+}
+
+export interface SearchResult {
+  matches: SearchMatch[];
+  truncated: boolean;
+  total_files_searched: number;
+}
+
+export async function getGitBranch(path: string): Promise<string> {
+  return invoke("get_git_branch", { path });
+}
+
+export async function readFileBase64(path: string): Promise<string> {
+  return invoke("read_file_base64", { path });
+}
+
+export async function getRecentFiles(): Promise<string[]> {
+  return invoke("get_recent_files");
+}
+
+export async function addRecentFile(path: string): Promise<void> {
+  return invoke("add_recent_file", { path });
+}
+
+export async function searchFiles(
+  rootPath: string,
+  query: string,
+  caseSensitive: boolean,
+  maxResults?: number,
+): Promise<SearchResult> {
+  return invoke("search_files", {
+    rootPath,
+    query,
+    caseSensitive,
+    maxResults: maxResults ?? null,
+  });
 }

@@ -133,6 +133,15 @@ export class TerminalRenderer {
     this.selectionEnd = end;
   }
 
+  updateFont(fontSize: number, fontFamily: string) {
+    this.fontSize = fontSize;
+    this.fontFamily = fontFamily;
+    this.measureFont();
+    this.forceFullRedraw = true;
+    this.lastFont = "";
+    this.lastFillStyle = "";
+  }
+
   pixelToCell(x: number, y: number): { col: number; row: number } {
     return {
       col: Math.floor(x / this._cellWidth),

@@ -1,22 +1,29 @@
 {
-  "name": "malloc",
+  "name": "splice",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "bench": "vitest bench --run",
+    "bench:watch": "vitest bench",
+    "bench:rust": "cd src-tauri && cargo bench",
+    "bench:rust:save": "cd src-tauri && cargo bench -- --save-baseline main",
+    "bench:rust:compare": "cd src-tauri && cargo bench -- --baseline main"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.1.1",
     "@tauri-apps/cli": "^2.10.0",
     "autoprefixer": "^10.4.24",
+    "happy-dom": "^20.6.3",
     "postcss": "^8.5.6",
-    "svelte": "^5.51.2",
+    "svelte": "^5.51.5",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",
-    "vite": "^6.4.1"
+    "vite": "^6.4.1",
+    "vitest": "^3.0.0"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",
@@ -26,9 +33,12 @@
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/lang-rust": "^6.0.2",
+    "@replit/codemirror-indentation-markers": "^6.5.3",
+    "@replit/codemirror-minimap": "^0.5.2",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-shell": "^2.3.5",
-"codemirror": "^6.0.2"
+    "codemirror": "^6.0.2",
+    "marked": "^17.0.3"
   }
 }

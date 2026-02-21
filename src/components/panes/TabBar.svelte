@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
   import Tab from "./Tab.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
+  import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
 
   let {
     tabs,
@@ -10,15 +10,17 @@
     paneId,
     onTabClick,
     onTabClose,
+    onTabDoubleClick,
     onSplit,
     onClose,
     onAction,
   }: {
-    tabs: { name: string; path: string }[];
+    tabs: { name: string; path: string; preview?: boolean; dirty?: boolean }[];
     activeTab: string | null;
     paneId: string;
     onTabClick: (path: string) => void;
     onTabClose?: (path: string) => void;
+    onTabDoubleClick?: (path: string) => void;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
     onAction?: (action: string) => void;
@@ -26,58 +28,39 @@
 
   // --- Split dropdown ---
   let splitMenuOpen = $state(false);
-  let splitBtnEl = $state<HTMLButtonElement>();
-  let splitDropdownEl: HTMLDivElement | null = null;
+  let splitBtnEl = $state<HTMLButtonElement | null>(null);
+  let splitDropdown: DropdownMenu;
 
-  function createSplitDropdown() {
-    if (splitDropdownEl) return;
-    splitDropdownEl = document.createElement("div");
-    splitDropdownEl.className = "split-dropdown split-menu-container";
-    splitDropdownEl.innerHTML = `
-      <button class="split-dropdown-item" data-dir="horizontal" data-side="after">
-        <i class="bi bi-layout-split"></i>
-        <span>Split Right</span>
-      </button>
-      <button class="split-dropdown-item" data-dir="horizontal" data-side="before">
-        <i class="bi bi-layout-split" style="transform: scaleX(-1)"></i>
-        <span>Split Left</span>
-      </button>
-      <button class="split-dropdown-item" data-dir="vertical" data-side="after">
-        <i class="bi bi-layout-split" style="transform: rotate(90deg)"></i>
-        <span>Split Down</span>
-      </button>
-      <button class="split-dropdown-item" data-dir="vertical" data-side="before">
-        <i class="bi bi-layout-split" style="transform: rotate(-90deg)"></i>
-        <span>Split Up</span>
-      </button>
-    `;
-    splitDropdownEl.addEventListener("click", (e) => {
-      const btn = (e.target as HTMLElement).closest("[data-dir]");
-      if (btn) {
-        const dir = btn.getAttribute("data-dir") as SplitDirection;
-        const side = btn.getAttribute("data-side") as "before" | "after";
-        splitMenuOpen = false;
-        onSplit?.(dir, side);
-      }
-    });
-    document.body.appendChild(splitDropdownEl);
+  const splitItems: DropdownItem[] = [
+    { label: "Split Right", icon: "bi-layout-split", action: "horizontal:after" },
+    { label: "Split Left", icon: "bi-layout-split", iconStyle: "transform: scaleX(-1)", action: "horizontal:before" },
+    { label: "Split Down", icon: "bi-layout-split", iconStyle: "transform: rotate(90deg)", action: "vertical:after" },
+    { label: "Split Up", icon: "bi-layout-split", iconStyle: "transform: rotate(-90deg)", action: "vertical:before" },
+  ];
+
+  function handleSplitSelect(action: string) {
+    const [dir, side] = action.split(":") as [SplitDirection, "before" | "after"];
+    onSplit?.(dir, side);
   }
 
-  function removeSplitDropdown() {
-    if (splitDropdownEl) { splitDropdownEl.remove(); splitDropdownEl = null; }
-  }
+  // --- Plus dropdown ---
+  let plusMenuOpen = $state(false);
+  let plusBtnEl = $state<HTMLButtonElement | null>(null);
+  let plusDropdown: DropdownMenu;
 
-  function updateSplitPos() {
-    if (!splitBtnEl || !splitDropdownEl) return;
-    const r = splitBtnEl.getBoundingClientRect();
-    splitDropdownEl.style.top = r.bottom + "px";
-    splitDropdownEl.style.left = r.right + "px";
-  }
+  const plusItems: DropdownItem[] = [
+    { label: "New File", shortcut: "⌘ N", action: "new-file" },
+    { label: "Open File", shortcut: "⌘ P", action: "open-file" },
+    { label: "", action: "", separator: true },
+    { label: "Search Project", shortcut: "⌘ F", action: "search-project" },
+    { label: "Search Symbols", shortcut: "⌘ T", action: "search-symbols" },
+    { label: "", action: "", separator: true },
+    { label: "New Terminal", shortcut: "⌃ `", action: "new-terminal" },
+  ];
 
-  $effect(() => {
-    if (splitMenuOpen) { createSplitDropdown(); updateSplitPos(); }
-    else { removeSplitDropdown(); }
-  });
+  function handlePlusSelect(action: string) {
+    onAction?.(action);
+  }
 
   function toggleSplitMenu(e: MouseEvent) {
     e.stopPropagation();
@@ -85,89 +68,36 @@
     splitMenuOpen = !splitMenuOpen;
   }
 
-  // --- Plus dropdown ---
-  let plusMenuOpen = $state(false);
-  let plusBtnEl = $state<HTMLButtonElement>();
-  let plusDropdownEl: HTMLDivElement | null = null;
-
-  function createPlusDropdown() {
-    if (plusDropdownEl) return;
-    plusDropdownEl = document.createElement("div");
-    plusDropdownEl.className = "split-dropdown plus-menu-container";
-    plusDropdownEl.innerHTML = `
-      <button class="split-dropdown-item" data-action="new-file">
-        <span>New File</span>
-        <kbd>⌘ N</kbd>
-      </button>
-      <button class="split-dropdown-item" data-action="open-file">
-        <span>Open File</span>
-        <kbd>⌘ P</kbd>
-      </button>
-      <div class="split-dropdown-sep"></div>
-      <button class="split-dropdown-item" data-action="search-project">
-        <span>Search Project</span>
-        <kbd>⌘ F</kbd>
-      </button>
-      <button class="split-dropdown-item" data-action="search-symbols">
-        <span>Search Symbols</span>
-        <kbd>⌘ T</kbd>
-      </button>
-      <div class="split-dropdown-sep"></div>
-      <button class="split-dropdown-item" data-action="new-terminal">
-        <span>New Terminal</span>
-        <kbd>⌃ \`</kbd>
-      </button>
-    `;
-    plusDropdownEl.addEventListener("click", (e) => {
-      const btn = (e.target as HTMLElement).closest("[data-action]");
-      if (btn) {
-        const action = btn.getAttribute("data-action")!;
-        plusMenuOpen = false;
-        onAction?.(action);
-      }
-    });
-    document.body.appendChild(plusDropdownEl);
-  }
-
-  function removePlusDropdown() {
-    if (plusDropdownEl) { plusDropdownEl.remove(); plusDropdownEl = null; }
-  }
-
-  function updatePlusPos() {
-    if (!plusBtnEl || !plusDropdownEl) return;
-    const r = plusBtnEl.getBoundingClientRect();
-    plusDropdownEl.style.top = r.bottom + "px";
-    plusDropdownEl.style.left = r.right + "px";
-  }
-
-  $effect(() => {
-    if (plusMenuOpen) { createPlusDropdown(); updatePlusPos(); }
-    else { removePlusDropdown(); }
-  });
-
   function togglePlusMenu(e: MouseEvent) {
     e.stopPropagation();
     splitMenuOpen = false;
     plusMenuOpen = !plusMenuOpen;
   }
 
-  // --- Shared ---
   function onResize() {
-    if (splitMenuOpen) updateSplitPos();
-    if (plusMenuOpen) updatePlusPos();
+    splitDropdown?.reposition();
+    plusDropdown?.reposition();
   }
-
-  function closeMenus(e: MouseEvent) {
-    const t = e.target as HTMLElement;
-    if (splitMenuOpen && !t.closest(".split-menu-container")) splitMenuOpen = false;
-    if (plusMenuOpen && !t.closest(".plus-menu-container")) plusMenuOpen = false;
-  }
-
-  onDestroy(() => { removeSplitDropdown(); removePlusDropdown(); });
 </script>
 
 <svelte:window onresize={onResize} />
-<svelte:document onclick={closeMenus} />
+
+<DropdownMenu
+  bind:this={splitDropdown}
+  bind:open={splitMenuOpen}
+  triggerEl={splitBtnEl}
+  items={splitItems}
+  onSelect={handleSplitSelect}
+  containerClass="split-menu-container"
+/>
+<DropdownMenu
+  bind:this={plusDropdown}
+  bind:open={plusMenuOpen}
+  triggerEl={plusBtnEl}
+  items={plusItems}
+  onSelect={handlePlusSelect}
+  containerClass="plus-menu-container"
+/>
 
 <div class="flex bg-tab border-b border-border h-8 shrink-0 overflow-hidden min-w-0">
   <div class="flex flex-1 overflow-x-auto min-w-0">
@@ -177,8 +107,11 @@
         path={tab.path}
         {paneId}
         active={tab.path === activeTab}
+        preview={tab.preview}
+        dirty={tab.dirty}
         onclick={() => onTabClick(tab.path)}
         onclose={onTabClose ? () => onTabClose(tab.path) : undefined}
+        ondblclick={onTabDoubleClick ? () => onTabDoubleClick(tab.path) : undefined}
       />
     {/each}
   </div>

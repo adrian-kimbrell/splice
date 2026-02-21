@@ -1,15 +1,14 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import type { Snippet } from "svelte";
   import { TerminalRenderer, HEADER_SIZE, CELL_SIZE } from "../../lib/terminal/renderer";
+  import { settings } from "../../lib/stores/settings.svelte";
+  import { attentionStore } from "../../lib/stores/attention.svelte";
 
   let {
     terminalId = 0,
-    children,
     active = false,
   }: {
     terminalId?: number;
-    children?: Snippet;
     active?: boolean;
   } = $props();
 
@@ -20,7 +19,7 @@
 
   let containerEl = $state<HTMLDivElement>();
   let canvasEl = $state<HTMLCanvasElement>();
-  let renderer: TerminalRenderer | null = null;
+  let renderer = $state<TerminalRenderer | null>(null);
   let resizeObserver: ResizeObserver | null = null;
   let unlistenGrid: (() => void) | null = null;
   let unlistenExit: (() => void) | null = null;
@@ -50,6 +49,28 @@
       requestAnimationFrame(() => {
         handleResize();
       });
+    }
+  });
+
+  // Update terminal font when settings change
+  $effect(() => {
+    if (!renderer) return;
+    const fs = settings.terminal.font_size;
+    const ff = `${settings.terminal.font_family}, Consolas, 'Courier New', monospace`;
+    renderer.updateFont(fs, ff);
+    handleResize();
+    renderer.rerender();
+  });
+
+  // Toggle cursor blink based on settings
+  $effect(() => {
+    if (!renderer) return;
+    if (settings.terminal.cursor_blink) {
+      resetBlinkTimer();
+    } else {
+      if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null; }
+      renderer.setCursorBlink(true);
+      renderer.rerender();
     }
   });
 
@@ -162,7 +183,19 @@
       return null; // handled by paste event
     }
 
-    // 3. Meta key (Cmd) passes through to OS
+    // 3. macOS Cmd+key → terminal control sequences
+    if (e.metaKey && !e.altKey && !e.shiftKey) {
+      switch (e.key) {
+        case "Backspace": return new Uint8Array([0x15]);       // Ctrl+U: kill to line start
+        case "Delete":    return new Uint8Array([0x0b]);       // Ctrl+K: kill to line end
+        case "ArrowLeft": return new Uint8Array([0x01]);       // Ctrl+A: beginning of line
+        case "ArrowRight":return new Uint8Array([0x05]);       // Ctrl+E: end of line
+        case "ArrowUp":   return new Uint8Array([0x10]);       // Ctrl+P: prev history entry
+        case "ArrowDown": return new Uint8Array([0x0e]);       // Ctrl+N: next history entry
+      }
+    }
+
+    // 4. Other Cmd combos pass through to OS
     if (e.metaKey) return null;
 
     // 4. Compute modifier code once
@@ -212,7 +245,13 @@
       return csiTildeKey("6", mod);
     }
 
-    // 12. Alt+key (single char, no ctrl/shift) → ESC prefix
+    // 12. Alt+special keys (non-printable)
+    if (e.altKey && !e.ctrlKey && !e.shiftKey) {
+      if (e.key === "Backspace") return new Uint8Array([0x1b, 0x7f]); // ESC DEL: backward-kill-word
+      if (e.key === "Delete")    return new Uint8Array([0x1b, 0x64]); // ESC d:   forward-kill-word
+    }
+
+    // 12b. Alt+key (single char, no ctrl/shift) → ESC prefix
     if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key.length === 1) {
       const charBytes = textEncoder.encode(e.key);
       const result = new Uint8Array(1 + charBytes.length);
@@ -268,7 +307,7 @@
     // Cache resizeTerminal for use in handleResize
     cachedResizeTerminal = resizeTerminal;
 
-    renderer = new TerminalRenderer(canvasEl);
+    renderer = new TerminalRenderer(canvasEl, settings.terminal.font_size, `${settings.terminal.font_family}, Consolas, 'Courier New', monospace`);
 
     // Listen for grid updates, throttle rendering to RAF
     let pendingFrame: Uint8Array | null = null;
@@ -329,6 +368,7 @@
           renderer.rerender();
         }
         resetBlinkTimer();
+        attentionStore.clear(terminalId);
         writeToTerminal(terminalId, Array.from(bytes));
       }
     };
@@ -433,6 +473,12 @@
       ) {
         renderer.setSelection(null, null);
         renderer.rerender();
+      } else if (settings.terminal.copy_on_select && renderer?.selectionStart && renderer?.selectionEnd) {
+        const frame = renderer.currentFrame;
+        if (frame) {
+          const text = renderer.getSelectedText(frame);
+          if (text) navigator.clipboard.writeText(text).catch(console.error);
+        }
       }
     };
 
@@ -533,11 +579,7 @@
   <div
     class="flex-1 overflow-auto px-2.5 py-1.5 text-xs leading-[1.45] text-txt whitespace-pre-wrap break-all"
     style="font-family: var(--font-family)"
-  >
-    {#if children}
-      {@render children()}
-    {/if}
-  </div>
+  ></div>
 {/if}
 
 <style>
@@ -547,7 +589,7 @@
     min-width: 0;
     min-height: 0;
     contain: strict;
-    background-color: #1e1e1e;
+    background-color: var(--bg-editor, #1e1e1e);
   }
   .terminal-canvas {
     width: 100%;

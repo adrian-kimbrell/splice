@@ -1,10 +1,12 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/tauri/v2/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for malloc",
-  "windows": ["main"],
+  "description": "Default capabilities for Splice",
+  "windows": ["main", "settings"],
   "permissions": [
     "core:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-set-focus",
     "shell:allow-open",
     "core:event:default",
     "core:event:allow-listen",

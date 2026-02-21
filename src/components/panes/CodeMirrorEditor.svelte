@@ -2,205 +2,49 @@
   import { onMount } from "svelte";
   import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, scrollPastEnd, placeholder, keymap } from "@codemirror/view";
   import { EditorState, Compartment } from "@codemirror/state";
-  import { syntaxHighlighting, bracketMatching, indentOnInput, foldGutter, foldKeymap, indentUnit, HighlightStyle } from "@codemirror/language";
-  import { classHighlighter, tags } from "@lezer/highlight";
+  import { bracketMatching, indentOnInput, foldGutter, foldKeymap, indentUnit, indentRange } from "@codemirror/language";
   import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from "@codemirror/commands";
   import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from "@codemirror/autocomplete";
-  import { search, searchKeymap, highlightSelectionMatches, gotoLine } from "@codemirror/search";
+  import { search, searchKeymap, highlightSelectionMatches, gotoLine, openSearchPanel } from "@codemirror/search";
   import { cursorMatchingBracket } from "@codemirror/commands";
+  import { editorTheme, editorHighlighting } from "../../lib/theme/editor-theme";
+  import { settings } from "../../lib/stores/settings.svelte";
+  import { editorActions } from "../../lib/stores/editor-actions.svelte";
+  import { workspaceManager } from "../../lib/stores/workspace.svelte";
 
   let {
     content,
     filePath,
+    paneId = "",
     readonly = false,
     onContentChange,
+    onSave,
+    onAutoSave,
   }: {
     content: string;
     filePath: string;
+    paneId?: string;
     readonly?: boolean;
     onContentChange?: (content: string) => void;
+    onSave?: () => void;
+    onAutoSave?: () => void;
   } = $props();
 
   let containerEl: HTMLDivElement;
   let view: EditorView | undefined;
   let viewReady = $state(false);
   const langCompartment = new Compartment();
-
-  // Fine-grained highlight style for tags classHighlighter doesn't cover
-  const customHighlights = HighlightStyle.define([
-    { tag: tags.keyword, color: "#c678dd" },
-    { tag: tags.controlKeyword, color: "#c678dd" },
-    { tag: tags.operatorKeyword, color: "#c678dd" },
-    { tag: tags.moduleKeyword, color: "#c678dd" },
-    { tag: tags.definitionKeyword, color: "#c678dd" },
-    { tag: tags.function(tags.variableName), color: "#61afef" },
-    { tag: tags.function(tags.definition(tags.variableName)), color: "#61afef" },
-    { tag: tags.string, color: "#98c379" },
-    { tag: tags.typeName, color: "#e5c07b" },
-    { tag: tags.className, color: "#e5c07b" },
-    { tag: tags.definition(tags.typeName), color: "#e5c07b" },
-    { tag: tags.number, color: "#d19a66" },
-    { tag: tags.bool, color: "#d19a66" },
-    { tag: tags.comment, color: "#5c6370" },
-    { tag: tags.lineComment, color: "#5c6370" },
-    { tag: tags.blockComment, color: "#5c6370" },
-    { tag: tags.macroName, color: "#56b6c2" },
-    { tag: tags.processingInstruction, color: "#56b6c2" },
-    { tag: tags.attributeName, color: "#d19a66" },
-    { tag: tags.propertyName, color: "#d19a66" },
-    { tag: tags.operator, color: "#abb2bf" },
-    { tag: tags.punctuation, color: "#abb2bf" },
-    { tag: tags.tagName, color: "#c678dd" },
-    { tag: tags.angleBracket, color: "#636d83" },
-    { tag: tags.self, color: "#c678dd" },
-    { tag: tags.atom, color: "#d19a66" },
-    { tag: tags.special(tags.variableName), color: "#56b6c2" },
-  ]);
-
-  const editorTheme = EditorView.theme({
-    "&": {
-      backgroundColor: "var(--bg-editor)",
-      color: "var(--text)",
-      fontFamily: "var(--font-family)",
-      fontSize: "var(--font-size)",
-      height: "100%",
-    },
-    ".cm-content": {
-      caretColor: "var(--accent)",
-      lineHeight: "var(--line-height)",
-      padding: "8px 0",
-    },
-    ".cm-cursor, .cm-dropCursor": {
-      borderLeftColor: "var(--accent)",
-    },
-    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
-      backgroundColor: "var(--bg-selected) !important",
-    },
-    ".cm-activeLine": {
-      backgroundColor: "rgba(255,255,255,0.03)",
-    },
-    ".cm-activeLineGutter": {
-      backgroundColor: "transparent",
-      color: "var(--text)",
-    },
-    ".cm-gutters": {
-      backgroundColor: "var(--bg-editor)",
-      color: "var(--text-dim)",
-      border: "none",
-      minWidth: "50px",
-    },
-    ".cm-lineNumbers .cm-gutterElement": {
-      padding: "0 12px 0 8px",
-    },
-    ".cm-matchingBracket": {
-      backgroundColor: "rgba(255,255,255,0.1)",
-      outline: "1px solid rgba(255,255,255,0.2)",
-    },
-    ".cm-scroller": {
-      overflow: "auto",
-    },
-    // Fold gutter
-    ".cm-foldGutter .cm-gutterElement": {
-      padding: "0 4px",
-      cursor: "pointer",
-      color: "var(--text-dim)",
-      fontSize: "11px",
-      lineHeight: "inherit",
-    },
-    ".cm-foldGutter .cm-gutterElement:hover": {
-      color: "var(--text)",
-    },
-    // Search panel
-    ".cm-panels": {
-      backgroundColor: "var(--bg-sidebar)",
-      color: "var(--text)",
-      borderBottom: "1px solid var(--border)",
-    },
-    ".cm-panels input, .cm-panels button": {
-      fontFamily: "var(--ui-font)",
-      fontSize: "12px",
-      color: "var(--text)",
-    },
-    ".cm-panels input": {
-      backgroundColor: "var(--bg-input)",
-      border: "1px solid var(--border)",
-      borderRadius: "3px",
-      padding: "2px 6px",
-      outline: "none",
-    },
-    ".cm-panels input:focus": {
-      borderColor: "var(--accent)",
-    },
-    ".cm-panels button": {
-      backgroundColor: "transparent",
-      border: "1px solid var(--border)",
-      borderRadius: "3px",
-      cursor: "pointer",
-      padding: "2px 8px",
-    },
-    ".cm-panels button:hover": {
-      backgroundColor: "var(--bg-hover)",
-    },
-    ".cm-panels label": {
-      fontSize: "12px",
-      color: "var(--text-dim)",
-    },
-    ".cm-panel.cm-search": {
-      padding: "6px 8px",
-    },
-    // Go-to-line dialog
-    ".cm-panel.cm-gotoLine": {
-      padding: "6px 8px",
-    },
-    ".cm-searchMatch": {
-      backgroundColor: "rgba(255, 213, 0, 0.2)",
-      outline: "1px solid rgba(255, 213, 0, 0.4)",
-    },
-    ".cm-searchMatch-selected": {
-      backgroundColor: "rgba(255, 213, 0, 0.4)",
-    },
-    // Selection match highlighting
-    ".cm-selectionMatch": {
-      backgroundColor: "rgba(255, 255, 255, 0.08)",
-    },
-    // Autocomplete tooltip
-    ".cm-tooltip": {
-      backgroundColor: "var(--bg-sidebar)",
-      border: "1px solid var(--border)",
-      color: "var(--text)",
-    },
-    ".cm-tooltip-autocomplete ul li[aria-selected]": {
-      backgroundColor: "var(--bg-selected)",
-      color: "var(--text-bright)",
-    },
-    // Placeholder
-    ".cm-placeholder": {
-      color: "var(--text-dim)",
-      fontStyle: "italic",
-    },
-    // classHighlighter token classes (fallback)
-    ".tok-keyword": { color: "#c678dd" },
-    ".tok-string, .tok-string2": { color: "#98c379" },
-    ".tok-number": { color: "#d19a66" },
-    ".tok-bool": { color: "#d19a66" },
-    ".tok-comment": { color: "#5c6370", fontStyle: "italic" },
-    ".tok-variableName": { color: "#abb2bf" },
-    ".tok-variableName.tok-definition": { color: "#61afef" },
-    ".tok-typeName": { color: "#e5c07b" },
-    ".tok-className": { color: "#e5c07b" },
-    ".tok-macroName": { color: "#56b6c2" },
-    ".tok-propertyName": { color: "#d19a66" },
-    ".tok-propertyName.tok-definition": { color: "#61afef" },
-    ".tok-attributeName": { color: "#d19a66" },
-    ".tok-operator": { color: "#abb2bf" },
-    ".tok-punctuation": { color: "#abb2bf" },
-    ".tok-atom": { color: "#d19a66" },
-    ".tok-meta": { color: "#56b6c2" },
-    ".tok-link": { color: "#61afef", textDecoration: "underline" },
-    ".tok-heading": { color: "#e06c75", fontWeight: "bold" },
-    ".tok-emphasis": { fontStyle: "italic" },
-    ".tok-strong": { fontWeight: "bold" },
-  }, { dark: true });
+  const tabSizeCompartment = new Compartment();
+  const indentUnitCompartment = new Compartment();
+  const lineNumbersCompartment = new Compartment();
+  const highlightActiveLineCompartment = new Compartment();
+  const bracketMatchingCompartment = new Compartment();
+  const closeBracketsCompartment = new Compartment();
+  const scrollPastEndCompartment = new Compartment();
+  const wordWrapCompartment = new Compartment();
+  const readonlyCompartment = new Compartment();
+  const minimapCompartment = new Compartment();
+  const indentGuidesCompartment = new Compartment();
 
   function getExtForPath(path: string): string {
     const dot = path.lastIndexOf(".");
@@ -250,38 +94,62 @@
     }
   }
 
+  function formatDocument(view: EditorView): boolean {
+    const state = view.state;
+    const ext = getExtForPath(filePath);
+
+    if (ext === ".json") {
+      try {
+        const parsed = JSON.parse(state.doc.toString());
+        const formatted = JSON.stringify(parsed, null, state.tabSize);
+        view.dispatch({
+          changes: { from: 0, to: state.doc.length, insert: formatted },
+        });
+        return true;
+      } catch {
+        // Invalid JSON — fall through to re-indent
+      }
+    }
+
+    const changes = indentRange(state, 0, state.doc.length);
+    if (changes) view.dispatch(changes);
+    return true;
+  }
+
   onMount(() => {
+    const s = settings.editor;
     const state = EditorState.create({
       doc: content,
       extensions: [
         editorTheme,
-        syntaxHighlighting(customHighlights),
-        syntaxHighlighting(classHighlighter),
-        lineNumbers(),
-        highlightActiveLine(),
-        highlightActiveLineGutter(),
+        ...editorHighlighting,
+        lineNumbersCompartment.of(s.line_numbers ? [lineNumbers(), highlightActiveLineGutter()] : []),
+        highlightActiveLineCompartment.of(s.highlight_active_line ? highlightActiveLine() : []),
         drawSelection(),
         dropCursor(),
         rectangularSelection(),
         crosshairCursor(),
-        bracketMatching(),
-        closeBrackets(),
+        bracketMatchingCompartment.of(s.bracket_matching ? bracketMatching() : []),
+        closeBracketsCompartment.of(s.auto_close_brackets ? closeBrackets() : []),
         autocompletion(),
         indentOnInput(),
-        indentUnit.of("  "),
+        indentUnitCompartment.of(indentUnit.of(s.insert_spaces ? " ".repeat(s.tab_size) : "\t")),
         foldGutter(),
         search({ top: true }),
         highlightSelectionMatches(),
-        scrollPastEnd(),
+        scrollPastEndCompartment.of(s.scroll_past_end ? scrollPastEnd() : []),
+        wordWrapCompartment.of(s.word_wrap ? EditorView.lineWrapping : []),
         placeholder("Start typing…"),
         history(),
-        EditorState.tabSize.of(2),
+        tabSizeCompartment.of(EditorState.tabSize.of(s.tab_size)),
         EditorState.allowMultipleSelections.of(true),
         keymap.of([
           indentWithTab,
+          { key: "Mod-s", run: () => { onSave?.(); return true; } },
           { key: "Mod-/", run: toggleComment },
           { key: "Mod-g", run: gotoLine },
           { key: "Mod-m", run: cursorMatchingBracket },
+          { key: "Shift-Alt-f", run: formatDocument },
           ...closeBracketsKeymap,
           ...searchKeymap,
           ...foldKeymap,
@@ -290,7 +158,9 @@
           ...defaultKeymap,
         ]),
         langCompartment.of([]),
-        EditorState.readOnly.of(readonly),
+        minimapCompartment.of([]),
+        indentGuidesCompartment.of([]),
+        readonlyCompartment.of(EditorState.readOnly.of(readonly)),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && onContentChange) {
             onContentChange(update.state.doc.toString());
@@ -318,6 +188,30 @@
     });
   });
 
+  // Reconfigure editor extensions when settings change
+  $effect(() => {
+    if (!viewReady || !view) return;
+    const s = settings.editor;
+    view.dispatch({ effects: [
+      tabSizeCompartment.reconfigure(EditorState.tabSize.of(s.tab_size)),
+      indentUnitCompartment.reconfigure(indentUnit.of(s.insert_spaces ? " ".repeat(s.tab_size) : "\t")),
+      lineNumbersCompartment.reconfigure(s.line_numbers ? [lineNumbers(), highlightActiveLineGutter()] : []),
+      highlightActiveLineCompartment.reconfigure(s.highlight_active_line ? highlightActiveLine() : []),
+      bracketMatchingCompartment.reconfigure(s.bracket_matching ? bracketMatching() : []),
+      closeBracketsCompartment.reconfigure(s.auto_close_brackets ? closeBrackets() : []),
+      scrollPastEndCompartment.reconfigure(s.scroll_past_end ? scrollPastEnd() : []),
+      wordWrapCompartment.reconfigure(s.word_wrap ? EditorView.lineWrapping : []),
+    ]});
+  });
+
+  // Update editor font via CSS custom properties
+  $effect(() => {
+    if (!containerEl) return;
+    containerEl.style.setProperty("--font-family", `'${settings.editor.font_family}', monospace`);
+    containerEl.style.setProperty("--font-size", `${settings.editor.font_size}px`);
+    if (view) view.requestMeasure();
+  });
+
   // Sync content when it changes
   $effect(() => {
     if (!viewReady || !view) return;
@@ -327,6 +221,116 @@
         changes: { from: 0, to: view.state.doc.length, insert: doc },
       });
     }
+  });
+
+  // Minimap: async import, reconfigure when setting toggles
+  $effect(() => {
+    if (!viewReady || !view) return;
+    const enabled = settings.editor.minimap;
+    if (enabled) {
+      import("@replit/codemirror-minimap").then(({ showMinimap }) => {
+        if (view) {
+          view.dispatch({ effects: minimapCompartment.reconfigure(showMinimap.compute(["doc"], () => ({
+            create: () => {
+              const dom = document.createElement("div");
+              return { dom };
+            },
+            displayText: "blocks",
+            showOverlay: "always",
+          }))) });
+        }
+      });
+    } else {
+      view.dispatch({ effects: minimapCompartment.reconfigure([]) });
+    }
+  });
+
+  // Indent guides: reconfigure when setting toggles
+  $effect(() => {
+    if (!viewReady || !view) return;
+    const enabled = settings.editor.indent_guides;
+    if (enabled) {
+      import("@replit/codemirror-indentation-markers").then(({ indentationMarkers }) => {
+        if (view) {
+          view.dispatch({ effects: indentGuidesCompartment.reconfigure(indentationMarkers()) });
+        }
+      });
+    } else {
+      view.dispatch({ effects: indentGuidesCompartment.reconfigure([]) });
+    }
+  });
+
+  // Auto-save: onFocusChange
+  $effect(() => {
+    if (!containerEl || !onAutoSave) return;
+    const mode = settings.general.auto_save;
+    if (mode !== "onFocusChange") return;
+    const handler = () => onAutoSave();
+    containerEl.addEventListener("focusout", handler);
+    return () => containerEl.removeEventListener("focusout", handler);
+  });
+
+  // Auto-save: afterDelay (debounced from doc changes)
+  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    // Track settings to re-run when they change
+    const mode = settings.general.auto_save;
+    const delay = settings.general.auto_save_delay;
+    if (!viewReady || !view || mode !== "afterDelay" || !onAutoSave) return;
+
+    const listener = EditorView.updateListener.of((update) => {
+      if (update.docChanged) {
+        if (autoSaveTimer) clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(() => onAutoSave(), delay);
+      }
+    });
+
+    view.dispatch({ effects: readonlyCompartment.reconfigure([EditorState.readOnly.of(readonly), listener]) });
+
+    return () => {
+      if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
+    };
+  });
+
+  // Consume editor actions dispatched from menu/command palette
+  $effect(() => {
+    const action = editorActions.pending;
+    if (!action || !viewReady || !view) return;
+    // Only consume if this pane is the active pane
+    const ws = workspaceManager.activeWorkspace;
+    if (ws?.activePaneId !== paneId) return;
+
+    switch (action) {
+      case "goto-line":
+        gotoLine(view);
+        break;
+      case "goto-line-number": {
+        const line = editorActions.gotoLineNumber;
+        if (line != null && line >= 1 && line <= view.state.doc.lines) {
+          const lineInfo = view.state.doc.line(line);
+          view.dispatch({
+            selection: { anchor: lineInfo.from },
+            scrollIntoView: true,
+          });
+          view.focus();
+        }
+        break;
+      }
+      case "format-document":
+        formatDocument(view);
+        break;
+      case "find":
+        openSearchPanel(view);
+        break;
+      case "replace":
+        openSearchPanel(view);
+        break;
+      case "toggle-word-wrap":
+        settings.editor.word_wrap = !settings.editor.word_wrap;
+        break;
+    }
+
+    editorActions.pending = null;
   });
 </script>
 
