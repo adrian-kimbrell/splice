@@ -1,66 +1,47 @@
 import type { FileEntry, OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
-import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, findSiblingLeaf, treeDepth, MAX_SPLIT_DEPTH, collectLeafIds } from "./layout.svelte";
+import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, swapLeavesInTree, findSiblingLeaf, treeDepth, MAX_SPLIT_DEPTH } from "./layout.svelte";
 import { ui } from "./ui.svelte";
 import { isCornerDragActive } from "./corner-drag.svelte";
 import { isDragging as isTabDragging } from "./drag.svelte";
 import { settings } from "./settings.svelte";
+import type { RustWorkspace } from "../ipc/commands";
+import { addRecentProject } from "./recent-projects.svelte";
+import type { Workspace } from "./workspace-types";
+import {
+  generateId,
+  findFirstLeaf,
+  nextUntitledPath,
+  applyFileRename,
+  markFileSaved,
+  fetchGitBranchImpl,
+  loadFileTreeImpl,
+} from "./workspace-types";
+import {
+  validateLayout,
+  toggleFilePinned,
+  toggleFileReadOnly,
+  reorderTabInPane,
+  moveTabToNewPane,
+  moveTabToExistingPane,
+  isFileReferencedInAnyPane,
+  getFilesToCloseOther,
+  getFilesToCloseLeft,
+  getFilesToCloseRight,
+  getFilesToCloseClean,
+} from "./workspace-tab-ops";
+import {
+  persistWorkspaceImpl,
+  restoreWorkspaceImpl,
+} from "./workspace-session";
 
-export interface Workspace {
-  id: string;
-  name: string;
-  rootPath: string;
-
-  // File explorer
-  fileTree: FileEntry[];
-  openFiles: OpenFile[];
-
-  // Terminals (IDs reference global Rust PTY registry)
-  terminalIds: number[];
-  activeTerminalId: number | null;
-
-  // Pane layout (null = no panes open)
-  layout: LayoutNode | null;
-  panes: Record<string, PaneConfig>;
-  activePaneId: string | null;
-
-  // Git
-  gitBranch: string;
-
-  // UI state per workspace
-  explorerVisible: boolean;
-  nameManuallySet?: boolean;
-}
-
-function generateId(): string {
-  return crypto.randomUUID();
-}
-
-/** Returns the lowest positive integer not already used as a terminal display number. */
-function nextTerminalNumber(workspaces: Record<string, Workspace>): number {
-  const used = new Set<number>();
-  for (const ws of Object.values(workspaces)) {
-    for (const pane of Object.values(ws.panes)) {
-      if (pane.kind === "terminal") {
-        const m = pane.title.match(/^Terminal (\d+)$/);
-        if (m) used.add(parseInt(m[1]));
-      }
-    }
-  }
-  let n = 1;
-  while (used.has(n)) n++;
-  return n;
-}
-
-function findFirstLeaf(node: LayoutNode | null): string | null {
-  if (!node) return null;
-  if (node.type === "leaf") return node.paneId;
-  return findFirstLeaf(node.children[0]);
-}
+export type { Workspace } from "./workspace-types";
 
 class WorkspaceManager {
   workspaces = $state<Record<string, Workspace>>({});
   activeWorkspaceId = $state<string | null>(null);
+  private nextTermNum = $state(1);
+  private persistTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 
   get activeWorkspace(): Workspace | null {
     if (!this.activeWorkspaceId) return null;
@@ -101,9 +82,17 @@ class WorkspaceManager {
     this.activeWorkspaceId = id;
     // Restore target workspace's sidebar state
     ui.explorerVisible = this.workspaces[id].explorerVisible;
+    // Persist the active workspace ID
+    import("../ipc/commands").then(({ setActiveWorkspaceId }) => {
+      setActiveWorkspaceId(id).catch(console.warn);
+    });
   }
 
   closeWorkspace(id: string): void {
+    if (this.persistTimers[id]) {
+      clearTimeout(this.persistTimers[id]);
+      delete this.persistTimers[id];
+    }
     delete this.workspaces[id];
     if (this.activeWorkspaceId === id) {
       const remaining = Object.keys(this.workspaces);
@@ -121,6 +110,7 @@ class WorkspaceManager {
       rootPath: "",
       fileTree: [],
       openFiles: [],
+      openFileIndex: {},
       terminalIds: [],
       activeTerminalId: null,
       layout: null,
@@ -144,11 +134,7 @@ class WorkspaceManager {
     const ws = this.activeWorkspace;
     if (!ws) return;
 
-    // Find next untitled number
-    const existing = ws.openFiles.filter(f => f.path.startsWith("untitled-"));
-    const num = existing.length + 1;
-    const path = `untitled-${num}`;
-
+    const path = nextUntitledPath(ws);
     this.openFileInWorkspace({ name: path, path, content: "" });
   }
 
@@ -159,9 +145,10 @@ class WorkspaceManager {
     if (!ws) return;
 
     if (!ws.nameManuallySet) {
-      ws.name = rootPath.split("/").pop() ?? "Untitled";
+      ws.name = rootPath.split("/").filter(Boolean).pop() || "Untitled";
     }
     ws.rootPath = rootPath;
+    addRecentProject(rootPath);
 
     // Load file tree
     this.loadFileTree(wsId);
@@ -170,7 +157,7 @@ class WorkspaceManager {
   }
 
   async createWorkspaceFromDirectory(rootPath: string): Promise<Workspace | null> {
-    const dirName = rootPath.split("/").pop() ?? "Untitled";
+    const dirName = rootPath.split("/").filter(Boolean).pop() || "Untitled";
     const id = generateId();
 
     // Spawn terminal first so we have a real terminalId (no placeholder)
@@ -191,11 +178,12 @@ class WorkspaceManager {
       rootPath,
       fileTree: [],
       openFiles: [],
+      openFileIndex: {},
       terminalIds: [terminalId],
       activeTerminalId: terminalId,
       layout: { type: "leaf", paneId },
       panes: {
-        [paneId]: { id: paneId, kind: "terminal", title: `Terminal ${nextTerminalNumber(this.workspaces)}`, terminalId },
+        [paneId]: { id: paneId, kind: "terminal", title: `Terminal ${this.nextTermNum++}`, terminalId },
       },
       activePaneId: paneId,
       gitBranch: "",
@@ -205,6 +193,7 @@ class WorkspaceManager {
     this.workspaces[id] = ws;
     this.activeWorkspaceId = id;
     ui.explorerVisible = ws.explorerVisible;
+    addRecentProject(rootPath);
 
     // Load file tree and git branch in background
     this.loadFileTree(id);
@@ -213,22 +202,22 @@ class WorkspaceManager {
     return this.workspaces[id];
   }
 
-  async spawnTerminalInWorkspace(workspaceId?: string): Promise<number | null> {
+  async spawnTerminalInWorkspace(workspaceId?: string, overrideCwd?: string): Promise<number | null> {
     let wsId = workspaceId ?? this.activeWorkspaceId;
     if (!wsId) {
       const ws = this.createEmptyWorkspace();
       wsId = ws.id;
     }
-    const ws = this.workspaces[wsId];
-    if (!ws) return null;
+    if (!this.workspaces[wsId]) return null;
 
     try {
       const { spawnTerminal } = await import("../ipc/commands");
-      const cwd = ws.rootPath || (typeof process !== "undefined" ? process.env.HOME : "") || "/";
+      const cwd = overrideCwd || this.workspaces[wsId]!.rootPath || "/";
       const terminalId = await spawnTerminal(settings.terminal.default_shell, cwd, 80, 24);
 
       // Re-validate workspace still exists after await
       if (!this.workspaces[wsId]) return null;
+      const ws = this.workspaces[wsId]!;
 
       ws.terminalIds.push(terminalId);
       ws.activeTerminalId = terminalId;
@@ -237,7 +226,7 @@ class WorkspaceManager {
       ws.panes[paneId] = {
         id: paneId,
         kind: "terminal",
-        title: `Terminal ${nextTerminalNumber(this.workspaces)}`,
+        title: `Terminal ${this.nextTermNum++}`,
         terminalId,
       };
 
@@ -276,6 +265,11 @@ class WorkspaceManager {
   }
 
   async closeWorkspaceWithCleanup(id: string): Promise<void> {
+    // Cancel any pending persist timer so it can't re-save a workspace we're about to close
+    if (this.persistTimers[id]) {
+      clearTimeout(this.persistTimers[id]);
+      delete this.persistTimers[id];
+    }
     const ws = this.workspaces[id];
     if (ws) {
       try {
@@ -283,11 +277,14 @@ class WorkspaceManager {
         await closeWsIpc(id);
       } catch (e) {
         console.error("Failed to close workspace on backend:", e);
+        // IPC failed — kill terminals individually and remove the workspace record
+        // from the backend so it isn't spuriously restored on next launch.
         try {
-          const { killTerminal } = await import("../ipc/commands");
+          const { killTerminal, deleteWorkspace } = await import("../ipc/commands");
           for (const tid of ws.terminalIds) {
             killTerminal(tid).catch(() => {});
           }
+          await deleteWorkspace(id).catch(() => {});
         } catch (_) {}
       }
     }
@@ -309,13 +306,38 @@ class WorkspaceManager {
     const ws = this.activeWorkspace;
     if (!ws) return;
 
+    // Determine target pane early for early-return check
+    let paneId = targetPaneId;
+    if (!paneId) {
+      if (ws.activePaneId && ws.panes[ws.activePaneId]?.kind === "editor") {
+        paneId = ws.activePaneId;
+      } else {
+        paneId = this.findFirstEditorPaneId();
+      }
+    }
+
+    // Early return: file is already active in the target pane
+    const pane = paneId ? ws.panes[paneId] : null;
+    if (pane?.activeFilePath === file.path) {
+      const existing = ws.openFileIndex[file.path];
+      if (existing) {
+        // Handle preview→pin promotion if needed
+        if (existing.preview && !file.preview) existing.preview = false;
+        // Re-register watcher in case it was dropped (e.g. after an unwatch/reconnect)
+        if (!file.path.startsWith("untitled-")) {
+          import("../ipc/commands").then(({ watchPath }) => watchPath(file.path)).catch(() => {});
+        }
+        return;
+      }
+    }
+
     // Watch file for external changes
     if (!file.path.startsWith("untitled-")) {
       import("../ipc/commands").then(({ watchPath }) => watchPath(file.path)).catch(() => {});
     }
 
     // Add to workspace-level openFiles (content source of truth)
-    const existing = ws.openFiles.find((f) => f.path === file.path);
+    const existing = ws.openFileIndex[file.path];
     if (existing) {
       // If already open as pinned, don't downgrade to preview — just activate
       if (!existing.preview && file.preview) {
@@ -326,39 +348,30 @@ class WorkspaceManager {
       }
     } else {
       ws.openFiles.push(file);
-    }
-
-    // Determine target pane
-    let paneId = targetPaneId;
-    if (!paneId) {
-      // If active pane is an editor, use it
-      if (ws.activePaneId && ws.panes[ws.activePaneId]?.kind === "editor") {
-        paneId = ws.activePaneId;
-      } else {
-        paneId = this.findFirstEditorPaneId();
-      }
+      ws.openFileIndex[file.path] = file;
     }
 
     if (paneId && ws.panes[paneId]) {
       const pane = ws.panes[paneId];
       if (!pane.filePaths) pane.filePaths = [];
 
-      // If incoming file is preview, replace any existing preview tab in this pane
+      // If incoming file is preview, replace any existing preview tab in this pane (skip pinned)
       if (file.preview && !pane.filePaths.includes(file.path)) {
         const existingPreviewIdx = pane.filePaths.findIndex((p) => {
-          const f = ws.openFiles.find((of) => of.path === p);
-          return f?.preview;
+          const f = ws.openFileIndex[p];
+          return f?.preview && !f?.pinned;
         });
         if (existingPreviewIdx !== -1) {
           const oldPreviewPath = pane.filePaths[existingPreviewIdx];
           pane.filePaths.splice(existingPreviewIdx, 1);
           // Remove from ws.openFiles if unreferenced by any pane
-          const stillReferenced = Object.values(ws.panes).some(
-            (p) => p.kind === "editor" && p.filePaths?.includes(oldPreviewPath),
-          );
-          if (!stillReferenced) {
+          if (!isFileReferencedInAnyPane(ws, oldPreviewPath)) {
             const fileIdx = ws.openFiles.findIndex((f) => f.path === oldPreviewPath);
             if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
+            delete ws.openFileIndex[oldPreviewPath];
+            if (!oldPreviewPath.startsWith("untitled-")) {
+              import("../ipc/commands").then(({ unwatchPath }) => unwatchPath(oldPreviewPath)).catch(() => {});
+            }
           }
         }
       }
@@ -372,6 +385,8 @@ class WorkspaceManager {
       // No editor pane exists — create one
       this.ensureEditorPane(undefined, [file.path]);
     }
+
+    if (this.activeWorkspaceId) this.debouncedPersistWorkspace(this.activeWorkspaceId);
   }
 
   ensureEditorPane(paneId?: string, filePaths?: string[]): string {
@@ -407,7 +422,7 @@ class WorkspaceManager {
     }
 
     ws.activePaneId = editorPaneId;
-    this.validateLayout(ws);
+    validateLayout(ws);
     return editorPaneId;
   }
 
@@ -438,17 +453,17 @@ class WorkspaceManager {
     }
 
     // Only remove from ws.openFiles if no other pane references it
-    const stillReferenced = Object.values(ws.panes).some(
-      (p) => p.kind === "editor" && p.filePaths?.includes(path),
-    );
-    if (!stillReferenced) {
+    if (!isFileReferencedInAnyPane(ws, path)) {
       const fileIdx = ws.openFiles.findIndex((f) => f.path === path);
       if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
+      delete ws.openFileIndex[path];
       // Unwatch file
       if (!path.startsWith("untitled-")) {
         import("../ipc/commands").then(({ unwatchPath }) => unwatchPath(path)).catch(() => {});
       }
     }
+
+    if (this.activeWorkspaceId) this.debouncedPersistWorkspace(this.activeWorkspaceId);
   }
 
   setActiveFileInWorkspace(path: string, paneId?: string): void {
@@ -465,7 +480,7 @@ class WorkspaceManager {
   updateFileContent(path: string, content: string): void {
     const ws = this.activeWorkspace;
     if (!ws) return;
-    const file = ws.openFiles.find((f) => f.path === path);
+    const file = ws.openFileIndex[path];
     if (file) {
       if (file.originalContent === undefined) {
         file.originalContent = file.content;
@@ -482,8 +497,8 @@ class WorkspaceManager {
   promotePreviewTab(path: string): void {
     const ws = this.activeWorkspace;
     if (!ws) return;
-    const file = ws.openFiles.find((f) => f.path === path);
-    if (file) {
+    const file = ws.openFileIndex[path];
+    if (file?.preview) {
       file.preview = false;
     }
   }
@@ -494,7 +509,7 @@ class WorkspaceManager {
     const pane = ws.panes[ws.activePaneId];
     if (!pane || pane.kind !== "editor" || !pane.activeFilePath) return;
     const oldPath = pane.activeFilePath;
-    const file = ws.openFiles.find((f) => f.path === oldPath);
+    const file = ws.openFileIndex[oldPath];
     if (!file) return;
 
     let savePath = oldPath;
@@ -515,26 +530,11 @@ class WorkspaceManager {
     try {
       const { writeFile } = await import("../ipc/commands");
       await writeFile(savePath, file.content);
-      // If path changed (Save As from untitled), update references
+      // If path changed (Save As from untitled), update index + all pane references
       if (savePath !== oldPath) {
-        const newName = savePath.split("/").pop() ?? savePath;
-        // Update openFiles entry
-        file.path = savePath;
-        file.name = newName;
-        // Update pane filePaths reference
-        const idx = pane.filePaths?.indexOf(oldPath);
-        if (idx !== undefined && idx !== -1 && pane.filePaths) {
-          pane.filePaths[idx] = savePath;
-        }
-        if (pane.activeFilePath === oldPath) {
-          pane.activeFilePath = savePath;
-        }
+        applyFileRename(ws, file, oldPath, savePath);
       }
-      file.dirty = false;
-      file.originalContent = file.content;
-      if (file.preview) {
-        file.preview = false;
-      }
+      markFileSaved(file);
     } catch (e) {
       console.error("Failed to save file:", e);
     }
@@ -547,7 +547,7 @@ class WorkspaceManager {
     const pane = ws.panes[ws.activePaneId];
     if (!pane || pane.kind !== "editor" || !pane.activeFilePath) return;
     const oldPath = pane.activeFilePath;
-    const file = ws.openFiles.find((f) => f.path === oldPath);
+    const file = ws.openFileIndex[oldPath];
     if (!file) return;
 
     try {
@@ -559,19 +559,9 @@ class WorkspaceManager {
       await writeFile(chosen, file.content);
 
       if (chosen !== oldPath) {
-        const newName = chosen.split("/").pop() ?? chosen;
-        file.path = chosen;
-        file.name = newName;
-        for (const p of Object.values(ws.panes)) {
-          if (p.kind !== "editor" || !p.filePaths) continue;
-          const idx = p.filePaths.indexOf(oldPath);
-          if (idx !== -1) p.filePaths[idx] = chosen;
-          if (p.activeFilePath === oldPath) p.activeFilePath = chosen;
-        }
+        applyFileRename(ws, file, oldPath, chosen);
       }
-      file.dirty = false;
-      file.originalContent = file.content;
-      if (file.preview) file.preview = false;
+      markFileSaved(file);
     } catch {
       // Not in Tauri or user cancelled
     }
@@ -591,7 +581,7 @@ class WorkspaceManager {
   async saveFile(path: string): Promise<boolean> {
     const ws = this.activeWorkspace;
     if (!ws) return false;
-    const file = ws.openFiles.find((f) => f.path === path);
+    const file = ws.openFileIndex[path];
     if (!file) return false;
 
     let savePath = path;
@@ -611,20 +601,9 @@ class WorkspaceManager {
       const { writeFile } = await import("../ipc/commands");
       await writeFile(savePath, file.content);
       if (savePath !== path) {
-        const newName = savePath.split("/").pop() ?? savePath;
-        file.path = savePath;
-        file.name = newName;
-        // Update all pane references
-        for (const pane of Object.values(ws.panes)) {
-          if (pane.kind !== "editor" || !pane.filePaths) continue;
-          const idx = pane.filePaths.indexOf(path);
-          if (idx !== -1) pane.filePaths[idx] = savePath;
-          if (pane.activeFilePath === path) pane.activeFilePath = savePath;
-        }
+        applyFileRename(ws, file, path, savePath);
       }
-      file.dirty = false;
-      file.originalContent = file.content;
-      if (file.preview) file.preview = false;
+      markFileSaved(file);
       return true;
     } catch (e) {
       console.error("Failed to save file:", e);
@@ -637,7 +616,7 @@ class WorkspaceManager {
     const ws = this.activeWorkspace;
     if (!ws) return;
     if (path.startsWith("untitled-")) return; // Skip untitled files
-    const file = ws.openFiles.find((f) => f.path === path);
+    const file = ws.openFileIndex[path];
     if (!file || !file.dirty) return;
     try {
       const { writeFile } = await import("../ipc/commands");
@@ -658,27 +637,79 @@ class WorkspaceManager {
     const pane = ws.panes[paneId];
     if (!pane || pane.kind !== "editor") return false;
     const paths = pane.filePaths ?? [];
-    return paths.some((p) => ws.openFiles.find((f) => f.path === p)?.dirty);
+    return paths.some((p) => ws.openFileIndex[p]?.dirty);
   }
 
   /** Check if a specific file is dirty. */
   isFileDirty(path: string): boolean {
     const ws = this.activeWorkspace;
     if (!ws) return false;
-    return ws.openFiles.find((f) => f.path === path)?.dirty ?? false;
+    return ws.openFileIndex[path]?.dirty ?? false;
+  }
+
+  /** Close all tabs in pane except the given path. Skips pinned tabs. */
+  closeOtherFilesInPane(path: string, paneId: string): void {
+    const ws = this.activeWorkspace;
+    if (!ws) return;
+    for (const p of getFilesToCloseOther(ws, path, paneId).reverse())
+      this.closeFileInWorkspace(p, paneId);
+  }
+
+  /** Close all tabs to the left of the given path. Skips pinned tabs. */
+  closeFilesToLeftInPane(path: string, paneId: string): void {
+    const ws = this.activeWorkspace;
+    if (!ws) return;
+    for (const p of getFilesToCloseLeft(ws, path, paneId).reverse())
+      this.closeFileInWorkspace(p, paneId);
+  }
+
+  /** Close all tabs to the right of the given path. Skips pinned tabs. */
+  closeFilesToRightInPane(path: string, paneId: string): void {
+    const ws = this.activeWorkspace;
+    if (!ws) return;
+    for (const p of getFilesToCloseRight(ws, path, paneId).reverse())
+      this.closeFileInWorkspace(p, paneId);
+  }
+
+  /** Close all non-dirty tabs in pane. Skips pinned tabs. */
+  closeCleanFilesInPane(paneId: string): void {
+    const ws = this.activeWorkspace;
+    if (!ws) return;
+    for (const p of getFilesToCloseClean(ws, paneId).reverse())
+      this.closeFileInWorkspace(p, paneId);
+  }
+
+  /** Close all tabs in pane (including pinned/dirty). */
+  closeAllFilesInPane(paneId: string): void {
+    const ws = this.activeWorkspace;
+    if (!ws) return;
+    const pane = ws.panes[paneId];
+    if (!pane?.filePaths || pane.kind !== "editor") return;
+    const paths = [...pane.filePaths];
+    for (let i = paths.length - 1; i >= 0; i--) {
+      this.closeFileInWorkspace(paths[i], paneId);
+    }
+  }
+
+  /** Toggle pinned flag. When pinning, move tab after other pinned tabs and promote from preview. */
+  toggleFilePinned(path: string): void {
+    const ws = this.activeWorkspace;
+    if (!ws) return;
+    toggleFilePinned(ws, path);
+  }
+
+  /** Toggle readOnly flag on an open file. */
+  toggleFileReadOnly(path: string): void {
+    const ws = this.activeWorkspace;
+    if (!ws) return;
+    toggleFileReadOnly(ws, path);
   }
 
   /** Reorder a tab within the same pane. */
   reorderTabInPane(paneId: string, fromIndex: number, toIndex: number): void {
     const ws = this.activeWorkspace;
     if (!ws) return;
-    const pane = ws.panes[paneId];
-    if (!pane?.filePaths || pane.kind !== "editor") return;
-    if (fromIndex === toIndex) return;
-    if (fromIndex < 0 || fromIndex >= pane.filePaths.length) return;
-    if (toIndex < 0 || toIndex >= pane.filePaths.length) return;
-    const [item] = pane.filePaths.splice(fromIndex, 1);
-    pane.filePaths.splice(toIndex, 0, item);
+    reorderTabInPane(ws, paneId, fromIndex, toIndex);
   }
 
   // --- Tab drag & drop ---
@@ -692,48 +723,46 @@ class WorkspaceManager {
   ): void {
     const ws = this.activeWorkspace;
     if (!ws) return;
+    moveTabToNewPane(ws, filePath, sourcePaneId, targetPaneId, direction, side);
+  }
 
-    if (ws.layout && treeDepth(ws.layout) >= MAX_SPLIT_DEPTH) {
-      console.warn("Split depth limit reached, cannot create new pane from tab drop");
+  movePaneInLayout(
+    sourcePaneId: string,
+    targetPaneId: string,
+    direction: SplitDirection,
+    side: "before" | "after",
+  ): void {
+    const ws = this.activeWorkspace;
+    if (!ws || !ws.layout) return;
+    if (sourcePaneId === targetPaneId) return;
+
+    // Step 1: Remove source pane from layout
+    const removeResult = removeNodeFromTree(ws.layout, sourcePaneId);
+    if (!removeResult.found || !removeResult.tree) return;
+
+    // Check depth after removal (more accurate than before)
+    if (treeDepth(removeResult.tree) >= MAX_SPLIT_DEPTH) return;
+
+    // Step 2: Re-insert source pane adjacent to target
+    const insertResult = splitNodeInTreeWithSide(removeResult.tree, targetPaneId, sourcePaneId, direction, side);
+    if (!insertResult.found) {
+      // Target not found after removal — restore original layout to avoid orphaning
+      console.warn(`movePaneInLayout: target "${targetPaneId}" not found after removing source`);
       return;
     }
 
-    // Remove file from source pane
-    const sourcePaneConfig = ws.panes[sourcePaneId];
-    if (sourcePaneConfig?.filePaths) {
-      const idx = sourcePaneConfig.filePaths.indexOf(filePath);
-      if (idx !== -1) sourcePaneConfig.filePaths.splice(idx, 1);
-      if (sourcePaneConfig.activeFilePath === filePath) {
-        sourcePaneConfig.activeFilePath =
-          sourcePaneConfig.filePaths.length > 0 ? sourcePaneConfig.filePaths[0] : null;
-      }
-    }
+    ws.layout = insertResult.tree;
+    ws.activePaneId = sourcePaneId;
+    validateLayout(ws);
+  }
 
-    // Create new editor pane
-    const newPaneId = `editor-${generateId().slice(0, 8)}`;
-    ws.panes[newPaneId] = {
-      id: newPaneId,
-      kind: "editor",
-      title: "Editor",
-      filePaths: [filePath],
-      activeFilePath: filePath,
-    };
+  swapPanesInLayout(paneIdA: string, paneIdB: string): void {
+    const ws = this.activeWorkspace;
+    if (!ws || !ws.layout) return;
+    if (paneIdA === paneIdB) return;
 
-    // Insert into layout adjacent to target (layout is non-null since targetPaneId exists in it)
-    const splitResult = splitNodeInTreeWithSide(ws.layout!, targetPaneId, newPaneId, direction, side);
-    if (!splitResult.found) console.warn(`splitNodeInTreeWithSide: target "${targetPaneId}" not found in layout`);
-    ws.layout = splitResult.tree;
-
-    // If source pane is now empty, remove it
-    if (sourcePaneConfig?.kind === "editor" && sourcePaneConfig.filePaths?.length === 0) {
-      delete ws.panes[sourcePaneId];
-      const removeResult = removeNodeFromTree(ws.layout!, sourcePaneId);
-      if (!removeResult.found) console.warn(`removeNodeFromTree: target "${sourcePaneId}" not found in layout`);
-      ws.layout = removeResult.tree;
-    }
-
-    ws.activePaneId = newPaneId;
-    this.validateLayout(ws);
+    ws.layout = swapLeavesInTree(ws.layout, paneIdA, paneIdB);
+    ws.activePaneId = paneIdA;
   }
 
   moveTabToExistingPane(
@@ -743,38 +772,7 @@ class WorkspaceManager {
   ): void {
     const ws = this.activeWorkspace;
     if (!ws) return;
-
-    // Remove from source
-    const sourcePaneConfig = ws.panes[sourcePaneId];
-    if (sourcePaneConfig?.filePaths) {
-      const idx = sourcePaneConfig.filePaths.indexOf(filePath);
-      if (idx !== -1) sourcePaneConfig.filePaths.splice(idx, 1);
-      if (sourcePaneConfig.activeFilePath === filePath) {
-        sourcePaneConfig.activeFilePath =
-          sourcePaneConfig.filePaths.length > 0 ? sourcePaneConfig.filePaths[0] : null;
-      }
-    }
-
-    // Add to target
-    const targetPaneConfig = ws.panes[targetPaneId];
-    if (targetPaneConfig?.kind === "editor") {
-      if (!targetPaneConfig.filePaths) targetPaneConfig.filePaths = [];
-      if (!targetPaneConfig.filePaths.includes(filePath)) {
-        targetPaneConfig.filePaths.push(filePath);
-      }
-      targetPaneConfig.activeFilePath = filePath;
-    }
-
-    // If source pane is now empty, remove it
-    if (sourcePaneConfig?.kind === "editor" && sourcePaneConfig.filePaths?.length === 0) {
-      delete ws.panes[sourcePaneId];
-      const removeResult = removeNodeFromTree(ws.layout!, sourcePaneId);
-      if (!removeResult.found) console.warn(`removeNodeFromTree: target "${sourcePaneId}" not found in layout`);
-      ws.layout = removeResult.tree;
-    }
-
-    ws.activePaneId = targetPaneId;
-    this.validateLayout(ws);
+    moveTabToExistingPane(ws, filePath, sourcePaneId, targetPaneId);
   }
 
   // --- Terminal actions on active workspace ---
@@ -808,7 +806,7 @@ class WorkspaceManager {
 
     const wsId = workspaceId ?? this.activeWorkspaceId;
     if (!wsId) return;
-    const ws = this.workspaces[wsId];
+    let ws = this.workspaces[wsId];
     if (!ws) return;
 
     const sourcePane = ws.panes[paneId];
@@ -825,11 +823,13 @@ class WorkspaceManager {
       if (sourcePane.kind === "terminal") {
         // Spawn a new terminal for the split
         const { spawnTerminal } = await import("../ipc/commands");
-        const cwd = ws.rootPath || (typeof process !== "undefined" ? process.env.HOME : "") || "/";
+        const cwd = ws.rootPath || "/";
         const terminalId = await spawnTerminal(settings.terminal.default_shell, cwd, 80, 24);
 
         // Re-validate workspace still exists after await
         if (!this.workspaces[wsId]) return;
+        ws = this.workspaces[wsId]!;
+        if (isCornerDragActive() || isTabDragging()) return;
 
         ws.terminalIds.push(terminalId);
         ws.activeTerminalId = terminalId;
@@ -838,7 +838,7 @@ class WorkspaceManager {
         ws.panes[newPaneId] = {
           id: newPaneId,
           kind: "terminal",
-          title: `Terminal ${nextTerminalNumber(this.workspaces)}`,
+          title: `Terminal ${this.nextTermNum++}`,
           terminalId,
         };
       } else {
@@ -859,11 +859,11 @@ class WorkspaceManager {
 
       // Open an untitled file in new editor panes
       if (ws.panes[newPaneId].kind === "editor") {
-        const existing = ws.openFiles.filter(f => f.path.startsWith("untitled-"));
-        const num = existing.length + 1;
-        const path = `untitled-${num}`;
+        const path = nextUntitledPath(ws);
         this.openFileInWorkspace({ name: path, path, content: "" }, newPaneId);
       }
+
+      this.debouncedPersistWorkspace(wsId);
     } catch (e) {
       console.error("Failed to split pane:", e);
     }
@@ -885,8 +885,8 @@ class WorkspaceManager {
       } catch (e) {
         console.error("Failed to kill terminal:", e);
       }
-      // Re-validate workspace still exists after await
-      if (!this.workspaces[wsId]) return;
+      // Re-validate workspace and pane still exist after await
+      if (!this.workspaces[wsId] || !ws.panes[paneId]) return;
 
       const idx = ws.terminalIds.indexOf(config.terminalId);
       if (idx !== -1) ws.terminalIds.splice(idx, 1);
@@ -895,17 +895,22 @@ class WorkspaceManager {
       }
       delete ws.panes[paneId];
     } else if (config?.kind === "editor") {
-      // Only remove files from ws.openFiles that aren't referenced by other editor panes
+      // Only remove files from ws.openFiles that aren't referenced by other editor panes.
+      // Build the referenced-paths set once (O(N)) then check membership in O(1) per file.
       const closingPaths = config.filePaths ?? [];
       delete ws.panes[paneId];
 
+      const referencedPaths = new Set<string>();
+      for (const pane of Object.values(ws.panes)) {
+        if (pane.kind === "editor" && pane.filePaths) {
+          for (const p of pane.filePaths) referencedPaths.add(p);
+        }
+      }
       for (const path of closingPaths) {
-        const stillReferenced = Object.values(ws.panes).some(
-          (p) => p.kind === "editor" && p.filePaths?.includes(path),
-        );
-        if (!stillReferenced) {
+        if (!referencedPaths.has(path)) {
           const fileIdx = ws.openFiles.findIndex((f) => f.path === path);
           if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
+          delete ws.openFileIndex[path];
         }
       }
     } else {
@@ -935,37 +940,8 @@ class WorkspaceManager {
       }
     }
 
-    this.validateLayout(ws);
-  }
-
-  // --- Layout validation ---
-
-  private validateLayout(ws: Workspace): void {
-    if (!ws.layout) return;
-
-    const leafIds = collectLeafIds(ws.layout);
-    const paneIds = new Set(Object.keys(ws.panes));
-
-    // Delete orphaned pane configs (in panes but not in layout)
-    for (const paneId of paneIds) {
-      if (!leafIds.has(paneId)) {
-        console.warn(`validateLayout: orphaned pane config "${paneId}" — removing`);
-        delete ws.panes[paneId];
-      }
-    }
-
-    // Warn about dangling layout leaves (in layout but not in panes)
-    for (const leafId of leafIds) {
-      if (!paneIds.has(leafId)) {
-        console.warn(`validateLayout: layout leaf "${leafId}" has no pane config`);
-      }
-    }
-
-    // Fix activePaneId if it points to a removed pane
-    if (ws.activePaneId && !ws.panes[ws.activePaneId]) {
-      const remaining = Object.keys(ws.panes);
-      ws.activePaneId = remaining.length > 0 ? findFirstLeaf(ws.layout) : null;
-    }
+    validateLayout(ws);
+    this.debouncedPersistWorkspace(wsId);
   }
 
   // --- Focus tracking ---
@@ -976,6 +952,7 @@ class WorkspaceManager {
     const ws = this.workspaces[wsId];
     if (!ws) return;
     ws.activePaneId = paneId;
+    this.debouncedPersistWorkspace(wsId);
   }
 
   // --- Layout actions on active workspace ---
@@ -998,30 +975,62 @@ class WorkspaceManager {
     delete ws.panes[id];
   }
 
+  // --- Persistence ---
+
+  async persistWorkspace(wsId: string): Promise<void> {
+    const ws = this.workspaces[wsId];
+    if (!ws) return;
+    await persistWorkspaceImpl(ws, this.getActiveFilePath(wsId));
+  }
+
+  debouncedPersistWorkspace(wsId: string): void {
+    if (this.persistTimers[wsId]) clearTimeout(this.persistTimers[wsId]);
+    this.persistTimers[wsId] = setTimeout(() => {
+      delete this.persistTimers[wsId];
+      this.persistWorkspace(wsId);
+    }, 500);
+  }
+
   // --- Initialization ---
 
   async initializeWorkspaces(): Promise<void> {
     try {
       const { getWorkspaces } = await import("../ipc/commands");
-      const saved = await getWorkspaces();
+      const { active_workspace_id, workspaces } = await getWorkspaces();
+      const shouldRestore = settings.general.restore_previous_session;
 
-      for (const rws of saved) {
-        await this.createWorkspaceFromDirectory(rws.root_path);
+      let globalResumeIndex = 0;
+      for (const rws of workspaces) {
+        if (shouldRestore && rws.panes.length > 0) {
+          globalResumeIndex += await this.restoreWorkspace(rws, globalResumeIndex);
+        } else {
+          await this.createWorkspaceFromDirectory(rws.root_path);
+        }
       }
+
+      const first = Object.keys(this.workspaces)[0];
+      const target =
+        active_workspace_id && this.workspaces[active_workspace_id]
+          ? active_workspace_id
+          : first;
+      if (target) this.switchWorkspace(target);
     } catch (e) {
       console.error("Failed to initialize workspaces:", e);
     }
   }
 
+  async restoreWorkspace(rws: RustWorkspace, resumeStartIndex = 0): Promise<number> {
+    const result = await restoreWorkspaceImpl(rws, resumeStartIndex, () => this.nextTermNum++);
+    this.workspaces[result.ws.id] = result.ws;
+    this.loadFileTree(result.ws.id);
+    this.fetchGitBranch(result.ws.id);
+    return result.resumeCount;
+  }
+
   async fetchGitBranch(workspaceId: string): Promise<void> {
     const ws = this.workspaces[workspaceId];
-    if (!ws?.rootPath) return;
-    try {
-      const { getGitBranch } = await import("../ipc/commands");
-      ws.gitBranch = await getGitBranch(ws.rootPath);
-    } catch {
-      ws.gitBranch = "";
-    }
+    if (!ws) return;
+    await fetchGitBranchImpl(ws);
   }
 
   startGitBranchPolling(): () => void {
@@ -1035,12 +1044,7 @@ class WorkspaceManager {
   async loadFileTree(workspaceId: string): Promise<void> {
     const ws = this.workspaces[workspaceId];
     if (!ws) return;
-    try {
-      const { readDirTree } = await import("../ipc/commands");
-      ws.fileTree = await readDirTree(ws.rootPath);
-    } catch (e) {
-      console.error("Failed to load file tree:", e);
-    }
+    await loadFileTreeImpl(ws);
   }
 }
 
