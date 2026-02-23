@@ -1,6 +1,6 @@
 <script lang="ts">
   import { settings, debouncedSaveSettings } from "../../lib/stores/settings.svelte";
-  import { themes } from "../../lib/theme/themes";
+  import { themeNames } from "../../lib/theme/themes";
   import { onMount } from "svelte";
 
   // --- Data-driven settings definitions ---
@@ -27,7 +27,7 @@
     { key: "general.restore_previous_session", category: "General", title: "Restore Previous Session", description: "Reopen the previous workspace on startup.", control: { type: "toggle" } },
 
     // Appearance
-    { key: "appearance.theme", category: "Appearance", title: "Theme", description: "The color theme for the editor and UI.", control: { type: "select", options: Object.keys(themes) } },
+    { key: "appearance.theme", category: "Appearance", title: "Theme", description: "The color theme for the editor and UI.", control: { type: "select", options: themeNames } },
     { key: "appearance.ui_scale", category: "Appearance", title: "UI Scale", description: "Zoom level for the entire interface.", control: { type: "select", options: Array.from({ length: 16 }, (_, i) => { const v = 50 + i * 10; return { label: `${v}%`, value: v }; }) } },
     { key: "appearance.explorer_side", category: "Appearance", title: "Explorer Side", description: "Which side the file explorer appears on. Workspaces panel moves to the opposite side.", control: { type: "select", options: [{ label: "Left", value: "left" }, { label: "Right", value: "right" }] } },
     { key: "appearance.show_status_bar", category: "Appearance", title: "Show Status Bar", description: "Show or hide the bottom status bar.", control: { type: "toggle" } },
@@ -58,7 +58,7 @@
   const keybindings = [
     { keys: "Cmd N", action: "New File" },
     { keys: "Cmd O", action: "Open Folder" },
-    { keys: "Cmd K", action: "Command Palette" },
+    { keys: "Cmd P", action: "Command Palette" },
     { keys: "Cmd ,", action: "Open Settings" },
     { keys: "Cmd B", action: "Toggle Explorer" },
     { keys: "Cmd Z", action: "Toggle Pane Zoom" },

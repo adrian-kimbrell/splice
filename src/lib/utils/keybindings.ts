@@ -21,6 +21,7 @@ function nthLeaf(node: LayoutNode, target: number): { id: string | null; count: 
   }
   const left = nthLeaf(node.children[0], target);
   if (left.id) return left;
+  if (!node.children[1]) return { id: null, count: left.count };
   const right = nthLeaf(node.children[1], target - left.count);
   return { id: right.id, count: left.count + right.count };
 }
@@ -41,7 +42,7 @@ function buildPath(node: LayoutNode, paneId: string, path: number[]): boolean {
 }
 
 /** Walk into a subtree, picking the leaf nearest to the edge we're coming from. */
-function nearestLeaf(node: LayoutNode, dir: NavDirection): string {
+export function nearestLeaf(node: LayoutNode, dir: NavDirection): string {
   if (node.type === "leaf") return node.paneId;
   const isHoriz = dir === "left" || dir === "right";
   const splitIsAligned = (isHoriz && node.direction === "horizontal") ||
@@ -56,7 +57,7 @@ function nearestLeaf(node: LayoutNode, dir: NavDirection): string {
 }
 
 /** Find the spatial neighbor of a pane in the given direction. */
-function findNeighbor(root: LayoutNode, paneId: string, dir: NavDirection): string | null {
+export function findNeighbor(root: LayoutNode, paneId: string, dir: NavDirection): string | null {
   const path: number[] = [];
   if (!buildPath(root, paneId, path)) return null;
 
@@ -99,7 +100,7 @@ function focusPane(paneId: string) {
   });
 }
 
-async function enterZenMode() {
+export async function enterZenMode() {
   ui.zenSnapshot = {
     explorerVisible: ui.explorerVisible,
     workspacesVisible: ui.workspacesVisible,
@@ -115,7 +116,7 @@ async function enterZenMode() {
   }
 }
 
-async function exitZenMode() {
+export async function exitZenMode() {
   if (ui.zenSnapshot) {
     ui.explorerVisible = ui.zenSnapshot.explorerVisible;
     ui.workspacesVisible = ui.zenSnapshot.workspacesVisible;
@@ -130,8 +131,76 @@ async function exitZenMode() {
   }
 }
 
-export function initKeybindings() {
-  document.addEventListener("keydown", (e) => {
+// --- Chord keybinding state ---
+let chordPending = false;
+let chordTimeout: ReturnType<typeof setTimeout> | null = null;
+const CHORD_TIMEOUT = 1500;
+
+function resetChord() {
+  chordPending = false;
+  if (chordTimeout) {
+    clearTimeout(chordTimeout);
+    chordTimeout = null;
+  }
+}
+
+function handleChordSecondKey(e: KeyboardEvent): boolean {
+  if (!chordPending) return false;
+  resetChord();
+
+  if (e.key === "Escape") {
+    e.preventDefault();
+    return true;
+  }
+
+  const ws = workspaceManager.activeWorkspace;
+  if (!ws?.activePaneId) return true;
+  const pane = ws.panes[ws.activePaneId];
+  const activePath = pane?.kind === "editor" ? pane.activeFilePath : null;
+
+  // ⌘K → E: Close Left
+  if (e.code === "KeyE" && !e.shiftKey) {
+    e.preventDefault();
+    if (activePath) workspaceManager.closeFilesToLeftInPane(activePath, ws.activePaneId);
+    return true;
+  }
+  // ⌘K → T: Close Right
+  if (e.code === "KeyT" && !e.shiftKey) {
+    e.preventDefault();
+    if (activePath) workspaceManager.closeFilesToRightInPane(activePath, ws.activePaneId);
+    return true;
+  }
+  // ⌘K → U: Close Clean
+  if (e.code === "KeyU" && !e.shiftKey) {
+    e.preventDefault();
+    workspaceManager.closeCleanFilesInPane(ws.activePaneId);
+    return true;
+  }
+  // ⌘K → W: Close All
+  if (e.code === "KeyW" && !e.shiftKey) {
+    e.preventDefault();
+    workspaceManager.closeAllFilesInPane(ws.activePaneId);
+    return true;
+  }
+  // ⌘K → Shift+Enter: Toggle Pin
+  if (e.key === "Enter" && e.shiftKey) {
+    e.preventDefault();
+    if (activePath) workspaceManager.toggleFilePinned(activePath);
+    return true;
+  }
+
+  // Unrecognized second key — cancel chord
+  return true;
+}
+
+export function initKeybindings(): () => void {
+  const handler = (e: KeyboardEvent) => {
+    // Handle chord second key first
+    if (chordPending) {
+      handleChordSecondKey(e);
+      return;
+    }
+
     const mod = e.metaKey || e.ctrlKey;
 
     // Cmd/Ctrl + S: Save Active File
@@ -146,10 +215,29 @@ export function initKeybindings() {
       workspaceManager.newUntitledFile();
     }
 
-    // Cmd/Ctrl + K: Command Palette
-    if (mod && e.key === "k") {
+    // Cmd/Ctrl + K: Chord prefix
+    if (mod && !e.shiftKey && !e.altKey && e.key === "k") {
+      e.preventDefault();
+      chordPending = true;
+      chordTimeout = setTimeout(() => resetChord(), CHORD_TIMEOUT);
+      return;
+    }
+
+    // Cmd/Ctrl + P: Command Palette
+    if (mod && e.key === "p") {
       e.preventDefault();
       ui.commandPaletteOpen = !ui.commandPaletteOpen;
+    }
+
+    // Alt/Option + Cmd/Ctrl + T: Close Others
+    if (mod && e.altKey && !e.shiftKey && e.code === "KeyT") {
+      e.preventDefault();
+      const ws = workspaceManager.activeWorkspace;
+      if (ws?.activePaneId) {
+        const pane = ws.panes[ws.activePaneId];
+        const activePath = pane?.kind === "editor" ? pane.activeFilePath : null;
+        if (activePath) workspaceManager.closeOtherFilesInPane(activePath, ws.activePaneId);
+      }
     }
 
     // Escape: Close overlays, exit zen mode, then unzoom
@@ -230,7 +318,7 @@ export function initKeybindings() {
     // Cmd/Ctrl + 1-9: Switch to pane by index
     if (mod && !e.shiftKey && e.code >= "Digit1" && e.code <= "Digit9") {
       const ws = workspaceManager.activeWorkspace;
-      if (ws) {
+      if (ws?.layout) {
         const index = parseInt(e.code.charAt(5)) - 1;
         const { id } = nthLeaf(ws.layout, index);
         if (id) {
@@ -304,5 +392,10 @@ export function initKeybindings() {
         ui.zoomedPaneId = null;
       }
     }
-  });
+  };
+  document.addEventListener("keydown", handler);
+  return () => {
+    resetChord();
+    document.removeEventListener("keydown", handler);
+  };
 }

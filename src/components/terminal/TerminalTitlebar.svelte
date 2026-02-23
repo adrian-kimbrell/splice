@@ -3,10 +3,12 @@
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
   import type { AttentionNotification } from "../../lib/stores/attention.svelte";
+  import { beginDrag, getDragActive, isDragging } from "../../lib/stores/drag.svelte";
 
   let {
     title,
     cwd = "",
+    paneId = "",
     notification = null,
     onSplit,
     onClose,
@@ -14,11 +16,25 @@
   }: {
     title: string;
     cwd?: string;
+    paneId?: string;
     notification?: AttentionNotification | null;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
     onAction?: (action: string) => void;
   } = $props();
+
+  const isBeingDragged = $derived.by(() => {
+    if (!isDragging()) return false;
+    const d = getDragActive();
+    return d?.kind === "terminal" && d?.sourcePaneId === paneId;
+  });
+
+  function handleMouseDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    beginDrag({ filePath: "", fileName: title, sourcePaneId: paneId, kind: "terminal" }, e);
+  }
 
   let splitMenuOpen = $state(false);
   let splitBtnEl = $state<HTMLButtonElement | null>(null);
@@ -92,9 +108,11 @@
   containerClass="plus-menu-container"
 />
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="flex items-center px-2.5 bg-tab-active border-b border-border text-xs shrink-0 select-none overflow-hidden min-w-0"
-  style="height: var(--titlebar-height); min-height: var(--titlebar-height);"
+  class="flex items-center px-2.5 bg-tab-active border-b border-border text-xs shrink-0 select-none overflow-hidden min-w-0 transition-opacity duration-100"
+  style="height: var(--titlebar-height); min-height: var(--titlebar-height);{isBeingDragged ? ' opacity: 0.35;' : ''}"
+  onmousedown={handleMouseDown}
 >
   <span class="text-txt-bright font-medium whitespace-nowrap mr-2 overflow-hidden text-ellipsis min-w-0"
     >{title}</span

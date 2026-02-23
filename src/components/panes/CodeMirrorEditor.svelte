@@ -33,6 +33,7 @@
   let containerEl: HTMLDivElement;
   let view: EditorView | undefined;
   let viewReady = $state(false);
+  let suppressContentChange = false;
   const langCompartment = new Compartment();
   const tabSizeCompartment = new Compartment();
   const indentUnitCompartment = new Compartment();
@@ -43,6 +44,7 @@
   const scrollPastEndCompartment = new Compartment();
   const wordWrapCompartment = new Compartment();
   const readonlyCompartment = new Compartment();
+  const autoSaveCompartment = new Compartment();
   const minimapCompartment = new Compartment();
   const indentGuidesCompartment = new Compartment();
 
@@ -51,47 +53,63 @@
     return dot >= 0 ? path.slice(dot).toLowerCase() : "";
   }
 
+  const langCache = new Map<string, any>();
+
   async function getLanguageExtension(path: string) {
     const ext = getExtForPath(path);
+    const cached = langCache.get(ext);
+    if (cached) return cached;
+
+    let lang: any;
     switch (ext) {
       case ".js":
       case ".jsx": {
         const { javascript } = await import("@codemirror/lang-javascript");
-        return javascript({ jsx: true });
+        lang = javascript({ jsx: true });
+        break;
       }
       case ".ts":
       case ".tsx": {
         const { javascript } = await import("@codemirror/lang-javascript");
-        return javascript({ jsx: true, typescript: true });
+        lang = javascript({ jsx: true, typescript: true });
+        break;
       }
       case ".html":
       case ".svelte": {
         const { html } = await import("@codemirror/lang-html");
-        return html();
+        lang = html();
+        break;
       }
       case ".css": {
         const { css } = await import("@codemirror/lang-css");
-        return css();
+        lang = css();
+        break;
       }
       case ".json": {
         const { json } = await import("@codemirror/lang-json");
-        return json();
+        lang = json();
+        break;
       }
       case ".rs": {
         const { rust } = await import("@codemirror/lang-rust");
-        return rust();
+        lang = rust();
+        break;
       }
       case ".py": {
         const { python } = await import("@codemirror/lang-python");
-        return python();
+        lang = python();
+        break;
       }
       case ".md": {
         const { markdown } = await import("@codemirror/lang-markdown");
-        return markdown();
+        lang = markdown();
+        break;
       }
       default:
         return [];
     }
+    langCache.set(ext, lang);
+    return lang;
   }
 
   function formatDocument(view: EditorView): boolean {
@@ -161,8 +179,9 @@
         minimapCompartment.of([]),
         indentGuidesCompartment.of([]),
         readonlyCompartment.of(EditorState.readOnly.of(readonly)),
+        autoSaveCompartment.of([]),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged && onContentChange) {
+          if (update.docChanged && onContentChange && !suppressContentChange) {
             onContentChange(update.state.doc.toString());
           }
         }),
@@ -178,10 +197,13 @@
   });
 
   // Load/swap language when filePath changes or view becomes ready
+  let lastLangExt = "";
   $effect(() => {
     if (!viewReady || !view) return;
-    const path = filePath;
-    getLanguageExtension(path).then((lang) => {
+    const ext = getExtForPath(filePath);
+    if (ext === lastLangExt) return;
+    lastLangExt = ext;
+    getLanguageExtension(filePath).then((lang) => {
       if (view) {
         view.dispatch({ effects: langCompartment.reconfigure(lang) });
       }
@@ -212,14 +234,26 @@
     if (view) view.requestMeasure();
   });
 
-  // Sync content when it changes
+  // Sync content when it changes (suppress onContentChange to avoid promoting preview tabs)
+  let lastSyncedPath = "";
   $effect(() => {
     if (!viewReady || !view) return;
     const doc = content;
-    if (doc !== view.state.doc.toString()) {
+    const path = filePath;
+    // On tab switch, always replace without string comparison
+    if (path !== lastSyncedPath) {
+      lastSyncedPath = path;
+      suppressContentChange = true;
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: doc },
       });
+      suppressContentChange = false;
+    } else if (doc !== view.state.doc.toString()) {
+      suppressContentChange = true;
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: doc },
+      });
+      suppressContentChange = false;
     }
   });
 
@@ -243,6 +277,13 @@
     } else {
       view.dispatch({ effects: minimapCompartment.reconfigure([]) });
     }
+  });
+
+  // Reconfigure readOnly when prop changes
+  $effect(() => {
+    if (!viewReady || !view) return;
+    const ro = readonly;
+    view.dispatch({ effects: readonlyCompartment.reconfigure(EditorState.readOnly.of(ro)) });
   });
 
   // Indent guides: reconfigure when setting toggles
@@ -276,19 +317,27 @@
     // Track settings to re-run when they change
     const mode = settings.general.auto_save;
     const delay = settings.general.auto_save_delay;
-    if (!viewReady || !view || mode !== "afterDelay" || !onAutoSave) return;
+    if (!viewReady || !view || !onAutoSave) return;
 
-    const listener = EditorView.updateListener.of((update) => {
-      if (update.docChanged) {
-        if (autoSaveTimer) clearTimeout(autoSaveTimer);
-        autoSaveTimer = setTimeout(() => onAutoSave(), delay);
-      }
-    });
-
-    view.dispatch({ effects: readonlyCompartment.reconfigure([EditorState.readOnly.of(readonly), listener]) });
+    if (mode === "afterDelay") {
+      const listener = EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          if (autoSaveTimer) clearTimeout(autoSaveTimer);
+          autoSaveTimer = setTimeout(() => onAutoSave(), delay);
+        }
+      });
+      view.dispatch({ effects: autoSaveCompartment.reconfigure(listener) });
+    } else {
+      // Clear any previously installed afterDelay listener so toggling auto-save
+      // to "off" (or another mode) actually stops the debounced saves.
+      view.dispatch({ effects: autoSaveCompartment.reconfigure([]) });
+    }
 
     return () => {
       if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
+      // Always clear the compartment on cleanup so stale listeners don't survive
+      // across effect re-runs (e.g. when viewReady becomes false during hot-reload).
+      if (view) view.dispatch({ effects: autoSaveCompartment.reconfigure([]) });
     };
   });
 

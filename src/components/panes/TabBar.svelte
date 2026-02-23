@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import Tab from "./Tab.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { getDragActive, isDragging } from "../../lib/stores/drag.svelte";
@@ -59,11 +60,12 @@
     onSplit,
     onClose,
     onAction,
+    onTabContextAction,
     showPreviewToggle = false,
     previewMode = "editor",
     onTogglePreview,
   }: {
-    tabs: { name: string; path: string; preview?: boolean; dirty?: boolean }[];
+    tabs: { name: string; path: string; preview?: boolean; dirty?: boolean; pinned?: boolean; readOnly?: boolean }[];
     activeTab: string | null;
     paneId: string;
     onTabClick: (path: string) => void;
@@ -72,6 +74,7 @@
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
     onAction?: (action: string) => void;
+    onTabContextAction?: (action: string, path: string) => void;
     showPreviewToggle?: boolean;
     previewMode?: "editor" | "preview";
     onTogglePreview?: () => void;
@@ -125,13 +128,102 @@
     plusMenuOpen = !plusMenuOpen;
   }
 
+  // --- Tab context menu ---
+  let ctxMenuEl = $state<HTMLDivElement | null>(null);
+  let ctxMenuPath = $state<string | null>(null);
+
+  function showTabContextMenu(e: MouseEvent, tabPath: string) {
+    removeCtxMenu();
+    ctxMenuPath = tabPath;
+    const tabData = tabs.find((t) => t.path === tabPath);
+    const isReadOnly = tabData?.readOnly ?? false;
+    const isPinned = tabData?.pinned ?? false;
+
+    const menu = document.createElement("div");
+    menu.className = "tab-ctx-menu split-dropdown";
+    menu.style.position = "fixed";
+    menu.style.top = `${e.clientY}px`;
+    menu.style.left = `${e.clientX}px`;
+    menu.style.transform = "none";
+
+    const items: { label: string; shortcut?: string; action: string; separator?: boolean }[] = [
+      { label: "Close", action: "close" },
+      { label: "Close Others", shortcut: "\u2325\u2318T", action: "close-others" },
+      { label: "", action: "", separator: true },
+      { label: "Close Left", shortcut: "\u2318K  E", action: "close-left" },
+      { label: "Close Right", shortcut: "\u2318K  T", action: "close-right" },
+      { label: "", action: "", separator: true },
+      { label: "Close Clean", shortcut: "\u2318K  U", action: "close-clean" },
+      { label: "Close All", shortcut: "\u2318K  W", action: "close-all" },
+      { label: "", action: "", separator: true },
+      { label: isReadOnly ? "Make File Writable" : "Make File Read-Only", action: "toggle-readonly" },
+      { label: "", action: "", separator: true },
+      { label: isPinned ? "Unpin Tab" : "Pin Tab", shortcut: "\u2318K  \u21E7\u21A9", action: "toggle-pin" },
+    ];
+
+    for (const item of items) {
+      if (item.separator) {
+        const sep = document.createElement("div");
+        sep.className = "split-dropdown-sep";
+        menu.appendChild(sep);
+        continue;
+      }
+      const btn = document.createElement("button");
+      btn.className = "split-dropdown-item";
+      btn.textContent = item.label;
+      if (item.shortcut) {
+        const kbd = document.createElement("kbd");
+        kbd.textContent = item.shortcut;
+        btn.appendChild(kbd);
+      }
+      btn.addEventListener("click", () => {
+        onTabContextAction?.(item.action, tabPath);
+        removeCtxMenu();
+      });
+      menu.appendChild(btn);
+    }
+
+    document.body.appendChild(menu);
+    ctxMenuEl = menu;
+
+    // Clamp to viewport
+    requestAnimationFrame(() => {
+      if (!menu.parentNode) return;
+      const rect = menu.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        menu.style.left = `${window.innerWidth - rect.width - 4}px`;
+      }
+      if (rect.bottom > window.innerHeight) {
+        menu.style.top = `${window.innerHeight - rect.height - 4}px`;
+      }
+    });
+  }
+
+  function removeCtxMenu() {
+    if (ctxMenuEl) {
+      ctxMenuEl.remove();
+      ctxMenuEl = null;
+      ctxMenuPath = null;
+    }
+  }
+
+  onDestroy(() => removeCtxMenu());
+
+  function handleDocClick(e: MouseEvent) {
+    if (ctxMenuEl && !ctxMenuEl.contains(e.target as Node)) {
+      removeCtxMenu();
+    }
+  }
+
   function onResize() {
     splitDropdown?.reposition();
     plusDropdown?.reposition();
+    removeCtxMenu();
   }
 </script>
 
 <svelte:window onresize={onResize} />
+<svelte:document onclick={handleDocClick} />
 
 <DropdownMenu
   bind:this={splitDropdown}
@@ -169,9 +261,11 @@
         active={tab.path === activeTab}
         preview={tab.preview}
         dirty={tab.dirty}
+        pinned={tab.pinned}
         onclick={() => onTabClick(tab.path)}
         onclose={onTabClose ? () => onTabClose(tab.path) : undefined}
         ondblclick={onTabDoubleClick ? () => onTabDoubleClick(tab.path) : undefined}
+        oncontextmenu={(e) => showTabContextMenu(e, tab.path)}
       />
     {/each}
     {#if reorderIndicatorIndex === tabs.length}

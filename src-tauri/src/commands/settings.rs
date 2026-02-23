@@ -35,21 +35,35 @@ fn load_settings_from_disk() -> Option<Settings> {
 fn save_settings_to_disk(settings: &Settings) -> Result<(), String> {
     let path = settings_path();
     let data = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(&path, data).map_err(|e| e.to_string())?;
+    // Atomic write: write to a temp file then rename to avoid corruption on crash
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<Settings, String> {
-    let mut state = state.lock().map_err(|e| e.to_string())?;
-
-    // Try to load from disk on first access
-    if let Some(disk_settings) = load_settings_from_disk() {
-        state.settings = disk_settings;
-        info!("Loaded settings from disk");
+    // Fast path: already loaded — return without touching disk
+    {
+        let s = state.lock().map_err(|e| e.to_string())?;
+        if s.settings_loaded {
+            return Ok(s.settings.clone());
+        }
     }
 
-    Ok(state.settings.clone())
+    // Slow path: read from disk WITHOUT holding the lock
+    let disk_settings = load_settings_from_disk();
+
+    let mut s = state.lock().map_err(|e| e.to_string())?;
+    if !s.settings_loaded {          // re-check under lock
+        if let Some(ds) = disk_settings {
+            s.settings = ds;
+            info!("Loaded settings from disk");
+        }
+        s.settings_loaded = true;
+    }
+    Ok(s.settings.clone())
 }
 
 #[tauri::command]
@@ -60,6 +74,7 @@ pub fn update_settings(
     let settings_clone = {
         let mut state = state.lock().map_err(|e| e.to_string())?;
         state.settings = settings;
+        state.settings_loaded = true;
         state.settings.clone()
     };
 

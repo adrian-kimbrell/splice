@@ -27,6 +27,8 @@ export interface PaneConfig {
   terminalId?: number;
   filePaths?: string[];
   activeFilePath?: string | null;
+  claudeSessionId?: string | null;
+  claudePid?: number | null;
 }
 
 export const MAX_SPLIT_DEPTH = 5;
@@ -69,11 +71,16 @@ export function splitNodeInTree(
   }
 
   const left = splitNodeInTree(tree.children[0], targetPaneId, newPaneId, direction);
+  if (left.found) {
+    return {
+      tree: { type: "split", direction: tree.direction, ratio: tree.ratio, children: [left.tree, tree.children[1]] },
+      found: true,
+    };
+  }
   const right = splitNodeInTree(tree.children[1], targetPaneId, newPaneId, direction);
-
   return {
     tree: { type: "split", direction: tree.direction, ratio: tree.ratio, children: [left.tree, right.tree] },
-    found: left.found || right.found,
+    found: right.found,
   };
 }
 
@@ -98,11 +105,16 @@ export function splitNodeInTreeWithSide(
   }
 
   const left = splitNodeInTreeWithSide(tree.children[0], targetPaneId, newPaneId, direction, side);
+  if (left.found) {
+    return {
+      tree: { type: "split", direction: tree.direction, ratio: tree.ratio, children: [left.tree, tree.children[1]] },
+      found: true,
+    };
+  }
   const right = splitNodeInTreeWithSide(tree.children[1], targetPaneId, newPaneId, direction, side);
-
   return {
     tree: { type: "split", direction: tree.direction, ratio: tree.ratio, children: [left.tree, right.tree] },
-    found: left.found || right.found,
+    found: right.found,
   };
 }
 
@@ -153,5 +165,28 @@ export function removeNodeFromTree(
   return {
     tree: { type: "split", direction: tree.direction, ratio: tree.ratio, children: [left.tree, right.tree] },
     found,
+  };
+}
+
+/** Swap two leaves in the tree by exchanging their paneIds.
+ *  Returns a fresh tree (plain objects). */
+export function swapLeavesInTree(
+  tree: LayoutNode,
+  paneIdA: string,
+  paneIdB: string,
+): LayoutNode {
+  if (tree.type === "leaf") {
+    if (tree.paneId === paneIdA) return { type: "leaf", paneId: paneIdB };
+    if (tree.paneId === paneIdB) return { type: "leaf", paneId: paneIdA };
+    return { type: "leaf", paneId: tree.paneId };
+  }
+  return {
+    type: "split",
+    direction: tree.direction,
+    ratio: tree.ratio,
+    children: [
+      swapLeavesInTree(tree.children[0], paneIdA, paneIdB),
+      swapLeavesInTree(tree.children[1], paneIdA, paneIdB),
+    ],
   };
 }

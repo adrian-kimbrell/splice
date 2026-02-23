@@ -8,15 +8,29 @@
     depth = 0,
     onFileClick,
     onFileDoubleClick,
+    onContextMenu,
     selectedPath,
     focusedPath = null,
+    collapseGeneration = 0,
+    refreshGeneration = 0,
+    inlineCreateDir = null,
+    inlineCreateType = null,
+    onInlineCreateSubmit,
+    onInlineCreateCancel,
   }: {
     entry: FileEntry;
     depth?: number;
     onFileClick: (entry: FileEntry) => void;
     onFileDoubleClick?: (entry: FileEntry) => void;
+    onContextMenu?: (e: MouseEvent, entry: FileEntry) => void;
     selectedPath: string | null;
     focusedPath?: string | null;
+    collapseGeneration?: number;
+    refreshGeneration?: number;
+    inlineCreateDir?: string | null;
+    inlineCreateType?: "file" | "folder" | null;
+    onInlineCreateSubmit?: (value: string) => void;
+    onInlineCreateCancel?: () => void;
   } = $props();
 
   let expanded = $state(false);
@@ -38,7 +52,50 @@
     }
   });
 
-  let clickTimer: ReturnType<typeof setTimeout> | null = null;
+  // Collapse all: when collapseGeneration increments, collapse this item
+  let lastCollapseGen = 0;
+  $effect(() => {
+    if (collapseGeneration > lastCollapseGen) {
+      lastCollapseGen = collapseGeneration;
+      expanded = false;
+    }
+  });
+
+  // Refresh: when refreshGeneration increments, reload children if expanded
+  let lastRefreshGen = 0;
+  $effect(() => {
+    if (refreshGeneration > lastRefreshGen) {
+      lastRefreshGen = refreshGeneration;
+      if (expanded && entry.is_dir) {
+        reloadChildren();
+      }
+    }
+  });
+
+  function autoFocus(node: HTMLInputElement) {
+    requestAnimationFrame(() => node.focus());
+  }
+
+  // Auto-expand this directory when it becomes the inline create target
+  $effect(() => {
+    if (inlineCreateDir === entry.path && entry.is_dir && !expanded) {
+      toggleDir();
+    }
+  });
+
+  async function reloadChildren() {
+    loading = true;
+    try {
+      const { readDirTree } = await import("../../lib/ipc/commands");
+      const result = await readDirTree(entry.path);
+      entry.children = result;
+      children = result;
+    } catch (e) {
+      console.error("Failed to reload directory:", e);
+    } finally {
+      loading = false;
+    }
+  }
 
   async function toggleDir() {
     expanded = !expanded;
@@ -62,21 +119,19 @@
       toggleDir();
       return;
     }
-    // Single click on file: delay to distinguish from double-click
-    if (clickTimer) clearTimeout(clickTimer);
-    clickTimer = setTimeout(() => {
-      clickTimer = null;
-      onFileClick(entry);
-    }, 250);
+    onFileClick(entry);
   }
 
   function handleDblClick() {
     if (entry.is_dir) return;
-    if (clickTimer) {
-      clearTimeout(clickTimer);
-      clickTimer = null;
-    }
     onFileDoubleClick?.(entry);
+  }
+
+  function handleContextMenu(e: MouseEvent) {
+    if (!onContextMenu) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(e, entry);
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -105,6 +160,7 @@
   data-path={entry.path}
   onclick={handleClick}
   ondblclick={handleDblClick}
+  oncontextmenu={handleContextMenu}
   onkeydown={handleKeyDown}
 >
   {#each Array(depth) as _, i}
@@ -144,8 +200,34 @@
       depth={depth + 1}
       {onFileClick}
       {onFileDoubleClick}
+      {onContextMenu}
       {selectedPath}
       {focusedPath}
+      {collapseGeneration}
+      {refreshGeneration}
+      {inlineCreateDir}
+      {inlineCreateType}
+      {onInlineCreateSubmit}
+      {onInlineCreateCancel}
     />
   {/each}
+  {#if inlineCreateDir === entry.path && inlineCreateType}
+    <div
+      class="tree-item"
+      style="padding-left: {8 + (depth + 1) * 16}px; padding-right: 8px;"
+    >
+      <span class="w-4 shrink-0"></span>
+      <i class="bi {inlineCreateType === 'folder' ? 'bi-folder2' : 'bi-file-earmark'} tree-file-icon {inlineCreateType === 'folder' ? 'folder' : ''} text-lg mr-1.5 shrink-0"></i>
+      <input
+        use:autoFocus
+        class="flex-1 min-w-0 px-1 py-0 text-xs outline-none"
+        style="background: var(--bg-input); color: var(--text-bright); border: 1px solid var(--accent); line-height: 20px;"
+        onkeydown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); onInlineCreateSubmit?.((e.target as HTMLInputElement).value); }
+          if (e.key === "Escape") { e.preventDefault(); onInlineCreateCancel?.(); }
+        }}
+        onblur={() => onInlineCreateCancel?.()}
+      />
+    </div>
+  {/if}
 {/if}

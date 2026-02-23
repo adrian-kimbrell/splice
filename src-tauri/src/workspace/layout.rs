@@ -10,6 +10,10 @@ pub struct Workspace {
     pub terminal_ids: Vec<u32>,
     pub open_file_paths: Vec<String>,
     pub active_file_path: Option<String>,
+    #[serde(default)]
+    pub active_pane_id: Option<String>,
+    #[serde(default = "default_true")]
+    pub explorer_visible: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +38,14 @@ pub struct PaneInfo {
     pub id: String,
     pub pane_type: PaneType,
     pub title: String,
+    #[serde(default)]
+    pub file_paths: Vec<String>,
+    #[serde(default)]
+    pub active_file_path: Option<String>,
+    #[serde(default)]
+    pub claude_session_id: Option<String>,
+    #[serde(default)]
+    pub claude_pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +152,22 @@ pub struct AppearanceSettings {
     pub theme: String,
     pub ui_scale: u32,
     pub show_status_bar: bool,
+    #[serde(default = "default_explorer_side")]
+    pub explorer_side: String,
+    #[serde(default = "default_explorer_width")]
+    pub explorer_width: u32,
+    #[serde(default = "default_workspaces_width")]
+    pub workspaces_width: u32,
+}
+
+fn default_explorer_side() -> String {
+    "left".to_string()
+}
+fn default_explorer_width() -> u32 {
+    240
+}
+fn default_workspaces_width() -> u32 {
+    220
 }
 
 impl Default for AppearanceSettings {
@@ -148,6 +176,9 @@ impl Default for AppearanceSettings {
             theme: "One Dark".to_string(),
             ui_scale: 100,
             show_status_bar: true,
+            explorer_side: default_explorer_side(),
+            explorer_width: default_explorer_width(),
+            workspaces_width: default_workspaces_width(),
         }
     }
 }

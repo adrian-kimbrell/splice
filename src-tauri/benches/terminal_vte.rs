@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use splice_lib::terminal::term::Emulator;
 
 fn make_emulator() -> Emulator {
-    Emulator::new(80, 24)
+    Emulator::new(80, 24, 10000)
 }
 
 /// 4KB of plain ASCII text, no escape sequences.

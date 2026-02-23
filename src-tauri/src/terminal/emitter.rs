@@ -90,7 +90,9 @@ pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
     //   grid[0 .. rows - view_shift]              (grid content, truncated from bottom)
     // Cursor row shifts down by view_shift in the display.
 
-    let display_cursor_row = buf_ref.cursor_row + view_shift as u16;
+    // Cap at rows-1 to prevent u16 overflow when view_shift is large
+    let display_cursor_row = (buf_ref.cursor_row as u32 + view_shift as u32)
+        .min((rows - 1) as u32) as u16;
 
     // Header (12 bytes)
     buf.extend_from_slice(&cols.to_le_bytes());
@@ -122,13 +124,17 @@ pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
             let history_row = scrollback_len as i64 - offset as i64 + display_row as i64;
             if history_row >= 0 && (history_row as usize) < scrollback_len {
                 &buf_ref.scrollback[history_row as usize]
-            } else {
+            } else if history_row >= 0 {
+                // Past end of scrollback — map into live screen rows
                 let live_idx = (history_row as usize).saturating_sub(scrollback_len);
                 if live_idx < live_lines.len() {
                     &live_lines[live_idx]
                 } else {
                     &blank_row
                 }
+            } else {
+                // history_row < 0: display row is before the start of scrollback
+                &blank_row
             }
         } else if display_row < view_shift {
             // View-shifted: fill top rows from scrollback
@@ -166,6 +172,160 @@ pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
     buf
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terminal::color::Rgb;
+    use crate::terminal::grid::{flags, Grid, Row};
+
+    fn make_grid(cols: u16, rows: u16) -> Grid {
+        Grid::new(cols, rows, 1000)
+    }
+
+    // --- Header fields ---
+
+    #[test]
+    fn buffer_length_is_header_plus_cells() {
+        let grid = make_grid(10, 5);
+        let data = serialize_grid(&grid, 0);
+        assert_eq!(data.len(), 12 + 10 * 5 * 12);
+    }
+
+    #[test]
+    fn header_encodes_cols_and_rows() {
+        let grid = make_grid(80, 24);
+        let data = serialize_grid(&grid, 0);
+        assert_eq!(u16::from_le_bytes([data[0], data[1]]), 80);
+        assert_eq!(u16::from_le_bytes([data[2], data[3]]), 24);
+    }
+
+    #[test]
+    fn header_encodes_cursor_position() {
+        let mut grid = make_grid(10, 5);
+        grid.primary.cursor_col = 3;
+        grid.primary.cursor_row = 2;
+        let data = serialize_grid(&grid, 0);
+        assert_eq!(u16::from_le_bytes([data[4], data[5]]), 3);
+        assert_eq!(u16::from_le_bytes([data[6], data[7]]), 2);
+    }
+
+    #[test]
+    fn cursor_visible_byte_is_one_when_visible() {
+        let mut grid = make_grid(10, 5);
+        grid.cursor_visible = true;
+        let data = serialize_grid(&grid, 0);
+        assert_eq!(data[8], 1);
+    }
+
+    #[test]
+    fn cursor_visible_byte_is_zero_when_hidden() {
+        let mut grid = make_grid(10, 5);
+        grid.cursor_visible = false;
+        let data = serialize_grid(&grid, 0);
+        assert_eq!(data[8], 0);
+    }
+
+    #[test]
+    fn scroll_indicator_zero_when_not_scrolled() {
+        let grid = make_grid(10, 5);
+        let data = serialize_grid(&grid, 0);
+        assert_eq!(data[11], 0);
+    }
+
+    // --- Scrolled state ---
+
+    #[test]
+    fn scrolled_state_hides_cursor_and_sets_flag() {
+        let mut grid = make_grid(10, 5);
+        // Push a row to scrollback so offset=1 is valid
+        grid.primary.lines[0].cells[0].ch = 'X';
+        grid.primary.scroll_up_in_region();
+
+        let data = serialize_grid(&grid, 1);
+
+        assert_eq!(u16::from_le_bytes([data[4], data[5]]), 0); // cursor_col
+        assert_eq!(u16::from_le_bytes([data[6], data[7]]), 0); // cursor_row
+        assert_eq!(data[8], 0);  // cursor not visible
+        assert_eq!(data[11], 1); // scroll flag set
+    }
+
+    // --- Cell layout ---
+
+    #[test]
+    fn cell_codepoint_and_color_bytes() {
+        let mut grid = make_grid(4, 2);
+        grid.primary.lines[0].cells[0].ch = 'Z';
+        grid.primary.lines[0].cells[0].fg = Rgb { r: 10, g: 20, b: 30 };
+        grid.primary.lines[0].cells[0].bg = Rgb { r: 40, g: 50, b: 60 };
+        grid.primary.lines[0].cells[0].flags = flags::BOLD;
+
+        let data = serialize_grid(&grid, 0);
+        let c = 12; // first cell starts at byte 12
+
+        let cp = u32::from_le_bytes([data[c], data[c + 1], data[c + 2], data[c + 3]]);
+        assert_eq!(cp, 'Z' as u32);
+        assert_eq!(data[c + 4], 10); // fg.r
+        assert_eq!(data[c + 5], 20); // fg.g
+        assert_eq!(data[c + 6], 30); // fg.b
+        assert_eq!(data[c + 7], 40); // bg.r
+        assert_eq!(data[c + 8], 50); // bg.g
+        assert_eq!(data[c + 9], 60); // bg.b
+        assert_eq!(data[c + 10], flags::BOLD); // flags
+        assert_eq!(data[c + 11], 0); // reserved
+    }
+
+    // --- View shift ---
+
+    #[test]
+    fn view_shift_fills_top_rows_from_scrollback() {
+        let mut grid = make_grid(4, 4);
+        grid.primary.lines[0].cells[0].ch = 'A';
+        grid.primary.lines[1].cells[0].ch = 'B';
+        // Add one scrollback row manually
+        let mut sb_row = Row::new(4);
+        sb_row.cells[0].ch = 'S';
+        grid.primary.scrollback.push_back(sb_row);
+        // Cursor at row 1; rows 2-3 are blank → trailing_blanks=2, view_shift=min(2,1)=1
+        grid.primary.cursor_row = 1;
+        grid.primary.cleared = false;
+
+        let data = serialize_grid(&grid, 0);
+
+        // Display row 0 should be from scrollback ('S')
+        let cp = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+        assert_eq!(cp, 'S' as u32);
+        // Display row 1 should be grid row 0 ('A')
+        let row1_start = 12 + 4 * 12; // 4 cols × 12 bytes/cell
+        let cp2 = u32::from_le_bytes([
+            data[row1_start],
+            data[row1_start + 1],
+            data[row1_start + 2],
+            data[row1_start + 3],
+        ]);
+        assert_eq!(cp2, 'A' as u32);
+    }
+
+    #[test]
+    fn view_shift_skipped_when_cleared_flag_set() {
+        let mut grid = make_grid(4, 4);
+        grid.primary.lines[0].cells[0].ch = 'A';
+        let mut sb_row = Row::new(4);
+        sb_row.cells[0].ch = 'S';
+        grid.primary.scrollback.push_back(sb_row);
+        grid.primary.cursor_row = 0;
+        grid.primary.cleared = true; // skip view shift
+
+        let data = serialize_grid(&grid, 0);
+
+        // Display row 0 should be grid row 0 ('A'), not scrollback
+        let cp = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+        assert_eq!(cp, 'A' as u32);
+    }
+}
+
+const MIN_FRAME_MS: u64 = 8;      // ~120 fps cap
+const IDLE_TIMEOUT_MS: u64 = 100;
+
 pub fn spawn_emitter(
     app: AppHandle,
     id: u32,
@@ -176,7 +336,7 @@ pub fn spawn_emitter(
     notify: Arc<EmitterNotify>,
 ) -> JoinHandle<()> {
     let event_name = format!("terminal:grid:{}", id);
-    let min_frame = Duration::from_millis(8); // ~120fps cap
+    let min_frame = Duration::from_millis(MIN_FRAME_MS);
 
     thread::spawn(move || {
         let mut last_version = 0u32;
@@ -191,15 +351,19 @@ pub fn spawn_emitter(
             let wait = if since_last < min_frame {
                 min_frame - since_last
             } else {
-                Duration::from_millis(100) // idle timeout
+                Duration::from_millis(IDLE_TIMEOUT_MS)
             };
             notify.wait_timeout(wait);
 
             let current = version.load(Ordering::Relaxed);
             if current != last_version {
-                // Rate-limit: ensure minimum frame interval
+                // Rate-limit: ensure minimum frame interval.
+                // Wait only the remaining budget (not the full IDLE_TIMEOUT_MS).
+                // Do not `continue` after the sleep — fall through to emit so we avoid
+                // a redundant Condvar acquire at the top of the loop.
                 if last_emit.elapsed() < min_frame {
-                    continue;
+                    let remaining = min_frame.saturating_sub(last_emit.elapsed());
+                    notify.wait_timeout(remaining);
                 }
                 last_version = current;
                 let offset = scroll_offset.load(Ordering::Relaxed);

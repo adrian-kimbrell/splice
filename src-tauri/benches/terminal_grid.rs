@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use splice_lib::terminal::grid::Grid;
 
 fn make_grid(cols: u16, rows: u16) -> Grid {
-    Grid::new(cols, rows)
+    Grid::new(cols, rows, 10000)
 }
 
 fn bench_write_char_line(c: &mut Criterion) {

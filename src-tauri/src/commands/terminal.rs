@@ -1,7 +1,9 @@
 use crate::state::AppState;
+use portable_pty::PtySize;
 use serde::Serialize;
 use std::io::Write;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
 use tauri::{AppHandle, State};
 use tracing::{info, warn};
 
@@ -14,8 +16,12 @@ const ALLOWED_SHELLS: &[&str] = &[
     "/opt/homebrew/bin/fish",
 ];
 
+const MAX_TERMINAL_COLS: u16 = 350;
+const MAX_TERMINAL_ROWS: u16 = 200;
+const MAX_SEARCH_RESULTS: usize = 1000;
+
 fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
-    (cols.clamp(1, 500), rows.clamp(1, 500))
+    (cols.clamp(1, MAX_TERMINAL_COLS), rows.clamp(1, MAX_TERMINAL_ROWS))
 }
 
 #[tauri::command]
@@ -68,10 +74,13 @@ pub fn spawn_terminal(
 
     let mut state = state.lock().map_err(|e| e.to_string())?;
     let id = state.next_terminal_id;
-    state.next_terminal_id += 1;
+    state.next_terminal_id = state.next_terminal_id
+        .checked_add(1)
+        .ok_or_else(|| "Terminal ID overflow".to_string())?;
+    let scrollback = state.settings.terminal.scrollback_lines as usize;
 
     let session =
-        crate::terminal::pty::PtySession::spawn(app, id, &shell, &canonical_cwd.to_string_lossy(), cols, rows)?;
+        crate::terminal::pty::PtySession::spawn(app, id, &shell, &canonical_cwd.to_string_lossy(), cols, rows, scrollback)?;
     state.terminals.insert(id, session);
 
     info!(id, shell = %shell, cwd = %canonical_cwd.display(), "Spawned terminal");
@@ -96,10 +105,11 @@ pub fn write_to_terminal(
             std::sync::Arc::clone(&session.scroll_offset),
         )
     };
-    // Snap to live on any input
-    scroll_offset.store(0, std::sync::atomic::Ordering::Relaxed);
     let mut w = writer.lock().map_err(|e| e.to_string())?;
-    w.write_all(&data).map_err(|e| e.to_string())
+    w.write_all(&data).map_err(|e| e.to_string())?;
+    // Snap to live only after a successful write
+    scroll_offset.store(0, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
 }
 
 #[tauri::command]
@@ -110,12 +120,37 @@ pub fn resize_terminal(
     rows: u16,
 ) -> Result<(), String> {
     let (cols, rows) = clamp_terminal_size(cols, rows);
-    let state = state.lock().map_err(|e| e.to_string())?;
-    let session = state
-        .terminals
-        .get(&id)
-        .ok_or_else(|| format!("Terminal {} not found", id))?;
-    session.resize(cols, rows)
+    // Clone Arcs out from under AppState lock so the PTY ioctl (may block)
+    // does not hold the AppState mutex and prevent other terminal operations.
+    let (emulator, version, notify, master) = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        let session = state
+            .terminals
+            .get(&id)
+            .ok_or_else(|| format!("Terminal {} not found", id))?;
+        (
+            Arc::clone(&session.emulator),
+            Arc::clone(&session.version),
+            Arc::clone(&session.notify),
+            Arc::clone(&session.master),
+        )
+    }; // AppState lock released here
+
+    // Resize emulator grid (no syscall)
+    {
+        let mut emu = emulator.write().map_err(|e| e.to_string())?;
+        emu.resize(cols, rows);
+    }
+
+    // Resize PTY master (syscall; outside AppState lock)
+    master
+        .lock().map_err(|e| e.to_string())?
+        .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| e.to_string())?;
+
+    version.fetch_add(1, Ordering::Relaxed);
+    notify.notify();
+    Ok(())
 }
 
 #[tauri::command]
@@ -134,12 +169,29 @@ pub fn scroll_terminal(
 }
 
 #[tauri::command]
+pub fn set_terminal_scroll_offset(
+    state: State<'_, Mutex<AppState>>,
+    id: u32,
+    offset: i32,
+) -> Result<(), String> {
+    let state = state.lock().map_err(|e| e.to_string())?;
+    let session = state
+        .terminals
+        .get(&id)
+        .ok_or_else(|| format!("Terminal {} not found", id))?;
+    session.set_scroll_offset(offset);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn kill_terminal(state: State<'_, Mutex<AppState>>, id: u32) -> Result<(), String> {
     let mut state = state.lock().map_err(|e| e.to_string())?;
     state
         .terminals
         .remove(&id)
         .ok_or_else(|| format!("Terminal {} not found", id))?;
+    state.terminal_claude_sessions.remove(&id);
+    state.pid_to_terminal_cache.retain(|_, &mut tid| tid != id);
     Ok(())
 }
 
@@ -157,51 +209,84 @@ pub fn search_terminal(
     query: String,
     case_sensitive: bool,
 ) -> Result<Vec<TerminalSearchMatch>, String> {
-    let state = state.lock().map_err(|e| e.to_string())?;
-    let session = state
-        .terminals
-        .get(&id)
-        .ok_or_else(|| format!("Terminal {} not found", id))?;
+    // Step 1: clone Arc out from under AppState mutex
+    let emulator_arc = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        let session = state
+            .terminals
+            .get(&id)
+            .ok_or_else(|| format!("Terminal {} not found", id))?;
+        std::sync::Arc::clone(&session.emulator)
+    }; // AppState mutex released here
 
-    let emulator = session.emulator.read().map_err(|e| e.to_string())?;
-    let grid = &emulator.grid;
-    let buf = grid.active();
+    // Step 2: hold read lock only for text extraction (strings, not full Row structs)
+    let (scrollback_strings, scrollback_len, lines_strings) = {
+        let emulator = emulator_arc.read().map_err(|e| e.to_string())?;
+        let buf = emulator.grid.active();
+        let sb: Vec<String> = buf.scrollback.iter()
+            .map(|row| row.cells.iter().map(|c| c.ch).collect())
+            .collect();
+        let len = sb.len();
+        let ls: Vec<String> = buf.lines.iter()
+            .map(|row| row.cells.iter().map(|c| c.ch).collect())
+            .collect();
+        (sb, len, ls)
+    }; // read lock released here
 
+    // Step 3: search strings — all searching happens after locks are released
     let query_lower = if case_sensitive { query.clone() } else { query.to_lowercase() };
+    let advance = query_lower.len().max(1);
+    let query_chars_len = query_lower.chars().count();
     let mut results = Vec::new();
 
     // Search scrollback (negative row indices)
-    let scrollback_len = buf.scrollback.len() as i64;
-    for (i, row) in buf.scrollback.iter().enumerate() {
-        let line: String = row.cells.iter().map(|c| c.ch).collect();
+    let scrollback_len_i64 = scrollback_len as i64;
+    for (i, line) in scrollback_strings.iter().enumerate() {
         let line_search = if case_sensitive { line.clone() } else { line.to_lowercase() };
+        let line_char_count = line_search.chars().count();
         let mut start = 0;
         while let Some(pos) = line_search[start..].find(&query_lower) {
-            let col_start = start + pos;
+            let byte_col = start + pos;
+            let col_start = line_search[..byte_col].chars().count();
             results.push(TerminalSearchMatch {
-                row: i as i64 - scrollback_len,
+                row: i as i64 - scrollback_len_i64,
                 col_start,
-                col_end: col_start + query_lower.len(),
+                col_end: (col_start + query_chars_len).min(line_char_count),
             });
-            start = col_start + 1;
-            if results.len() >= 1000 { return Ok(results); }
+            // Advance past the match. Clamp to len and round up to the next
+            // char boundary defensively — prevents any panic on edge-case input.
+            let next_start = (byte_col + advance).min(line_search.len());
+            let mut safe_start = next_start;
+            while safe_start < line_search.len() && !line_search.is_char_boundary(safe_start) {
+                safe_start += 1;
+            }
+            start = safe_start;
+            if results.len() >= MAX_SEARCH_RESULTS { return Ok(results); }
         }
     }
 
     // Search visible lines
-    for (i, row) in buf.lines.iter().enumerate() {
-        let line: String = row.cells.iter().map(|c| c.ch).collect();
+    for (i, line) in lines_strings.iter().enumerate() {
         let line_search = if case_sensitive { line.clone() } else { line.to_lowercase() };
+        let line_char_count = line_search.chars().count();
         let mut start = 0;
         while let Some(pos) = line_search[start..].find(&query_lower) {
-            let col_start = start + pos;
+            let byte_col = start + pos;
+            let col_start = line_search[..byte_col].chars().count();
             results.push(TerminalSearchMatch {
                 row: i as i64,
                 col_start,
-                col_end: col_start + query_lower.len(),
+                col_end: (col_start + query_chars_len).min(line_char_count),
             });
-            start = col_start + 1;
-            if results.len() >= 1000 { return Ok(results); }
+            // Advance past the match. Clamp to len and round up to the next
+            // char boundary defensively — prevents any panic on edge-case input.
+            let next_start = (byte_col + advance).min(line_search.len());
+            let mut safe_start = next_start;
+            while safe_start < line_search.len() && !line_search.is_char_boundary(safe_start) {
+                safe_start += 1;
+            }
+            start = safe_start;
+            if results.len() >= MAX_SEARCH_RESULTS { return Ok(results); }
         }
     }
 
@@ -209,11 +294,46 @@ pub fn search_terminal(
 }
 
 #[tauri::command]
+pub fn get_terminal_cwd(state: State<'_, Mutex<AppState>>, id: u32) -> Option<String> {
+    let state = state.lock().ok()?;
+    let session = state.terminals.get(&id)?;
+    let pid = session.child_pid?;
+    cwd_of_pid(pid)
+}
+
+#[cfg(target_os = "macos")]
+fn cwd_of_pid(pid: u32) -> Option<String> {
+    // lsof -a -p PID -d cwd -Fn  →  lines: "p<pid>", "fcwd", "n<path>"
+    let out = std::process::Command::new("lsof")
+        .args(["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"])
+        .output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    for line in text.lines() {
+        if let Some(path) = line.strip_prefix('n') {
+            let s = path.trim().to_string();
+            if !s.is_empty() { return Some(s); }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn cwd_of_pid(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{}/cwd", pid))
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_string))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn cwd_of_pid(_pid: u32) -> Option<String> { None }
+
+#[tauri::command]
 pub fn install_claude_hook(state: State<'_, Mutex<AppState>>) -> Result<(), String> {
-    let port = state
+    // Guard: ensure the attention server is actually running before installing the hook
+    state
         .lock()
         .map_err(|e| e.to_string())?
         .attention_port
         .ok_or("Attention server not started")?;
-    crate::attention::install_hook(port)
+    crate::attention::install_hook()
 }

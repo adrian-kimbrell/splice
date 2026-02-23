@@ -13,4 +13,6 @@ export interface OpenFile {
   dirty?: boolean;
   originalContent?: string;
   preview?: boolean;
+  pinned?: boolean;
+  readOnly?: boolean;
 }

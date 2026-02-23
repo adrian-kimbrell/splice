@@ -2,6 +2,7 @@ export interface TabDragData {
   filePath: string;
   fileName: string;
   sourcePaneId: string;
+  kind?: "editor" | "terminal";
 }
 
 export type DropZone = "left" | "right" | "top" | "bottom" | "center" | null;
@@ -63,11 +64,19 @@ export function unregisterPaneContent(paneId: string) {
 // --- Hit testing ---
 function findPaneAt(x: number, y: number): RegisteredPane | null {
   for (const pane of panes) {
-    // Use content element for hit testing when available (excludes tab bar area)
-    const el = contentElements.get(pane.paneId) ?? pane.el;
+    // Prefer content element (excludes tab bar) for tighter zone calculation,
+    // but fall back to outer pane element so the tab bar region still matches.
+    const contentEl = contentElements.get(pane.paneId);
+    const el = contentEl ?? pane.el;
     const rect = el.getBoundingClientRect();
     if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
       return pane;
+    }
+    if (contentEl) {
+      const outerRect = pane.el.getBoundingClientRect();
+      if (x >= outerRect.left && x <= outerRect.right && y >= outerRect.top && y <= outerRect.bottom) {
+        return pane;
+      }
     }
   }
   return null;

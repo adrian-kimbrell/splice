@@ -11,10 +11,10 @@ pub struct Emulator {
 }
 
 impl Emulator {
-    pub fn new(cols: u16, rows: u16) -> Self {
+    pub fn new(cols: u16, rows: u16, scrollback: usize) -> Self {
         Self {
             parser: vte::Parser::new(),
-            grid: Grid::new(cols, rows),
+            grid: Grid::new(cols, rows, scrollback),
             pending_title: None,
             pending_reply: Vec::new(),
             pending_bell: false,
@@ -390,5 +390,138 @@ impl<'a> vte::Perform for GridPerformer<'a> {
             (b'c', _) => self.grid.full_reset(),             // RIS
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terminal::color::{Rgb, ANSI_COLORS};
+    use crate::terminal::grid::flags;
+
+    fn make_emu(cols: u16, rows: u16) -> Emulator {
+        Emulator::new(cols, rows, 1000)
+    }
+
+    // --- Plain text ---
+
+    #[test]
+    fn plain_text_writes_chars_to_grid() {
+        let mut emu = make_emu(20, 5);
+        emu.advance(b"Hello");
+        assert_eq!(emu.grid.primary.lines[0].cells[0].ch, 'H');
+        assert_eq!(emu.grid.primary.lines[0].cells[1].ch, 'e');
+        assert_eq!(emu.grid.primary.lines[0].cells[2].ch, 'l');
+        assert_eq!(emu.grid.primary.lines[0].cells[3].ch, 'l');
+        assert_eq!(emu.grid.primary.lines[0].cells[4].ch, 'o');
+    }
+
+    #[test]
+    fn auto_wrap_wraps_to_next_row() {
+        let mut emu = make_emu(5, 3);
+        emu.advance(b"ABCDEFG"); // 7 chars on a 5-wide terminal
+        assert_eq!(emu.grid.primary.lines[0].cells[4].ch, 'E');
+        assert_eq!(emu.grid.primary.lines[1].cells[0].ch, 'F');
+        assert_eq!(emu.grid.primary.lines[1].cells[1].ch, 'G');
+    }
+
+    // --- Cursor movement ---
+
+    #[test]
+    fn cup_sets_cursor_position() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b[2;5H"); // CUP: row=2, col=5 (1-based)
+        assert_eq!(emu.grid.cursor_row(), 1); // 0-based
+        assert_eq!(emu.grid.cursor_col(), 4); // 0-based
+    }
+
+    #[test]
+    fn cuu_moves_cursor_up_one_row() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b[5;1H"); // move to row 5 (0-based: 4)
+        emu.advance(b"\x1b[A");    // CUU: up 1
+        assert_eq!(emu.grid.cursor_row(), 3);
+    }
+
+    #[test]
+    fn cud_moves_cursor_down_two_rows() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b[1;1H"); // move to row 1, col 1 (0-based: row 0)
+        emu.advance(b"\x1b[2B");   // CUD: down 2
+        assert_eq!(emu.grid.cursor_row(), 2);
+    }
+
+    // --- SGR attributes ---
+
+    #[test]
+    fn sgr_bold_sets_bold_flag() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b[1m");
+        assert_ne!(emu.grid.primary.pen.flags & flags::BOLD, 0);
+    }
+
+    #[test]
+    fn sgr_reset_clears_bold_flag() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b[1m\x1b[0m");
+        assert_eq!(emu.grid.primary.pen.flags & flags::BOLD, 0);
+    }
+
+    #[test]
+    fn sgr_truecolor_foreground() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b[38;2;255;0;0m");
+        assert_eq!(emu.grid.primary.pen.fg, Rgb { r: 255, g: 0, b: 0 });
+    }
+
+    #[test]
+    fn sgr_ansi_color_foreground() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b[31m"); // ANSI red = color index 1
+        assert_eq!(emu.grid.primary.pen.fg, ANSI_COLORS[1]);
+    }
+
+    // --- Screen operations ---
+
+    #[test]
+    fn ed2_clears_screen_and_sets_cleared_flag() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"Hello");
+        emu.advance(b"\x1b[2J");
+        assert_eq!(emu.grid.primary.lines[0].cells[0].ch, ' ');
+        assert!(emu.grid.primary.cleared);
+    }
+
+    #[test]
+    fn alt_screen_switch_enter_and_leave() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"Main");
+        emu.advance(b"\x1b[?1049h"); // enter alt screen
+        assert!(emu.grid.active_is_alt);
+        emu.advance(b"\x1b[?1049l"); // leave alt screen
+        assert!(!emu.grid.active_is_alt);
+        // Primary content should be restored
+        assert_eq!(emu.grid.primary.lines[0].cells[0].ch, 'M');
+    }
+
+    #[test]
+    fn lf_at_scroll_bottom_triggers_scroll_up() {
+        let mut emu = make_emu(10, 3); // scroll_bottom = 2
+        emu.advance(b"A");            // write 'A' at (0,0)
+        emu.advance(b"\x1b[3;1H");   // cursor to row 3 (0-based: 2) = scroll_bottom
+        emu.advance(b"\n");           // LF at bottom → scroll_up_in_region
+
+        // Original row 0 ('A') should now be in scrollback
+        assert_eq!(emu.grid.primary.scrollback.len(), 1);
+        assert_eq!(emu.grid.primary.scrollback[0].cells[0].ch, 'A');
+    }
+
+    // --- Title OSC ---
+
+    #[test]
+    fn osc_0_sets_pending_title() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b]0;My Title\x07");
+        assert_eq!(emu.pending_title, Some("My Title".to_string()));
     }
 }

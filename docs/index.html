@@ -18,19 +18,29 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+  <style>
+    .btn-orange { background: #FF8300; }
+    .btn-orange:hover { background: #e67600; }
+    .text-orange { color: #FF8300; }
+    .border-orange { border-color: #FF8300; }
+  </style>
 </head>
 <body class="bg-white text-zinc-900 antialiased">
 
   <!-- Nav -->
   <header class="border-b border-zinc-200">
     <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-      <span class="font-mono text-sm font-medium tracking-widest uppercase">Splice</span>
+      <a href="#" class="flex items-center gap-2">
+        <img src="logo.png" alt="Splice" class="w-7 h-7" />
+        <span class="font-mono text-sm font-medium tracking-widest uppercase text-orange">Splice</span>
+      </a>
       <nav class="flex items-center gap-8 text-sm text-zinc-500">
         <a href="#workspaces" class="hover:text-zinc-900 transition-colors">Workspaces</a>
         <a href="#features" class="hover:text-zinc-900 transition-colors">Features</a>
         <a href="#stack" class="hover:text-zinc-900 transition-colors">Stack</a>
-        <a href="https://github.com/adrianhajdin/Splice" class="hover:text-zinc-900 transition-colors font-mono text-xs">GitHub</a>
-        <a href="#download" class="bg-zinc-900 text-white px-4 py-1.5 text-xs font-mono tracking-wide hover:bg-zinc-700 transition-colors">Download</a>
+        <a href="https://github.com/adrian-kimbrell/splice" class="hover:text-zinc-900 transition-colors font-mono text-xs">GitHub</a>
+        <a href="#download" class="btn-orange text-white px-4 py-1.5 text-xs font-mono tracking-wide transition-colors">Download</a>
       </nav>
     </div>
   </header>
@@ -38,7 +48,6 @@
   <!-- Hero -->
   <section class="max-w-6xl mx-auto px-6 py-24 border-b border-zinc-200">
     <div class="max-w-3xl">
-      <p class="font-mono text-xs text-zinc-400 tracking-widest uppercase mb-6">Code editor</p>
       <h1 class="text-5xl font-bold tracking-tight leading-tight mb-6">
         All your work.<br>One window.
       </h1>
@@ -46,8 +55,8 @@
         Splice is built around workspaces — fully isolated environments with their own file trees, terminals, editors, and layouts. Switch between projects in a keystroke. Keep everything in context. Never lose your place.
       </p>
       <div class="flex items-center gap-4">
-        <a href="#download" class="bg-zinc-900 text-white px-6 py-3 text-sm font-mono tracking-wide hover:bg-zinc-700 transition-colors">Download for macOS</a>
-        <a href="https://github.com/adrianhajdin/Splice" class="text-sm text-zinc-500 hover:text-zinc-900 transition-colors font-mono">View source →</a>
+        <a href="#download" class="btn-orange text-white px-6 py-3 text-sm font-mono tracking-wide transition-colors">Download for macOS</a>
+        <a href="https://github.com/adrian-kimbrell/splice" class="text-sm text-zinc-500 hover:text-zinc-900 transition-colors font-mono">View source →</a>
       </div>
     </div>
   </section>
@@ -56,19 +65,19 @@
   <section class="border-b border-zinc-200">
     <div class="max-w-6xl mx-auto px-6 py-10 grid grid-cols-2 md:grid-cols-4 gap-8">
       <div>
-        <p class="text-3xl font-bold tabular-nums">∞</p>
+        <p class="text-3xl font-bold tabular-nums text-orange">∞</p>
         <p class="text-sm text-zinc-500 mt-1">Workspaces per window</p>
       </div>
       <div>
-        <p class="text-3xl font-bold tabular-nums">Siloed</p>
+        <p class="text-3xl font-bold tabular-nums text-orange">Siloed</p>
         <p class="text-sm text-zinc-500 mt-1">State per workspace</p>
       </div>
       <div>
-        <p class="text-3xl font-bold tabular-nums">Native</p>
+        <p class="text-3xl font-bold tabular-nums text-orange">Native</p>
         <p class="text-sm text-zinc-500 mt-1">Rust + Tauri backend</p>
       </div>
       <div>
-        <p class="text-3xl font-bold tabular-nums">0ms</p>
+        <p class="text-3xl font-bold tabular-nums text-orange">0ms</p>
         <p class="text-sm text-zinc-500 mt-1">Context switch time</p>
       </div>
     </div>
@@ -78,7 +87,7 @@
   <section id="workspaces" class="max-w-6xl mx-auto px-6 py-20 border-b border-zinc-200">
     <div class="grid md:grid-cols-2 gap-16 items-start">
       <div>
-        <p class="font-mono text-xs text-zinc-400 tracking-widest uppercase mb-4">The workspace</p>
+        <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">The workspace</p>
         <h2 class="text-3xl font-bold tracking-tight mb-6">Your work is parallel. Your editor should be too.</h2>
         <p class="text-zinc-500 leading-relaxed mb-4">
           Most editors give you one context. You juggle windows, fight for screen space, and lose threads. Splice gives you workspaces — each one a complete, isolated environment with its own file tree, terminal sessions, editor tabs, and pane layout.
@@ -92,15 +101,21 @@
       </div>
       <div class="space-y-4">
         <div class="border border-zinc-200 p-5">
-          <p class="font-mono text-xs text-zinc-400 uppercase tracking-widest mb-2">Full isolation</p>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2 flex items-center gap-2">
+            <i class="bi bi-box-seam"></i> Full isolation
+          </p>
           <p class="text-sm text-zinc-600 leading-relaxed">Each workspace has its own root folder, file tree, open files, terminals, and pane layout. Nothing bleeds between them.</p>
         </div>
         <div class="border border-zinc-200 p-5">
-          <p class="font-mono text-xs text-zinc-400 uppercase tracking-widest mb-2">Instant switch</p>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2 flex items-center gap-2">
+            <i class="bi bi-arrow-left-right"></i> Instant switch
+          </p>
           <p class="text-sm text-zinc-600 leading-relaxed">Cmd+Opt+Shift+Arrow to move between workspaces. Your terminals keep running, your editors hold their state. No reload, no reconnect.</p>
         </div>
         <div class="border border-zinc-200 p-5">
-          <p class="font-mono text-xs text-zinc-400 uppercase tracking-widest mb-2">Arrange how you think</p>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2 flex items-center gap-2">
+            <i class="bi bi-layout-three-columns"></i> Arrange how you think
+          </p>
           <p class="text-sm text-zinc-600 leading-relaxed">Each workspace has its own binary tree pane layout. Split terminals and editors any way you want — per project, per context, per workflow.</p>
         </div>
       </div>
@@ -110,7 +125,7 @@
   <!-- Claude attention — the workspace payoff -->
   <section class="bg-zinc-950 border-b border-zinc-800">
     <div class="max-w-6xl mx-auto px-6 py-20">
-      <p class="font-mono text-xs text-zinc-500 tracking-widest uppercase mb-4">AI workflows</p>
+      <p class="font-mono text-xs tracking-widest uppercase mb-4 text-orange">AI workflows</p>
       <h2 class="text-3xl font-bold tracking-tight text-white mb-4">Run agents across workspaces. Know when they need you.</h2>
       <p class="text-zinc-400 text-base leading-relaxed mb-12 max-w-2xl">
         When you run Claude Code across multiple terminals — spanning multiple workspaces — Splice tracks each one. Permission requests and idle states surface as inline notifications in the footer, with the affected terminal identified. You stay focused until something actually needs your attention.
@@ -148,14 +163,16 @@
   <!-- Features -->
   <section id="features" class="bg-zinc-50 border-b border-zinc-200">
     <div class="max-w-6xl mx-auto px-6 py-20">
-      <p class="font-mono text-xs text-zinc-400 tracking-widests uppercase mb-4">Features</p>
+      <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Features</p>
       <h2 class="text-3xl font-bold tracking-tight mb-12">Built to stay out of your way.</h2>
 
       <div class="space-y-px">
 
         <div class="bg-white border border-zinc-200 p-6 grid md:grid-cols-3 gap-6">
           <div>
-            <p class="font-mono text-sm font-medium text-zinc-900 mb-1">Pane layout</p>
+            <p class="font-mono text-sm font-medium text-zinc-900 mb-1 flex items-center gap-2">
+              <i class="bi bi-layout-split text-orange"></i> Pane layout
+            </p>
             <p class="font-mono text-xs text-zinc-400">Binary tree splits</p>
           </div>
           <div class="md:col-span-2">
@@ -171,33 +188,40 @@
 
         <div class="bg-white border border-zinc-200 p-6 grid md:grid-cols-3 gap-6">
           <div>
-            <p class="font-mono text-sm font-medium text-zinc-900 mb-1">Terminal</p>
+            <p class="font-mono text-sm font-medium text-zinc-900 mb-1 flex items-center gap-2">
+              <i class="bi bi-terminal-fill text-orange"></i> Terminal
+            </p>
             <p class="font-mono text-xs text-zinc-400">Custom emulator</p>
           </div>
           <div class="md:col-span-2">
-            <p class="text-sm text-zinc-600 leading-relaxed mb-3">A ground-up terminal emulator built to match the workspace's demands. VTE parser, Canvas 2D renderer, binary frame protocol over Tauri events. Full xterm-256color parity — because agents and build tools expect a real terminal.</p>
+            <p class="text-sm text-zinc-600 leading-relaxed mb-3">A ground-up terminal emulator built to match the workspace's demands. VTE parser, Canvas 2D renderer, binary frame protocol over Tauri events. Full xterm-256color parity — because agents and build tools expect a real terminal. In-terminal search with match count and prev/next navigation.</p>
             <div class="flex flex-wrap gap-2">
               <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">xterm-256color</span>
               <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">truecolor</span>
               <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">10K scrollback</span>
               <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">~120fps</span>
+              <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">search</span>
             </div>
           </div>
         </div>
 
         <div class="bg-white border border-zinc-200 p-6 grid md:grid-cols-3 gap-6">
           <div>
-            <p class="font-mono text-sm font-medium text-zinc-900 mb-1">Editor</p>
+            <p class="font-mono text-sm font-medium text-zinc-900 mb-1 flex items-center gap-2">
+              <i class="bi bi-code-slash text-orange"></i> Editor
+            </p>
             <p class="font-mono text-xs text-zinc-400">CodeMirror 6</p>
           </div>
           <div class="md:col-span-2">
-            <p class="text-sm text-zinc-600 leading-relaxed mb-3">Syntax highlighting for TypeScript, Rust, Python, HTML, CSS, JSON, and Markdown. Minimap, indent guides, bracket matching. Tab drag and drop — move tabs between panes or create a new split by dragging to an edge zone. Git branch indicator and recent files per workspace.</p>
+            <p class="text-sm text-zinc-600 leading-relaxed mb-3">Syntax highlighting for TypeScript, Rust, Python, HTML, CSS, JSON, and Markdown. Minimap, indent guides, bracket matching. Breadcrumb path bar, image preview (PNG/JPG/GIF/WebP/SVG), and rendered Markdown preview. Tab drag and drop — move tabs between panes or create a new split by dragging to an edge zone.</p>
             <div class="flex flex-wrap gap-2">
               <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">TypeScript</span>
               <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">Rust</span>
               <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">Python</span>
               <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">minimap</span>
-              <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">indent guides</span>
+              <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">breadcrumbs</span>
+              <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">image preview</span>
+              <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">markdown preview</span>
               <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">tab drag & drop</span>
             </div>
           </div>
@@ -205,7 +229,9 @@
 
         <div class="bg-white border border-zinc-200 p-6 grid md:grid-cols-3 gap-6">
           <div>
-            <p class="font-mono text-sm font-medium text-zinc-900 mb-1">File explorer</p>
+            <p class="font-mono text-sm font-medium text-zinc-900 mb-1 flex items-center gap-2">
+              <i class="bi bi-folder2-open text-orange"></i> File explorer
+            </p>
             <p class="font-mono text-xs text-zinc-400">Per workspace</p>
           </div>
           <div class="md:col-span-2">
@@ -221,7 +247,26 @@
 
         <div class="bg-white border border-zinc-200 p-6 grid md:grid-cols-3 gap-6">
           <div>
-            <p class="font-mono text-sm font-medium text-zinc-900 mb-1">Command palette</p>
+            <p class="font-mono text-sm font-medium text-zinc-900 mb-1 flex items-center gap-2">
+              <i class="bi bi-arrow-counterclockwise text-orange"></i> Session persistence
+            </p>
+            <p class="font-mono text-xs text-zinc-400">Restore on relaunch</p>
+          </div>
+          <div class="md:col-span-2">
+            <p class="text-sm text-zinc-600 leading-relaxed mb-3">Workspaces, pane layouts, open files, and terminal working directories are saved automatically. Relaunch Splice and pick up exactly where you left off — no manual restore, no lost context.</p>
+            <div class="flex flex-wrap gap-2">
+              <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">auto-save state</span>
+              <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">layout restore</span>
+              <span class="font-mono text-xs bg-zinc-100 text-zinc-600 px-2 py-1">terminal cwd</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white border border-zinc-200 p-6 grid md:grid-cols-3 gap-6">
+          <div>
+            <p class="font-mono text-sm font-medium text-zinc-900 mb-1 flex items-center gap-2">
+              <i class="bi bi-search text-orange"></i> Command palette
+            </p>
             <p class="font-mono text-xs text-zinc-400">Cmd+K</p>
           </div>
           <div class="md:col-span-2">
@@ -239,7 +284,7 @@
 
   <!-- Keyboard shortcuts -->
   <section class="max-w-6xl mx-auto px-6 py-20 border-b border-zinc-200">
-    <p class="font-mono text-xs text-zinc-400 tracking-widest uppercase mb-4">Keyboard</p>
+    <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Keyboard</p>
     <h2 class="text-3xl font-bold tracking-tight mb-12">Everything reachable without the mouse.</h2>
 
     <div class="grid md:grid-cols-2 gap-px border border-zinc-200">
@@ -267,13 +312,21 @@
         <p class="text-sm text-zinc-600">Toggle file explorer</p>
         <p class="font-mono text-xs bg-zinc-100 text-zinc-700 px-2 py-1">Cmd+B</p>
       </div>
-      <div class="p-5 border-r border-zinc-200 flex items-center justify-between">
+      <div class="p-5 border-b border-r border-zinc-200 flex items-center justify-between">
         <p class="text-sm text-zinc-600">New file</p>
         <p class="font-mono text-xs bg-zinc-100 text-zinc-700 px-2 py-1">Cmd+N</p>
       </div>
-      <div class="p-5 flex items-center justify-between">
+      <div class="p-5 border-b border-zinc-200 flex items-center justify-between">
         <p class="text-sm text-zinc-600">Settings</p>
         <p class="font-mono text-xs bg-zinc-100 text-zinc-700 px-2 py-1">Cmd+,</p>
+      </div>
+      <div class="p-5 border-r border-zinc-200 flex items-center justify-between">
+        <p class="text-sm text-zinc-600">Search in terminal</p>
+        <p class="font-mono text-xs bg-zinc-100 text-zinc-700 px-2 py-1">Cmd+F</p>
+      </div>
+      <div class="p-5 flex items-center justify-between">
+        <p class="text-sm text-zinc-600">Zoom UI in / out / reset</p>
+        <p class="font-mono text-xs bg-zinc-100 text-zinc-700 px-2 py-1">Cmd+= / Cmd+- / Cmd+0</p>
       </div>
     </div>
   </section>
@@ -281,25 +334,33 @@
   <!-- Stack -->
   <section id="stack" class="bg-zinc-50 border-b border-zinc-200">
     <div class="max-w-6xl mx-auto px-6 py-20">
-      <p class="font-mono text-xs text-zinc-400 tracking-widest uppercase mb-4">Stack</p>
+      <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Stack</p>
       <h2 class="text-3xl font-bold tracking-tight mb-4">Rust where it counts.</h2>
       <p class="text-zinc-500 text-base leading-relaxed mb-12 max-w-2xl">Native Tauri app — not a web app in a shell. The backend owns the PTY, the terminal parser, and the workspace state. The frontend handles layout and rendering. Sharp division, no blurring.</p>
 
       <div class="grid md:grid-cols-2 gap-px border border-zinc-200">
         <div class="bg-white p-6 border-b border-r border-zinc-200">
-          <p class="font-mono text-sm font-medium mb-2">Tauri v2 + Rust</p>
+          <p class="font-mono text-sm font-medium mb-2 flex items-center gap-2">
+            <i class="bi bi-cpu text-orange"></i> Tauri v2 + Rust
+          </p>
           <p class="text-sm text-zinc-500">Native macOS app. PTY management, VTE parsing, workspace persistence, and the attention server all live in Rust. No Electron.</p>
         </div>
         <div class="bg-white p-6 border-b border-zinc-200">
-          <p class="font-mono text-sm font-medium mb-2">Svelte 5 (runes)</p>
+          <p class="font-mono text-sm font-medium mb-2 flex items-center gap-2">
+            <i class="bi bi-lightning-charge text-orange"></i> Svelte 5 (runes)
+          </p>
           <p class="text-sm text-zinc-500">Frontend built with Svelte 5 runes. Fine-grained reactivity. Binary tree pane layout rendered recursively. Tailwind CSS v3.</p>
         </div>
         <div class="bg-white p-6 border-r border-zinc-200">
-          <p class="font-mono text-sm font-medium mb-2">Canvas 2D terminal</p>
+          <p class="font-mono text-sm font-medium mb-2 flex items-center gap-2">
+            <i class="bi bi-display text-orange"></i> Canvas 2D terminal
+          </p>
           <p class="text-sm text-zinc-500">Custom terminal renderer. Cells decoded from a compact binary frame protocol. No DOM elements per character — full grid repaint up to 120fps.</p>
         </div>
         <div class="bg-white p-6">
-          <p class="font-mono text-sm font-medium mb-2">CodeMirror 6</p>
+          <p class="font-mono text-sm font-medium mb-2 flex items-center gap-2">
+            <i class="bi bi-braces text-orange"></i> CodeMirror 6
+          </p>
           <p class="text-sm text-zinc-500">Editor panes powered by CodeMirror 6. Syntax highlighting for TypeScript, Rust, Python, HTML, CSS, JSON, and Markdown. Minimap, indent guides, git branch indicator.</p>
         </div>
       </div>
@@ -308,7 +369,7 @@
 
   <!-- Download -->
   <section id="download" class="max-w-6xl mx-auto px-6 py-20 border-b border-zinc-200">
-    <p class="font-mono text-xs text-zinc-400 tracking-widest uppercase mb-4">Download</p>
+    <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Download</p>
     <h2 class="text-3xl font-bold tracking-tight mb-12">Get Splice.</h2>
 
     <div class="grid md:grid-cols-3 gap-8">
@@ -317,7 +378,7 @@
           <p class="font-mono text-xs text-zinc-400 uppercase tracking-widest mb-3">Build from source</p>
           <div class="bg-zinc-950 text-zinc-300 font-mono text-sm p-4 border border-zinc-800 space-y-1">
             <p class="text-zinc-500"># Prerequisites: Node.js 18+, Rust stable, Tauri CLI</p>
-            <p>git clone https://github.com/adrianhajdin/Splice</p>
+            <p>git clone https://github.com/adrian-kimbrell/splice</p>
             <p>npm install</p>
             <p>cargo tauri dev</p>
           </div>
@@ -332,16 +393,16 @@
 
       <div class="space-y-4">
         <div class="border border-zinc-200 p-5">
-          <p class="font-mono text-xs text-zinc-400 uppercase tracking-widest mb-2">Platform</p>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2">Platform</p>
           <p class="text-sm text-zinc-600">macOS. Linux and Windows support planned.</p>
         </div>
         <div class="border border-zinc-200 p-5">
-          <p class="font-mono text-xs text-zinc-400 uppercase tracking-widest mb-2">License</p>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2">License</p>
           <p class="text-sm text-zinc-600">MIT. Free to use, fork, and modify.</p>
         </div>
         <div class="border border-zinc-200 p-5">
-          <p class="font-mono text-xs text-zinc-400 uppercase tracking-widest mb-2">Source</p>
-          <p class="font-mono text-xs text-zinc-500 mt-1">github.com/adrianhajdin/Splice</p>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2">Source</p>
+          <p class="font-mono text-xs text-zinc-500 mt-1">github.com/adrian-kimbrell/splice</p>
         </div>
       </div>
     </div>
@@ -349,7 +410,7 @@
 
   <!-- Footer -->
   <footer class="max-w-6xl mx-auto px-6 py-10 flex items-center justify-between text-xs text-zinc-400 font-mono">
-    <span class="tracking-widest uppercase">Splice</span>
+    <span class="tracking-widest uppercase text-orange">Splice</span>
     <span>One window for all your work</span>
   </footer>
 

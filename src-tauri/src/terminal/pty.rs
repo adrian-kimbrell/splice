@@ -10,12 +10,14 @@ use tauri::{AppHandle, Emitter};
 pub struct PtySession {
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pub child_pid: Option<u32>,
-    master: Box<dyn MasterPty + Send>,
+    /// Wrapped in Arc<Mutex> so resize_terminal can clone it and release
+    /// the AppState lock before issuing the PTY ioctl (may block).
+    pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     pub emulator: Arc<RwLock<Emulator>>,
-    version: Arc<AtomicU32>,
+    pub version: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
     pub scroll_offset: Arc<AtomicI32>,
-    notify: Arc<EmitterNotify>,
+    pub notify: Arc<EmitterNotify>,
     _reader_handle: JoinHandle<()>,
     _emitter_handle: JoinHandle<()>,
 }
@@ -35,6 +37,7 @@ impl PtySession {
         cwd: &str,
         cols: u16,
         rows: u16,
+        scrollback: usize,
     ) -> Result<Self, String> {
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -61,8 +64,9 @@ impl PtySession {
         let writer = Arc::new(Mutex::new(
             pair.master.take_writer().map_err(|e| e.to_string())?,
         ));
+        let master = Arc::new(Mutex::new(pair.master as Box<dyn MasterPty + Send>));
 
-        let emulator = Arc::new(RwLock::new(Emulator::new(cols, rows)));
+        let emulator = Arc::new(RwLock::new(Emulator::new(cols, rows, scrollback)));
         let version = Arc::new(AtomicU32::new(0));
         let running = Arc::new(AtomicBool::new(true));
         let scroll_offset = Arc::new(AtomicI32::new(0));
@@ -151,7 +155,7 @@ impl PtySession {
         Ok(Self {
             writer,
             child_pid,
-            master: pair.master,
+            master,
             emulator,
             version,
             running,
@@ -163,6 +167,9 @@ impl PtySession {
     }
 
     pub fn scroll(&self, delta: i32) {
+        // TOCTOU note: scroll_offset may transiently exceed the current scrollback length
+        // if the PTY writes new data between here and the next serialize_grid call.
+        // serialize_grid re-clamps the offset before use, so visual output is always correct.
         let max = {
             let emu = match self.emulator.read() {
                 Ok(emu) => emu,
@@ -177,12 +184,26 @@ impl PtySession {
         self.notify.notify();
     }
 
+    pub fn set_scroll_offset(&self, offset: i32) {
+        let max = {
+            let emu = match self.emulator.read() {
+                Ok(emu) => emu,
+                Err(_) => return,
+            };
+            emu.grid.active().scrollback.len() as i32
+        };
+        self.scroll_offset.store(offset.clamp(0, max), Ordering::Relaxed);
+        self.version.fetch_add(1, Ordering::Relaxed);
+        self.notify.notify();
+    }
+
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
         {
             let mut emu = self.emulator.write().map_err(|e| e.to_string())?;
             emu.resize(cols, rows);
         }
         self.master
+            .lock().map_err(|e| e.to_string())?
             .resize(PtySize {
                 rows,
                 cols,

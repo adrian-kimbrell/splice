@@ -10,9 +10,15 @@ pub struct AppState {
     pub workspaces: Vec<Workspace>,
     pub active_workspace_id: Option<String>,
     pub settings: Settings,
+    pub settings_loaded: bool,
     pub allowed_roots: Vec<PathBuf>,
     pub attention_port: Option<u16>,
     pub watchers: HashMap<String, RecommendedWatcher>,
+    /// terminal_id → (session_id, claude_pid)
+    /// claude_pid lets us verify Claude is still running at persist time.
+    pub terminal_claude_sessions: HashMap<u32, (String, u32)>,
+    /// claude_pid → terminal_id cache to avoid spawning `ps` on every notification
+    pub pid_to_terminal_cache: HashMap<u32, u32>,
 }
 
 impl AppState {
@@ -27,9 +33,12 @@ impl AppState {
             workspaces: Vec::new(),
             active_workspace_id: None,
             settings: Settings::default(),
+            settings_loaded: false,
             allowed_roots,
             attention_port: None,
             watchers: HashMap::new(),
+            terminal_claude_sessions: HashMap::new(),
+            pid_to_terminal_cache: HashMap::new(),
         }
     }
 }

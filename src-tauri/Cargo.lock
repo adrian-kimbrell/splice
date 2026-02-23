@@ -3606,6 +3606,7 @@ dependencies = [
  "criterion",
  "dirs",
  "ignore",
+ "libc",
  "notify",
  "portable-pty",
  "regex",

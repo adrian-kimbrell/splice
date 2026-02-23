@@ -29,6 +29,7 @@ Most editors give you one context and ask you to manage the rest yourself. Splic
 - Multiple independent workspaces per window — create, rename, close
 - Each workspace has its own file tree, terminals, editor tabs, and pane layout
 - State is fully isolated: switching workspaces never disturbs the other
+- Session persistence — workspaces and terminal directories are restored on next launch
 
 **Layout**
 - Binary tree split system — split any pane horizontally or vertically into a terminal or editor
@@ -40,6 +41,8 @@ Most editors give you one context and ask you to manage the rest yourself. Splic
 **Editor**
 - CodeMirror 6 with syntax highlighting for TypeScript, Rust, Python, HTML, CSS, JSON, and Markdown
 - Minimap, indent guides, bracket matching, auto-close brackets, word wrap
+- Breadcrumb path bar with click-to-copy segments
+- Image preview (PNG, JPG, GIF, WebP, SVG) and rendered Markdown preview
 - Preview tabs — single-click opens a preview, double-click or edit promotes to permanent
 - Git branch indicator per workspace
 - Recent files
@@ -49,6 +52,7 @@ Most editors give you one context and ask you to manage the rest yourself. Splic
 - Full xterm-256color parity, 24-bit truecolor, One Dark palette
 - 10,000-line scrollback, ~120fps frame cap, Condvar-based emitter (no polling)
 - Click, double-click (word), triple-click (line), drag selection
+- In-terminal search (`Cmd+F`) with match count and prev/next navigation
 
 **File explorer**
 - Per-workspace tree view with indent guides and folder open/collapse
@@ -73,6 +77,8 @@ Most editors give you one context and ask you to manage the rest yourself. Splic
 | `Cmd+N` | New file |
 | `Cmd+S` | Save file |
 | `Cmd+B` | Toggle file explorer |
+| `Cmd+F` | Search in terminal |
+| `Cmd+=` / `Cmd+-` / `Cmd+0` | Zoom UI in / out / reset |
 | `Cmd+,` | Settings |
 | `Escape` | Close overlays / unzoom |
 
@@ -127,15 +133,23 @@ cargo tauri build     # production build
 src/                          # Svelte frontend
   components/
     panes/                    # PaneGrid, EditorPane, TerminalPane, TabBar
-    terminal/                 # CanvasTerminal, TerminalTitlebar
+    terminal/                 # CanvasTerminal, TerminalTitlebar, TerminalSearch
     sidebar/                  # File explorer, workspace sidebar
     topbar/                   # Footer bar, notifications
     overlays/                 # Command palette, settings
   lib/
     ipc/                      # Tauri IPC command/event wrappers
-    stores/                   # Svelte 5 reactive stores (workspace, layout, UI, attention)
-    terminal/                 # Canvas renderer
-    theme/                    # Theme definitions
+    stores/                   # Svelte 5 reactive stores
+      workspace.svelte.ts     # Workspace manager
+      workspace-file-ops.ts   # File open/close/save operations
+      workspace-session.ts    # Persist & restore workspace state
+      workspace-tab-ops.ts    # Tab management helpers
+      workspace-types.ts      # Shared types and pure utilities
+    terminal/
+      keyboard.ts             # xterm keyboard encoder (pure, no DOM)
+    theme/
+      themes.ts               # Lazy-loading theme registry
+      themes/                 # builtin.ts · popular.ts · extended.ts
     utils/                    # Keybindings, language detection, settings window
 
 src-tauri/                    # Rust backend

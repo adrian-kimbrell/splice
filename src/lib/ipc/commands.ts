@@ -25,9 +25,9 @@ export async function spawnTerminal(
 
 export async function writeToTerminal(
   id: number,
-  data: number[] | Uint8Array,
+  data: Uint8Array,
 ): Promise<void> {
-  return invoke("write_to_terminal", { id, data: Array.from(data) });
+  return invoke("write_to_terminal", { id, data });
 }
 
 export async function resizeTerminal(
@@ -45,8 +45,19 @@ export async function scrollTerminal(
   return invoke("scroll_terminal", { id, delta });
 }
 
+export async function setTerminalScrollOffset(
+  id: number,
+  offset: number,
+): Promise<void> {
+  return invoke("set_terminal_scroll_offset", { id, offset });
+}
+
 export async function killTerminal(id: number): Promise<void> {
   return invoke("kill_terminal", { id });
+}
+
+export async function getTerminalCwd(id: number): Promise<string | null> {
+  return invoke<string | null>("get_terminal_cwd", { id });
 }
 
 export interface TerminalSearchMatch {
@@ -63,24 +74,46 @@ export async function searchTerminal(
   return invoke("search_terminal", { id, query, caseSensitive });
 }
 
+export interface RustPaneInfo {
+  id: string;
+  pane_type: unknown;
+  title: string;
+  file_paths: string[];
+  active_file_path: string | null;
+  claude_session_id: string | null;
+  claude_pid: number | null;
+}
+
 export interface RustWorkspace {
   id: string;
   name: string;
   root_path: string;
   layout: unknown;
-  panes: unknown[];
+  panes: RustPaneInfo[];
   terminal_ids: number[];
   open_file_paths: string[];
   active_file_path: string | null;
+  active_pane_id: string | null;
+  explorer_visible: boolean;
 }
 
-export async function getWorkspaces(): Promise<RustWorkspace[]> {
+export interface WorkspacesResponse {
+  active_workspace_id: string | null;
+  workspaces: RustWorkspace[];
+}
+
+export async function getWorkspaces(): Promise<WorkspacesResponse> {
   return invoke("get_workspaces");
 }
 
 export async function saveWorkspace(workspace: RustWorkspace): Promise<void> {
   return invoke("save_workspace", { workspace });
 }
+
+export async function setActiveWorkspaceId(id: string | null): Promise<void> {
+  return invoke("set_active_workspace_id", { id });
+}
+
 
 export async function deleteWorkspace(id: string): Promise<void> {
   return invoke("delete_workspace", { id });
@@ -132,12 +165,57 @@ export async function addRecentFile(path: string): Promise<void> {
   return invoke("add_recent_file", { path });
 }
 
+export async function getRecentProjects(): Promise<string[]> {
+  return invoke("get_recent_projects");
+}
+
+export async function addRecentProject(path: string): Promise<void> {
+  return invoke("add_recent_project", { path });
+}
+
 export async function watchPath(path: string): Promise<void> {
   return invoke("watch_path", { path });
 }
 
 export async function unwatchPath(path: string): Promise<void> {
   return invoke("unwatch_path", { path });
+}
+
+export async function createFileAt(
+  dirPath: string,
+  name: string,
+): Promise<string> {
+  return invoke("create_file_at", { dirPath, name });
+}
+
+export async function createDirectoryAt(
+  dirPath: string,
+  name: string,
+): Promise<string> {
+  return invoke("create_directory_at", { dirPath, name });
+}
+
+export async function renamePath(
+  oldPath: string,
+  newPath: string,
+): Promise<void> {
+  return invoke("rename_path", { oldPath, newPath });
+}
+
+export async function deletePath(path: string): Promise<void> {
+  return invoke("delete_path", { path });
+}
+
+export async function duplicatePath(path: string): Promise<string> {
+  return invoke("duplicate_path", { path });
+}
+
+export async function checkPidAlive(pid: number): Promise<boolean> {
+  return invoke("check_pid_alive", { pid });
+}
+
+export async function revealInFileManager(path: string): Promise<void> {
+  return invoke("reveal_in_file_manager", { path });
 }
 
 export async function searchFiles(

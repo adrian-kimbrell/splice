@@ -8,9 +8,11 @@
     active = false,
     preview = false,
     dirty = false,
+    pinned = false,
     onclick,
     onclose,
     ondblclick,
+    oncontextmenu,
   }: {
     name: string;
     path: string;
@@ -18,9 +20,11 @@
     active?: boolean;
     preview?: boolean;
     dirty?: boolean;
+    pinned?: boolean;
     onclick: () => void;
     onclose?: () => void;
     ondblclick?: () => void;
+    oncontextmenu?: (e: MouseEvent) => void;
   } = $props();
 
   const isBeingDragged = $derived.by(() => {
@@ -33,7 +37,7 @@
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button")) return;
     e.preventDefault();
-    beginDrag({ filePath: path, fileName: name, sourcePaneId: paneId }, e);
+    beginDrag({ filePath: path, fileName: name, sourcePaneId: paneId, kind: "editor" }, e);
   }
 </script>
 
@@ -51,12 +55,16 @@
   class:hover:bg-hover={!active}
   style:opacity={isBeingDragged ? "0.35" : "1"}
   onmousedown={handleMouseDown}
-  {onclick}
-  {ondblclick}
+  onclick={() => onclick()}
+  ondblclick={() => ondblclick?.()}
+  oncontextmenu={(e) => { if (oncontextmenu) { e.preventDefault(); oncontextmenu(e); } }}
   onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onclick(); } }}
 >
+  {#if pinned}
+    <i class="bi bi-pin-fill" style="font-size: 10px; color: var(--text-dim); margin-right: 2px;"></i>
+  {/if}
   <span class="mr-1" style:font-style={preview ? "italic" : "normal"}>{name}</span>
-  {#if onclose}
+  {#if onclose && !pinned}
     {#if dirty}
       <span
         class="flex items-center justify-center ml-1 group-hover:hidden"

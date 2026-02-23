@@ -61,7 +61,7 @@ fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::
 
     // View submenu
     let view_menu = SubmenuBuilder::new(app, "View")
-        .item(&MenuItemBuilder::with_id("command-palette", "Command Palette").accelerator("CmdOrCtrl+K").build(app)?)
+        .item(&MenuItemBuilder::with_id("command-palette", "Command Palette").accelerator("CmdOrCtrl+P").build(app)?)
         .separator()
         .item(&MenuItemBuilder::with_id("toggle-sidebar", "Toggle Sidebar").accelerator("CmdOrCtrl+B").build(app)?)
         .item(&MenuItemBuilder::with_id("toggle-word-wrap", "Toggle Word Wrap").build(app)?)
@@ -110,9 +110,10 @@ pub fn run() {
             let menu = build_menu(app)?;
             app.set_menu(menu)?;
 
+            let token = attention::load_or_create_token();
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let port = attention::start_server(handle.clone()).await;
+                let port = attention::start_server(handle.clone(), token).await;
                 if port > 0 {
                     if let Ok(mut s) = handle.state::<Mutex<AppState>>().lock() {
                         s.attention_port = Some(port);
@@ -124,6 +125,11 @@ pub fn run() {
         .on_menu_event(|app, event| {
             let _ = app.emit("menu-event", event.id().0.as_str());
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let _ = window.emit("app:closing", ());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::fs::read_dir_tree,
             commands::fs::read_file,
@@ -133,19 +139,31 @@ pub fn run() {
             commands::fs::get_git_branch,
             commands::fs::get_recent_files,
             commands::fs::add_recent_file,
+            commands::fs::get_recent_projects,
+            commands::fs::add_recent_project,
             commands::fs::watch_path,
             commands::fs::unwatch_path,
+            commands::fs::create_file_at,
+            commands::fs::create_directory_at,
+            commands::fs::rename_path,
+            commands::fs::delete_path,
+            commands::fs::duplicate_path,
+            commands::fs::reveal_in_file_manager,
             commands::terminal::spawn_terminal,
             commands::terminal::write_to_terminal,
             commands::terminal::resize_terminal,
             commands::terminal::scroll_terminal,
+            commands::terminal::set_terminal_scroll_offset,
             commands::terminal::kill_terminal,
             commands::terminal::search_terminal,
+            commands::terminal::get_terminal_cwd,
             commands::terminal::install_claude_hook,
             commands::workspace::get_workspaces,
             commands::workspace::save_workspace,
             commands::workspace::delete_workspace,
             commands::workspace::close_workspace,
+            commands::workspace::set_active_workspace_id,
+            commands::workspace::check_pid_alive,
             commands::settings::get_settings,
             commands::settings::update_settings,
         ])

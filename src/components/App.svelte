@@ -10,7 +10,7 @@
   import Toasts from "./overlays/Toasts.svelte";
   import { openSettingsWindow } from "../lib/utils/settings-window";
   import { ui } from "../lib/stores/ui.svelte";
-  import { initKeybindings } from "../lib/utils/keybindings";
+  import { initKeybindings, enterZenMode, exitZenMode } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
   import type { PaneConfig, SplitDirection } from "../lib/stores/layout.svelte";
   import { type DropZone, setDropCallback } from "../lib/stores/drag.svelte";
@@ -22,7 +22,16 @@
   import { applyTheme } from "../lib/theme/themes";
   import { dispatchEditorAction } from "../lib/stores/editor-actions.svelte";
   import { recentFiles, loadRecentFiles, addRecentFile } from "../lib/stores/recent-files.svelte";
+  import { recentProjects, loadRecentProjects } from "../lib/stores/recent-projects.svelte";
   import { pushToast } from "../lib/stores/toasts.svelte";
+  import { cancelPendingResume } from "../lib/stores/workspace-session";
+
+  // Pre-import commands module for fast access after first load
+  let _commands: typeof import("../lib/ipc/commands") | null = null;
+  async function getCommands() {
+    if (!_commands) _commands = await import("../lib/ipc/commands");
+    return _commands;
+  }
 
   function handleSplitPane(paneId: string, direction: SplitDirection, side: "before" | "after" = "after") {
     workspaceManager.splitPane(paneId, direction, side);
@@ -51,15 +60,29 @@
   /** Returns "save" | "discard" | "cancel" */
   async function confirmUnsaved(): Promise<"save" | "discard" | "cancel"> {
     if (isTauri) {
-      const { message } = await import("@tauri-apps/plugin-dialog");
-      const result = await message("Do you want to save your changes?", {
-        title: "Unsaved Changes",
-        kind: "warning",
-        buttons: { yes: "Save", no: "Don't Save", cancel: "Cancel" },
-      });
-      if (result === "Yes" || result === "Save") return "save";
-      if (result === "No" || result === "Don't Save") return "discard";
-      return "cancel";
+      try {
+        const { ask } = await import("@tauri-apps/plugin-dialog");
+        // Dialog 1: "Save" keeps file; "Cancel" means don't save → proceeds to
+      // dialog 2 so the user can still abort. This gives a Cancel path from
+      // the very first dialog, unlike a "Don't Save" label that implies finality.
+      const save = await ask("This pane has unsaved changes. Save before closing?", {
+          title: "Unsaved Changes",
+          kind: "warning",
+          okLabel: "Save",
+          cancelLabel: "Cancel",
+        });
+        if (save) return "save";
+        // Dialog 2: confirm the discard, or truly cancel.
+        const discard = await ask("Close without saving? Unsaved changes will be lost.", {
+          title: "Close Without Saving",
+          kind: "warning",
+          okLabel: "Close Without Saving",
+          cancelLabel: "Cancel",
+        });
+        return discard ? "discard" : "cancel";
+      } catch {
+        return window.confirm("Discard unsaved changes?") ? "discard" : "cancel";
+      }
     }
     const ok = confirm("You have unsaved changes. Close anyway?");
     return ok ? "discard" : "cancel";
@@ -74,7 +97,7 @@
         if (ws) {
           const pane = ws.panes[paneId];
           const dirtyPaths = (pane?.filePaths ?? []).filter((p) =>
-            ws.openFiles.find((f) => f.path === p)?.dirty,
+            ws.openFileIndex[p]?.dirty,
           );
           for (const p of dirtyPaths) {
             const saved = await workspaceManager.saveFile(p);
@@ -106,7 +129,7 @@
     const paths = [...(pane.filePaths ?? [])];
     // Check for dirty files
     const dirtyPaths = paths.filter((p) =>
-      ws.openFiles.find((f) => f.path === p)?.dirty,
+      ws.openFileIndex[p]?.dirty,
     );
     if (dirtyPaths.length > 0) {
       const choice = await confirmUnsaved();
@@ -223,6 +246,10 @@
 
     function onUp() {
       draggingSidebar = null;
+      // Persist sidebar widths to settings
+      settings.appearance.explorer_width = ui.explorerWidth;
+      settings.appearance.workspaces_width = ui.workspacesWidth;
+      debouncedSaveSettings();
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     }
@@ -252,12 +279,12 @@
       : "",
   );
 
-  function getTabsForPane(workspace: Workspace, config: PaneConfig): { name: string; path: string; preview?: boolean; dirty?: boolean }[] {
+  function getTabsForPane(workspace: Workspace, config: PaneConfig): { name: string; path: string; preview?: boolean; dirty?: boolean; pinned?: boolean; readOnly?: boolean }[] {
     if (config.kind !== "editor") return [];
     const paths = config.filePaths ?? [];
     return paths.map((p) => {
-      const openFile = workspace.openFiles.find((f) => f.path === p);
-      return { name: openFile?.name ?? p.split("/").pop() ?? "untitled", path: p, preview: openFile?.preview, dirty: openFile?.dirty };
+      const openFile = workspace.openFileIndex[p];
+      return { name: openFile?.name ?? p.split("/").pop() ?? "untitled", path: p, preview: openFile?.preview, dirty: openFile?.dirty, pinned: openFile?.pinned, readOnly: openFile?.readOnly };
     });
   }
 
@@ -270,8 +297,7 @@
     if (config.kind !== "editor") return "";
     const activePath = config.activeFilePath;
     if (!activePath) return "";
-    const openFile = workspace.openFiles.find((f) => f.path === activePath);
-    return openFile?.content ?? "";
+    return workspace.openFileIndex[activePath]?.content ?? "";
   }
 
   async function handleFileClick(entry: FileEntry) {
@@ -279,8 +305,9 @@
     if (entry.is_dir) return;
 
     try {
-      const { readFile } = await import("../lib/ipc/commands");
-      const content = await readFile(entry.path);
+      // Use cached content if file is already open
+      const existing = ws?.openFileIndex[entry.path];
+      const content = existing ? existing.content : await getCommands().then(c => c.readFile(entry.path));
       workspaceManager.openFileInWorkspace({
         name: entry.name,
         path: entry.path,
@@ -298,8 +325,9 @@
     if (entry.is_dir) return;
 
     try {
-      const { readFile } = await import("../lib/ipc/commands");
-      const content = await readFile(entry.path);
+      // Use cached content if file is already open
+      const existing = ws?.openFileIndex[entry.path];
+      const content = existing ? existing.content : await getCommands().then(c => c.readFile(entry.path));
       workspaceManager.openFileInWorkspace({
         name: entry.name,
         path: entry.path,
@@ -314,6 +342,35 @@
 
   function handleTabDoubleClick(path: string) {
     workspaceManager.promotePreviewTab(path);
+  }
+
+  function handleTabContextAction(action: string, path: string, paneId: string) {
+    switch (action) {
+      case "close":
+        handleTabClose(path, paneId);
+        break;
+      case "close-others":
+        workspaceManager.closeOtherFilesInPane(path, paneId);
+        break;
+      case "close-left":
+        workspaceManager.closeFilesToLeftInPane(path, paneId);
+        break;
+      case "close-right":
+        workspaceManager.closeFilesToRightInPane(path, paneId);
+        break;
+      case "close-clean":
+        workspaceManager.closeCleanFilesInPane(paneId);
+        break;
+      case "close-all":
+        workspaceManager.closeAllFilesInPane(paneId);
+        break;
+      case "toggle-readonly":
+        workspaceManager.toggleFileReadOnly(path);
+        break;
+      case "toggle-pin":
+        workspaceManager.toggleFilePinned(path);
+        break;
+    }
   }
 
   function handleTabClick(path: string, paneId: string) {
@@ -332,7 +389,7 @@
       if (filePath.endsWith("/")) continue;
 
       try {
-        const { readFile } = await import("../lib/ipc/commands");
+        const { readFile } = await getCommands();
         const content = await readFile(filePath);
         const name = filePath.split("/").pop() ?? "untitled";
         workspaceManager.openFileInWorkspace({ name, path: filePath, content });
@@ -376,7 +433,7 @@
         if (!workspaceManager.activeWorkspace) {
           workspaceManager.createEmptyWorkspace();
         }
-        const { readFile } = await import("../lib/ipc/commands");
+        const { readFile } = await getCommands();
         const filePath = selected as string;
         const content = await readFile(filePath);
         const name = filePath.split("/").pop() ?? "untitled";
@@ -402,7 +459,7 @@
     const visible = ui.explorerVisible;
     if (wsId) {
       const w = workspaceManager.workspaces[wsId];
-      if (w) w.explorerVisible = visible;
+      if (w && w.explorerVisible !== visible) w.explorerVisible = visible;
     }
   });
 
@@ -416,18 +473,45 @@
   });
 
   onMount(async () => {
-    initKeybindings();
-    initSettings();
-    workspaceManager.initializeWorkspaces();
-    loadRecentFiles();
-    const stopGitPolling = workspaceManager.startGitBranchPolling();
+    const stopKeybindings = initKeybindings();
+    // Eagerly pre-import commands module
+    import("../lib/ipc/commands").then(m => { _commands = m; });
+    // Await settings before initializing workspaces (restore_previous_session check)
+    await initSettings();
+    // Restore sidebar widths from persisted settings
+    ui.explorerWidth = settings.appearance.explorer_width ?? 240;
+    ui.workspacesWidth = settings.appearance.workspaces_width ?? 220;
 
-    // Listen for settings changes from the settings window
     let unlistenSettings: (() => void) | null = null;
     let unlistenAttention: (() => void) | null = null;
     let unlistenMenu: (() => void) | null = null;
     let unlistenDragDrop: (() => void) | null = null;
     let unlistenFileChanged: (() => void) | null = null;
+    let unlistenClosing: (() => void) | null = null;
+    let unlistenSession: (() => void) | null = null;
+
+    // Register the Claude session listener BEFORE restoring workspaces so we
+    // never miss a session event from a restored terminal's Claude process.
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlistenSession = await listen<{ terminal_id: number; session_id: string; claude_pid: number }>("terminal:claude-session", ({ payload }) => {
+        const ws = Object.values(workspaceManager.workspaces).find(
+          w => w.terminalIds.includes(payload.terminal_id)
+        );
+        const paneId = `term-${payload.terminal_id}`;
+        if (ws?.panes[paneId]) {
+          cancelPendingResume(payload.terminal_id);
+          ws.panes[paneId].claudeSessionId = payload.session_id;
+          ws.panes[paneId].claudePid = payload.claude_pid;
+          workspaceManager.debouncedPersistWorkspace(ws.id);
+        }
+      });
+    }
+
+    workspaceManager.initializeWorkspaces();
+    loadRecentFiles();
+    loadRecentProjects();
+    const stopGitPolling = workspaceManager.startGitBranchPolling();
 
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
       import("@tauri-apps/api/event").then(({ listen }) => {
@@ -512,20 +596,24 @@
               workspaceManager.spawnTerminalInWorkspace();
               break;
             case "zen-mode":
-              // Toggle zen mode via custom event (keybindings handler will pick it up)
-              document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, metaKey: true }));
+              if (ui.zenMode) exitZenMode(); else enterZenMode();
               break;
           }
         }).then((fn) => { unlistenMenu = fn; });
       });
 
-      const { installClaudeHook } = await import("../lib/ipc/commands");
+      const { installClaudeHook } = await getCommands();
       const { onAttentionNotify } = await import("../lib/ipc/events");
       const { attentionStore } = await import("../lib/stores/attention.svelte");
 
       installClaudeHook().catch(console.warn);
 
       unlistenAttention = await onAttentionNotify((payload) => {
+        // Only show notifications for terminals that exist in a workspace
+        const terminalExists = Object.values(workspaceManager.workspaces).some(
+          w => w.terminalIds.includes(payload.terminal_id)
+        );
+        if (!terminalExists) return;
         attentionStore.notify({
           terminalId: payload.terminal_id,
           type: payload.notification_type === "permission_prompt" ? "permission" : "idle",
@@ -534,24 +622,43 @@
         });
       });
 
+      // Persist all workspaces before the window closes, awaiting completion
+      import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
+        const appWindow = getCurrentWindow();
+        unlistenClosing = await appWindow.onCloseRequested(async (event) => {
+          event.preventDefault();
+          await Promise.allSettled(
+            Object.keys(workspaceManager.workspaces).map(wsId =>
+              workspaceManager.persistWorkspace(wsId)
+            )
+          );
+          try {
+            await appWindow.destroy();
+          } catch {
+            await appWindow.close();
+          }
+        });
+      }).catch(console.warn);
+
       // Listen for file watcher events
+      const { listen } = await import("@tauri-apps/api/event");
       listen<string>("file:changed", async (event) => {
         const changedPath = event.payload;
-        const ws = workspaceManager.activeWorkspace;
-        if (!ws) return;
-        const file = ws.openFiles.find((f) => f.path === changedPath);
-        if (!file) return;
-        if (file.dirty) {
-          pushToast("File changed externally: " + (changedPath.split("/").pop() ?? changedPath), "warning", 5000);
-        } else {
-          try {
-            const { readFile } = await import("../lib/ipc/commands");
-            const content = await readFile(changedPath);
-            file.content = content;
-            file.originalContent = content;
-            file.dirty = false;
-          } catch {
-            // ignore read errors
+        for (const ws of Object.values(workspaceManager.workspaces)) {
+          const file = ws.openFileIndex[changedPath];
+          if (!file) continue;
+          if (file.dirty) {
+            pushToast("File changed externally: " + (changedPath.split("/").pop() ?? changedPath), "warning", 5000);
+          } else {
+            try {
+              const { readFile } = await getCommands();
+              const content = await readFile(changedPath);
+              file.content = content;
+              file.originalContent = content;
+              file.dirty = false;
+            } catch {
+              // ignore read errors
+            }
           }
         }
       }).then((fn) => { unlistenFileChanged = fn; });
@@ -575,28 +682,54 @@
 
     setDropCallback((data: TabDragData, targetPaneId: string, zone: DropZone) => {
       if (!zone || !targetPaneId) return;
-      // Same-pane center drops are handled by TabBar reordering
-      if (data.sourcePaneId === targetPaneId && zone === "center") return;
 
-      // Check single-tab same-pane drag
       const ws = workspaceManager.activeWorkspace;
-      if (data.sourcePaneId === targetPaneId && ws) {
+      if (!ws) return;
+
+      const sourceKind = data.kind ?? "editor";
+      const targetKind = ws.panes[targetPaneId]?.kind ?? "editor";
+
+      // Center zone between different pane kinds → swap positions
+      if (zone === "center" && sourceKind !== targetKind && data.sourcePaneId !== targetPaneId) {
+        workspaceManager.swapPanesInLayout(data.sourcePaneId, targetPaneId);
+        return;
+      }
+
+      // Terminal source drags: layout-level operations (no tab merging)
+      if (sourceKind === "terminal") {
+        if (data.sourcePaneId === targetPaneId) return;
+        if (zone === "center") {
+          workspaceManager.swapPanesInLayout(data.sourcePaneId, targetPaneId);
+        } else {
+          let direction: SplitDirection = "horizontal";
+          let side: "before" | "after" = "after";
+          if (zone === "left") { direction = "horizontal"; side = "before"; }
+          else if (zone === "right") { direction = "horizontal"; side = "after"; }
+          else if (zone === "top") { direction = "vertical"; side = "before"; }
+          else if (zone === "bottom") { direction = "vertical"; side = "after"; }
+          workspaceManager.movePaneInLayout(data.sourcePaneId, targetPaneId, direction, side);
+        }
+        return;
+      }
+
+      // Editor tab drags (original behavior — works for any target kind)
+      if (data.sourcePaneId === targetPaneId && zone === "center") return;
+      if (data.sourcePaneId === targetPaneId) {
         const cfg = ws.panes[targetPaneId];
         if (cfg?.filePaths && cfg.filePaths.length <= 1) return;
       }
 
       let direction: SplitDirection = "horizontal";
       let side: "before" | "after" = "after";
-
       if (zone === "left") { direction = "horizontal"; side = "before"; }
       else if (zone === "right") { direction = "horizontal"; side = "after"; }
       else if (zone === "top") { direction = "vertical"; side = "before"; }
       else if (zone === "bottom") { direction = "vertical"; side = "after"; }
-
       handleTabDrop(data.filePath, data.sourcePaneId, targetPaneId, direction, side, zone);
     });
 
     return () => {
+      stopKeybindings();
       setDropCallback(null);
       stopGitPolling();
       document.removeEventListener("splice:close-active-tab", closeTabHandler);
@@ -606,6 +739,8 @@
       unlistenMenu?.();
       unlistenDragDrop?.();
       unlistenFileChanged?.();
+      unlistenClosing?.();
+      unlistenSession?.();
     };
   });
 </script>
@@ -629,6 +764,7 @@
         selectedPath={selectedFilePath}
         hasFolder={!!ws?.rootPath}
         hasWorkspace={!!ws}
+        rootPath={ws?.rootPath ?? ""}
         side="left"
       />
     {:else}
@@ -662,6 +798,7 @@
         {#if hasContent}
           {#snippet paneSnippet(config: PaneConfig)}
             {#if config.kind === "editor"}
+              {@const activeOpenFile = config.activeFilePath ? workspace.openFileIndex[config.activeFilePath] ?? null : null}
               <EditorPane
                 tabs={getTabsForPane(workspace, config)}
                 activeTab={getActiveTabForPane(config)}
@@ -669,12 +806,14 @@
                 filePath={config.activeFilePath ?? ""}
                 paneId={config.id}
                 rootPath={workspace.rootPath ?? ""}
+                readOnly={activeOpenFile?.readOnly ?? false}
                 onTabClick={(path) => handleTabClick(path, config.id)}
                 onTabClose={(path) => handleTabClose(path, config.id)}
                 onTabDoubleClick={handleTabDoubleClick}
                 onSplit={(dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}
                 onAction={handlePaneAction}
+                onTabContextAction={(action, path) => handleTabContextAction(action, path, config.id)}
                 onContentChange={(content) => {
                   if (config.activeFilePath) {
                     workspaceManager.updateFileContent(config.activeFilePath, content);
@@ -748,7 +887,7 @@
       <div class="welcome-screen flex-1 flex items-center justify-center">
         <div class="welcome-container">
           <div class="welcome-header">
-            <i class="bi bi-braces text-3xl text-accent"></i>
+            <div style="width: 64px; height: 64px; background-color: var(--accent); -webkit-mask-image: url('/logo.png'); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; mask-image: url('/logo.png'); mask-size: contain; mask-repeat: no-repeat; mask-position: center;" aria-label="Splice"></div>
             <div>
               <div class="text-txt-bright text-xl font-medium">Splice</div>
               <div class="text-txt-dim text-xs">A modern code editor</div>
@@ -772,28 +911,20 @@
             <button class="welcome-item" onclick={() => (ui.commandPaletteOpen = true)}>
               <i class="bi bi-command"></i>
               <span>Command Palette</span>
-              <kbd>Cmd K</kbd>
+              <kbd>Cmd P</kbd>
             </button>
           </fieldset>
 
-          {#if recentFiles.length > 0}
+          {#if recentProjects.length > 0}
             <fieldset class="welcome-section">
               <legend class="welcome-legend">Recent</legend>
-              {#each recentFiles.slice(0, 5) as filePath}
+              {#each recentProjects.slice(0, 5) as projectPath}
                 <button class="welcome-item" onclick={() => {
-                  (async () => {
-                    if (!workspaceManager.activeWorkspace) workspaceManager.createEmptyWorkspace();
-                    try {
-                      const { readFile } = await import("../lib/ipc/commands");
-                      const content = await readFile(filePath);
-                      const name = filePath.split("/").pop() ?? "untitled";
-                      workspaceManager.openFileInWorkspace({ name, path: filePath, content });
-                    } catch (e) { console.error("Failed to open recent file:", e); }
-                  })();
+                  workspaceManager.createWorkspaceFromDirectory(projectPath);
                 }}>
-                  <i class="bi bi-file-earmark"></i>
-                  <span class="truncate">{filePath.split("/").pop()}</span>
-                  <span class="text-txt-dim text-[10px] truncate ml-auto">{filePath}</span>
+                  <i class="bi bi-folder2" style="flex-shrink: 0;"></i>
+                  <span style="flex: none;">{projectPath.split("/").filter(Boolean).pop()}</span>
+                  <span class="text-txt-dim text-[10px] truncate" style="flex: 1; min-width: 0;">{projectPath}</span>
                 </button>
               {/each}
             </fieldset>
@@ -836,6 +967,7 @@
         selectedPath={selectedFilePath}
         hasFolder={!!ws?.rootPath}
         hasWorkspace={!!ws}
+        rootPath={ws?.rootPath ?? ""}
         side="right"
       />
     {:else}

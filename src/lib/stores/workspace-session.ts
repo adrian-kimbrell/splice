@@ -5,6 +5,15 @@ import { remapLayout, findFirstLeaf, frontendToRustLayout } from "./workspace-ty
 import { collectLeafIds } from "./layout.svelte";
 import { settings } from "./settings.svelte";
 
+/** terminalId → pending retry timer IDs for claude --resume injection */
+const pendingResumeTimers = new Map<number, ReturnType<typeof setTimeout>[]>();
+
+/** Cancel all pending --resume retries for a terminal (call on session success or terminal kill). */
+export function cancelPendingResume(terminalId: number): void {
+  const timers = pendingResumeTimers.get(terminalId);
+  if (timers) { timers.forEach(clearTimeout); pendingResumeTimers.delete(terminalId); }
+}
+
 export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string | null): Promise<void> {
   if (!ws.layout) return; // nothing to persist if no panes
 
@@ -19,7 +28,18 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
   const layoutLeafIds = collectLeafIds(layoutSnapshot);
 
   try {
-    const { saveWorkspace } = await import("../ipc/commands");
+    const { saveWorkspace, getTerminalCwd } = await import("../ipc/commands");
+
+    // Gather actual terminal CWDs in parallel before building the panes array.
+    const terminalCwdMap = new Map<string, string>();
+    await Promise.all(
+      Object.values(panesSnapshot)
+        .filter(p => p.kind === "terminal" && p.terminalId != null)
+        .map(async (p) => {
+          const cwd = await getTerminalCwd(p.terminalId!).catch(() => null);
+          if (cwd) terminalCwdMap.set(p.id, cwd);
+        })
+    );
 
     // Only persist panes that are referenced in the layout tree.
     const panes = Object.values(panesSnapshot)
@@ -31,7 +51,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
           id: pane.id,
           pane_type:
             pane.kind === "terminal"
-              ? { Terminal: { shell: settings.terminal.default_shell, cwd: ws.rootPath } }
+              ? { Terminal: { shell: settings.terminal.default_shell, cwd: terminalCwdMap.get(pane.id) ?? ws.rootPath } }
               : { Editor: { file_path: pane.activeFilePath ?? "" } },
           title: pane.title,
           file_paths: pane.filePaths ?? [],
@@ -93,9 +113,18 @@ export async function restoreWorkspaceImpl(
 
     if (isTerminal) {
       try {
+        const savedCwd = (() => {
+          const pt = paneInfo.pane_type as Record<string, unknown> | null;
+          if (pt && "Terminal" in pt) {
+            const t = pt.Terminal as { cwd?: string };
+            return t.cwd && t.cwd !== "" ? t.cwd : null;
+          }
+          return null;
+        })();
+
         const terminalId = await spawnTerminal(
           settings.terminal.default_shell,
-          rws.root_path || "/",
+          savedCwd || rws.root_path || "/",
           80,
           24,
         );
@@ -114,39 +143,45 @@ export async function restoreWorkspaceImpl(
 
         // Resume Claude session after terminal is ready.
         // Base delay of 2000ms lets the shell finish sourcing RC files (PATH setup).
-        // Each additional Claude pane is staggered by 1000ms to avoid concurrent
+        // Each additional Claude pane is staggered by 300ms to avoid concurrent
         // shell initialization + command injection.
         if (paneInfo.claude_session_id) {
           const sessionId = paneInfo.claude_session_id;
           const savedPid = paneInfo.claude_pid ?? null;
-          const delay = 2000 + (resumeStartIndex + localClaudeResumeIndex) * 1000;
-          localClaudeResumeIndex++;
-          setTimeout(async () => {
-            // Validate session ID before injecting into the PTY to prevent command injection
-            if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sessionId)) {
-              console.warn("Refusing to inject suspicious session ID:", sessionId);
-              return;
-            }
-            // If the saved Claude PID is still alive, Claude didn't exit when Splice closed.
-            // Skip injection to avoid spawning a second overlapping Claude process.
-            if (savedPid !== null) {
-              try {
-                const alive = await checkPidAlive(savedPid);
-                if (alive) {
-                  console.info(`Claude PID ${savedPid} still alive; skipping --resume for terminal ${terminalId}`);
-                  return;
+
+          if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sessionId)) {
+            console.warn("Refusing to inject suspicious session ID:", sessionId);
+          } else {
+            const baseDelay = 2000 + (resumeStartIndex + localClaudeResumeIndex) * 300;
+            localClaudeResumeIndex++;
+
+            // 3 attempts: immediately at baseDelay, then +5s, +13s
+            const RETRY_EXTRA = [0, 5000, 13000];
+            const timers: ReturnType<typeof setTimeout>[] = [];
+            pendingResumeTimers.set(terminalId, timers);
+
+            for (const extra of RETRY_EXTRA) {
+              const t = setTimeout(async () => {
+                if (!pendingResumeTimers.has(terminalId)) return; // cancelled by success or kill
+                // If the saved Claude PID is still alive, Claude didn't exit when Splice closed.
+                // Cancel all retries to avoid spawning a second overlapping Claude process.
+                if (savedPid !== null) {
+                  try {
+                    const alive = await checkPidAlive(savedPid);
+                    if (alive) {
+                      console.info(`Claude PID ${savedPid} still alive; cancelling --resume for terminal ${terminalId}`);
+                      cancelPendingResume(terminalId);
+                      return;
+                    }
+                  } catch { /* ignore — if check fails, proceed with resume */ }
                 }
-              } catch { /* ignore — if check fails, proceed with resume */ }
+                try {
+                  await writeToTerminal(terminalId, new TextEncoder().encode(`claude --resume ${sessionId}\n`));
+                } catch (e) { console.warn("claude --resume injection failed:", e); }
+              }, baseDelay + extra);
+              timers.push(t);
             }
-            try {
-              await writeToTerminal(
-                terminalId,
-                new TextEncoder().encode(`claude --resume ${sessionId}\n`),
-              );
-            } catch (e) {
-              console.warn("Failed to inject claude --resume:", e);
-            }
-          }, delay);
+          }
         }
       } catch (e) {
         console.error("Failed to spawn terminal during restore:", e);

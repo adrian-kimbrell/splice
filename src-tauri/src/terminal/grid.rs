@@ -182,7 +182,9 @@ impl ScreenBuffer {
 }
 
 fn default_tab_stops(cols: u16) -> Vec<bool> {
-    (0..cols).map(|c| c % 8 == 0).collect()
+    // Standard VT tab stops at columns 8, 16, 24, … (1-based: cols 8, 16, …)
+    // Column 0 is never a tab stop — tab() starts searching from cursor+1.
+    (0..cols).map(|c| c > 0 && c % 8 == 0).collect()
 }
 
 pub struct Grid {
@@ -202,11 +204,11 @@ pub struct Grid {
 }
 
 impl Grid {
-    pub fn new(cols: u16, rows: u16) -> Self {
+    pub fn new(cols: u16, rows: u16, scrollback: usize) -> Self {
         Self {
             cols,
             rows,
-            primary: ScreenBuffer::new(cols, rows, 10000),
+            primary: ScreenBuffer::new(cols, rows, scrollback),
             alt: ScreenBuffer::new(cols, rows, 0),
             active_is_alt: false,
             cursor_visible: true,
@@ -255,14 +257,12 @@ impl Grid {
             if auto_wrap {
                 buf.cursor_col = 0;
                 // inline linefeed logic to avoid borrow issues
-                if buf.cursor_row >= buf.scroll_bottom {
-                    if buf.cursor_row == buf.scroll_bottom {
-                        buf.scroll_up_in_region();
-                    }
-                    // cursor stays at scroll_bottom
-                } else {
+                if buf.cursor_row == buf.scroll_bottom {
+                    buf.scroll_up_in_region();
+                } else if buf.cursor_row < buf.scroll_bottom {
                     buf.cursor_row += 1;
                 }
+                // else: cursor is below the scroll region — leave it as-is
             } else {
                 buf.cursor_col = cols.saturating_sub(1);
             }
@@ -302,15 +302,11 @@ impl Grid {
 
     pub fn tab(&mut self) {
         let cols = self.cols;
-        let buf = self.active_mut();
-        let start = buf.cursor_col as usize + 1;
-        for c in start..cols as usize {
-            if self.tab_stops.get(c).copied().unwrap_or(false) {
-                self.active_mut().cursor_col = c as u16;
-                return;
-            }
-        }
-        self.active_mut().cursor_col = cols.saturating_sub(1);
+        let start = self.active_mut().cursor_col as usize + 1;
+        // active_mut borrow ends after extracting start (NLL)
+        let next = (start..cols as usize)
+            .find(|&c| self.tab_stops.get(c).copied().unwrap_or(false));
+        self.active_mut().cursor_col = next.unwrap_or(cols.saturating_sub(1) as usize) as u16;
     }
 
     pub fn backtab(&mut self, n: u16) {
@@ -369,13 +365,13 @@ impl Grid {
         } else {
             (buf.lines.len() as u16).saturating_sub(1)
         };
-        buf.cursor_row = (buf.cursor_row + n).min(max_row);
+        buf.cursor_row = buf.cursor_row.saturating_add(n).min(max_row);
     }
 
     pub fn cursor_forward(&mut self, n: u16) {
         let cols = self.cols;
         let buf = self.active_mut();
-        buf.cursor_col = (buf.cursor_col + n).min(cols.saturating_sub(1));
+        buf.cursor_col = buf.cursor_col.saturating_add(n).min(cols.saturating_sub(1));
     }
 
     pub fn cursor_back(&mut self, n: u16) {
@@ -542,6 +538,8 @@ impl Grid {
         } else if new_rows < old_rows {
             let cursor_overflow =
                 (buf.cursor_row as usize + 1).saturating_sub(new_rows as usize);
+            // Clamp so drain never exceeds the Vec length (panic guard for resize to 1 row)
+            let cursor_overflow = cursor_overflow.min(buf.lines.len());
             if cursor_overflow > 0 {
                 // Push evicted top lines to scrollback before removing
                 if buf.max_scrollback > 0 {
@@ -692,6 +690,189 @@ impl Grid {
     pub fn full_reset(&mut self) {
         let cols = self.cols;
         let rows = self.rows;
-        *self = Grid::new(cols, rows);
+        let scrollback = self.primary.max_scrollback;
+        *self = Grid::new(cols, rows, scrollback);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terminal::color::{Rgb, DEFAULT_FG};
+
+    fn make_buf(cols: u16, rows: u16) -> ScreenBuffer {
+        ScreenBuffer::new(cols, rows, 1000)
+    }
+
+    // --- scroll_up_in_region ---
+
+    #[test]
+    fn scroll_up_shifts_rows() {
+        let mut buf = make_buf(4, 3);
+        buf.lines[0].cells[0].ch = 'A';
+        buf.lines[1].cells[0].ch = 'B';
+        buf.lines[2].cells[0].ch = 'C';
+
+        buf.scroll_up_in_region();
+
+        assert_eq!(buf.lines[0].cells[0].ch, 'B');
+        assert_eq!(buf.lines[1].cells[0].ch, 'C');
+        assert_eq!(buf.lines[2].cells[0].ch, ' ');
+    }
+
+    #[test]
+    fn scroll_up_full_screen_pushes_to_scrollback() {
+        let mut buf = make_buf(4, 3);
+        buf.lines[0].cells[0].ch = 'X';
+
+        buf.scroll_up_in_region();
+
+        assert_eq!(buf.scrollback.len(), 1);
+        assert_eq!(buf.scrollback[0].cells[0].ch, 'X');
+    }
+
+    #[test]
+    fn scrollback_capped_at_max_scrollback() {
+        let mut buf = ScreenBuffer::new(4, 2, 3);
+        for i in 0..5u8 {
+            buf.lines[0].cells[0].ch = (b'A' + i) as char;
+            buf.scroll_up_in_region();
+        }
+        assert!(buf.scrollback.len() <= 3);
+    }
+
+    #[test]
+    fn scroll_up_partial_region_does_not_push_scrollback() {
+        let mut buf = make_buf(4, 4);
+        buf.scroll_top = 1;
+        buf.scroll_bottom = 3;
+        buf.lines[1].cells[0].ch = 'P';
+        buf.lines[2].cells[0].ch = 'Q';
+
+        buf.scroll_up_in_region();
+
+        // Partial region (scroll_top > 0): evicted row is NOT pushed to scrollback
+        assert_eq!(buf.scrollback.len(), 0);
+        // Region shifts up: P (top of region) is discarded, Q moves to row 1
+        assert_eq!(buf.lines[1].cells[0].ch, 'Q');
+        // New blank row at bottom of region
+        assert_eq!(buf.lines[3].cells[0].ch, ' ');
+        // Row 0 (outside region) unchanged
+        assert_eq!(buf.lines[0].cells[0].ch, ' ');
+    }
+
+    #[test]
+    fn scroll_up_clears_cleared_flag() {
+        let mut buf = make_buf(4, 3);
+        buf.cleared = true;
+
+        buf.scroll_up_in_region();
+
+        assert!(!buf.cleared);
+    }
+
+    // --- scroll_down_in_region ---
+
+    #[test]
+    fn scroll_down_shifts_rows_and_blanks_top() {
+        let mut buf = make_buf(4, 3);
+        buf.lines[0].cells[0].ch = 'A';
+        buf.lines[1].cells[0].ch = 'B';
+        buf.lines[2].cells[0].ch = 'C';
+
+        buf.scroll_down_in_region();
+
+        assert_eq!(buf.lines[0].cells[0].ch, ' ');
+        assert_eq!(buf.lines[1].cells[0].ch, 'A');
+        assert_eq!(buf.lines[2].cells[0].ch, 'B');
+        // C is evicted (lost)
+    }
+
+    #[test]
+    fn scroll_down_does_not_push_to_scrollback() {
+        let mut buf = make_buf(4, 3);
+        buf.lines[2].cells[0].ch = 'Z';
+
+        buf.scroll_down_in_region();
+
+        assert_eq!(buf.scrollback.len(), 0);
+    }
+
+    // --- insert_lines / delete_lines ---
+
+    #[test]
+    fn insert_lines_shifts_existing_content_down() {
+        let mut buf = make_buf(4, 5);
+        for (i, ch) in [b'A', b'B', b'C', b'D', b'E'].iter().enumerate() {
+            buf.lines[i].cells[0].ch = *ch as char;
+        }
+        buf.scroll_top = 0;
+        buf.scroll_bottom = 4;
+
+        buf.insert_lines(2, 1);
+
+        assert_eq!(buf.lines[0].cells[0].ch, 'A'); // unchanged
+        assert_eq!(buf.lines[1].cells[0].ch, ' '); // blank
+        assert_eq!(buf.lines[2].cells[0].ch, ' '); // blank
+        assert_eq!(buf.lines[3].cells[0].ch, 'B'); // old row 1
+        assert_eq!(buf.lines[4].cells[0].ch, 'C'); // old row 2
+    }
+
+    #[test]
+    fn delete_lines_shifts_content_up() {
+        let mut buf = make_buf(4, 5);
+        for (i, ch) in [b'A', b'B', b'C', b'D', b'E'].iter().enumerate() {
+            buf.lines[i].cells[0].ch = *ch as char;
+        }
+        buf.scroll_top = 0;
+        buf.scroll_bottom = 4;
+
+        buf.delete_lines(1, 1);
+
+        assert_eq!(buf.lines[0].cells[0].ch, 'A'); // unchanged
+        assert_eq!(buf.lines[1].cells[0].ch, 'C'); // old row 2
+        assert_eq!(buf.lines[4].cells[0].ch, ' '); // last row blanked
+    }
+
+    #[test]
+    fn insert_lines_outside_scroll_region_is_noop() {
+        let mut buf = make_buf(4, 5);
+        for (i, ch) in [b'A', b'B', b'C', b'D', b'E'].iter().enumerate() {
+            buf.lines[i].cells[0].ch = *ch as char;
+        }
+        buf.scroll_top = 2;
+        buf.scroll_bottom = 4;
+
+        buf.insert_lines(1, 0); // cursor_row=0 < scroll_top=2
+
+        // Content unchanged
+        assert_eq!(buf.lines[0].cells[0].ch, 'A');
+        assert_eq!(buf.lines[1].cells[0].ch, 'B');
+    }
+
+    // --- save_cursor / restore_cursor ---
+
+    #[test]
+    fn save_restore_cursor_preserves_position_and_pen() {
+        let mut buf = make_buf(10, 10);
+        buf.cursor_col = 3;
+        buf.cursor_row = 7;
+        buf.pen.fg = Rgb { r: 255, g: 0, b: 0 };
+        buf.pen.flags = flags::BOLD;
+
+        buf.save_cursor();
+
+        // Mutate
+        buf.cursor_col = 0;
+        buf.cursor_row = 0;
+        buf.pen.fg = DEFAULT_FG;
+        buf.pen.flags = 0;
+
+        buf.restore_cursor();
+
+        assert_eq!(buf.cursor_col, 3);
+        assert_eq!(buf.cursor_row, 7);
+        assert_eq!(buf.pen.fg, Rgb { r: 255, g: 0, b: 0 });
+        assert_eq!(buf.pen.flags, flags::BOLD);
     }
 }

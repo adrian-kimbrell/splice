@@ -45,12 +45,12 @@
   }
 
   function handleSearchNavigate(match: TerminalSearchMatch) {
-    // Scroll terminal to the match row
-    if (match.row < 0) {
-      import("../../lib/ipc/commands").then(({ scrollTerminal }) => {
-        scrollTerminal(terminalId, match.row).catch(console.error);
-      });
-    }
+    // Negative row = scrollback; absolute offset to show it is -match.row.
+    // Visible row (>= 0) = snap back to live view (offset 0).
+    const targetOffset = match.row < 0 ? -match.row : 0;
+    import("../../lib/ipc/commands").then(({ setTerminalScrollOffset }) => {
+      setTerminalScrollOffset(terminalId, targetOffset).catch(console.error);
+    });
   }
 </script>
 
@@ -61,7 +61,7 @@
   class:flash-idle={notification?.type === 'idle'}
   onkeydown={handleKeyDown}
 >
-  <TerminalTitlebar {title} {cwd} {onSplit} {onClose} {onAction} {notification} />
+  <TerminalTitlebar {title} {cwd} {paneId} {onSplit} {onClose} {onAction} {notification} />
   <div bind:this={contentAreaEl} class="flex-1 flex flex-col overflow-hidden min-h-0">
     <TerminalSearch
       {terminalId}

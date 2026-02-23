@@ -398,6 +398,18 @@ body.tab-dragging * {
   margin: 4px 0;
 }
 
+/* Tab context menu — same styles as split-dropdown but no translateX */
+.tab-ctx-menu {
+  transform: none !important;
+}
+
+.split-dropdown-item.disabled {
+  color: var(--text-dim);
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
 /* Corner drag (multi-handle resize) */
 body.corner-dragging { cursor: move !important; }
 body.corner-dragging * { cursor: move !important; }
@@ -420,6 +432,7 @@ body.corner-dragging * { cursor: move !important; }
 .welcome-header {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 14px;
   margin-bottom: 32px;
 }
@@ -428,6 +441,8 @@ body.corner-dragging * { cursor: move !important; }
   border-radius: 6px;
   padding: 6px 0;
   margin: 0 0 16px 0;
+  min-width: 0;
+  overflow: hidden;
 }
 .welcome-legend {
   font-size: 10px;
@@ -443,6 +458,7 @@ body.corner-dragging * { cursor: move !important; }
   align-items: center;
   gap: 10px;
   width: 100%;
+  min-width: 0;
   padding: 7px 16px;
   border: none;
   background: transparent;
@@ -450,6 +466,7 @@ body.corner-dragging * { cursor: move !important; }
   font-size: 12.5px;
   cursor: pointer;
   transition: background 80ms;
+  overflow: hidden;
 }
 .welcome-item:hover {
   background: var(--bg-hover);

@@ -18,6 +18,7 @@
   let matches = $state<TerminalSearchMatch[]>([]);
   let currentIndex = $state(0);
   let inputEl = $state<HTMLInputElement>();
+  let searchGen = 0; // incremented on each search; stale results are discarded
 
   async function doSearch() {
     if (!query) {
@@ -25,13 +26,18 @@
       currentIndex = 0;
       return;
     }
+    matches = [];
+    currentIndex = 0;
+    const gen = ++searchGen;
     try {
       const { searchTerminal } = await import("../../lib/ipc/commands");
-      matches = await searchTerminal(terminalId, query, caseSensitive);
+      const result = await searchTerminal(terminalId, query, caseSensitive);
+      if (gen !== searchGen) return; // a newer search superseded this one
+      matches = result;
       currentIndex = matches.length > 0 ? matches.length - 1 : 0; // Start at last (most recent)
       if (matches.length > 0) onNavigate?.(matches[currentIndex]);
     } catch {
-      matches = [];
+      if (gen === searchGen) matches = [];
     }
   }
 
@@ -66,6 +72,7 @@
   $effect(() => {
     query;
     caseSensitive;
+    terminalId;   // re-search when the active terminal changes
     doSearch();
   });
 </script>

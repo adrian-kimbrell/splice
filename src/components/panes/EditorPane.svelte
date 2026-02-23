@@ -15,6 +15,7 @@
     filePath,
     paneId,
     rootPath = "",
+    readOnly = false,
     onTabClick,
     onTabClose,
     onTabDoubleClick,
@@ -24,14 +25,16 @@
     onSave,
     onAutoSave,
     onAction,
+    onTabContextAction,
     onTogglePreview,
   }: {
-    tabs: { name: string; path: string; preview?: boolean; dirty?: boolean }[];
+    tabs: { name: string; path: string; preview?: boolean; dirty?: boolean; pinned?: boolean; readOnly?: boolean }[];
     activeTab: string | null;
     content: string;
     filePath: string;
     paneId: string;
     rootPath?: string;
+    readOnly?: boolean;
     onTabClick: (path: string) => void;
     onTabClose?: (path: string) => void;
     onTabDoubleClick?: (path: string) => void;
@@ -41,6 +44,7 @@
     onSave?: () => void;
     onAutoSave?: () => void;
     onAction?: (action: string) => void;
+    onTabContextAction?: (action: string, path: string) => void;
     onTogglePreview?: () => void;
   } = $props();
 
@@ -74,7 +78,7 @@
 </script>
 
 <div class="flex flex-col overflow-hidden bg-editor flex-1 min-w-0">
-  <TabBar {tabs} {activeTab} {paneId} {onTabClick} {onTabClose} {onTabDoubleClick} {onSplit} {onClose} {onAction}
+  <TabBar {tabs} {activeTab} {paneId} {onTabClick} {onTabClose} {onTabDoubleClick} {onSplit} {onClose} {onAction} {onTabContextAction}
     showPreviewToggle={isMdFile(filePath)}
     {previewMode}
     onTogglePreview={() => { previewMode = previewMode === "editor" ? "preview" : "editor"; }}
@@ -89,7 +93,7 @@
       {:else if isMdFile(filePath) && previewMode === "preview"}
         <MarkdownPreview {content} />
       {:else}
-        <CodeMirrorEditor {content} {filePath} {paneId} {onContentChange} {onSave} {onAutoSave} />
+        <CodeMirrorEditor {content} {filePath} {paneId} readonly={readOnly} {onContentChange} {onSave} {onAutoSave} />
       {/if}
     {/if}
   </div>

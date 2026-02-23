@@ -23,6 +23,8 @@ export interface Settings {
     ui_scale: number;
     show_status_bar: boolean;
     explorer_side: "left" | "right";
+    explorer_width: number;
+    workspaces_width: number;
   };
   terminal: {
     default_shell: string;
@@ -60,6 +62,8 @@ const defaultSettings: Settings = {
     ui_scale: 100,
     show_status_bar: true,
     explorer_side: "left",
+    explorer_width: 240,
+    workspaces_width: 220,
   },
   terminal: {
     default_shell: "/bin/zsh",
@@ -74,38 +78,40 @@ const defaultSettings: Settings = {
 
 export const settings = $state<Settings>(structuredClone(defaultSettings));
 
-let settingsInitialized = false;
+let settingsInitPromise: Promise<void> | null = null;
 
 export async function initSettings(): Promise<void> {
-  if (settingsInitialized) return;
+  if (settingsInitPromise) return settingsInitPromise;
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   if (!isTauri) return;
 
-  try {
-    const { getSettings } = await import("../ipc/commands");
-    const loaded = await getSettings();
-    // Defensively merge each category (old settings.json may lack `general`)
-    if (loaded.general) Object.assign(settings.general, loaded.general);
-    if (loaded.editor) Object.assign(settings.editor, loaded.editor);
-    if (loaded.appearance) Object.assign(settings.appearance, loaded.appearance);
-    if (loaded.terminal) Object.assign(settings.terminal, loaded.terminal);
-    settingsInitialized = true;
-  } catch (e) {
-    console.error("Failed to load settings:", e);
-  }
+  settingsInitPromise = (async () => {
+    try {
+      const { getSettings } = await import("../ipc/commands");
+      const loaded = await getSettings();
+      // Defensively merge each category (old settings.json may lack `general`)
+      if (loaded.general) Object.assign(settings.general, loaded.general);
+      if (loaded.editor) Object.assign(settings.editor, loaded.editor);
+      if (loaded.appearance) Object.assign(settings.appearance, loaded.appearance);
+      if (loaded.terminal) Object.assign(settings.terminal, loaded.terminal);
+    } catch (e) {
+      console.error("Failed to load settings:", e);
+    }
+  })();
+  return settingsInitPromise;
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function debouncedSaveSettings(): void {
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-  if (!isTauri || !settingsInitialized) return;
+  if (!isTauri || !settingsInitPromise) return;
 
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     try {
       const { updateSettings } = await import("../ipc/commands");
-      await updateSettings(JSON.parse(JSON.stringify(settings)));
+      await updateSettings(settings as Settings);
     } catch (e) {
       console.error("Failed to save settings:", e);
     }

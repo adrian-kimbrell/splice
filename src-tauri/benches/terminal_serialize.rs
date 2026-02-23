@@ -3,7 +3,7 @@ use splice_lib::terminal::emitter::serialize_grid;
 use splice_lib::terminal::grid::Grid;
 
 fn make_filled_grid(cols: u16, rows: u16) -> Grid {
-    let mut grid = Grid::new(cols, rows);
+    let mut grid = Grid::new(cols, rows, 10000);
     let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     for i in 0..(cols as usize * rows as usize) {
         grid.write_char(chars[i % chars.len()] as char);
@@ -12,7 +12,7 @@ fn make_filled_grid(cols: u16, rows: u16) -> Grid {
 }
 
 fn make_scrolled_grid(cols: u16, rows: u16) -> Grid {
-    let mut grid = Grid::new(cols, rows);
+    let mut grid = Grid::new(cols, rows, 10000);
     // Fill scrollback by writing many lines
     for i in 0..500 {
         for _ in 0..cols {
@@ -25,7 +25,7 @@ fn make_scrolled_grid(cols: u16, rows: u16) -> Grid {
 }
 
 fn make_sparse_grid(cols: u16, rows: u16) -> Grid {
-    let mut grid = Grid::new(cols, rows);
+    let mut grid = Grid::new(cols, rows, 10000);
     // Write only a few characters — mostly blank cells
     grid.write_char('$');
     grid.write_char(' ');
