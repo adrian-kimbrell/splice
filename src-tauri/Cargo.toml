@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["devtools"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
@@ -29,9 +29,15 @@ ignore = "0.4"
 regex = "1"
 notify = "6"
 libc = "0.2"
+unicode-width = "0.1"
+tauri-plugin-webdriver = { version = "0.2", optional = true }
+
+[features]
+e2e = ["tauri-plugin-webdriver"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3"
 
 [[bench]]
 name = "terminal_grid"

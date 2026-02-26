@@ -41,11 +41,43 @@ fn is_row_blank(row: &crate::terminal::grid::Row) -> bool {
     row.cells.iter().all(|c| c.ch == ' ' || c.ch == '\0')
 }
 
+/// Binary frame format:
+/// Header (20 bytes):
+///   [0-1]   cols (u16 LE)
+///   [2-3]   rows (u16 LE)
+///   [4-5]   cursor_col (u16 LE)
+///   [6-7]   cursor_row (u16 LE)
+///   [8]     cursor_visible (u8: 1=visible, 0=hidden)
+///   [9]     cursor_style (u8)
+///   [10]    mode_flags (u8):
+///             bit 0: bracketed_paste
+///             bit 1: app_cursor_keys
+///             bit 2: app_keypad
+///             bits 3-4: mouse_mode (0=off,1=X10,2=button,3=any)
+///             bit 5: mouse_sgr
+///             bit 6: focus_events
+///   [11]    is_scrolled (u8: 1=scrolled, 0=at live bottom)
+///   [12-15] first_display_history_row (i32 LE):
+///             Index of the top visible display row in the combined
+///             [scrollback[0..n], live[0..rows]] array. Stable across
+///             output when scroll stabilization is active.
+///   [16-19] scrollback_len (u32 LE): current scrollback row count
+///
+/// Cell (12 bytes each, row-major):
+///   [0-3]   codepoint (u32 LE)
+///   [4]     fg.r
+///   [5]     fg.g
+///   [6]     fg.b
+///   [7]     bg.r
+///   [8]     bg.g
+///   [9]     bg.b
+///   [10]    flags (bold|italic|underline|dim|inverse|strikethrough|blink|hidden)
+///   [11]    width (1=normal, 2=wide left, 0=wide right placeholder)
 pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
     let cols = grid.cols;
     let rows = grid.rows;
     let buf_ref = grid.active();
-    let header_size = 12;
+    let header_size = 20;
     let cell_size = 12;
     let total = header_size + (cols as usize * rows as usize * cell_size);
     let mut buf = Vec::with_capacity(total);
@@ -94,7 +126,7 @@ pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
     let display_cursor_row = (buf_ref.cursor_row as u32 + view_shift as u32)
         .min((rows - 1) as u32) as u16;
 
-    // Header (12 bytes)
+    // Header (20 bytes)
     buf.extend_from_slice(&cols.to_le_bytes());
     buf.extend_from_slice(&rows.to_le_bytes());
 
@@ -110,9 +142,18 @@ pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
     buf.push(grid.cursor_style);
     let mode_flags = (if grid.bracketed_paste { 1u8 } else { 0 })
         | (if grid.app_cursor_keys { 2u8 } else { 0 })
-        | (if grid.app_keypad { 4u8 } else { 0 });
+        | (if grid.app_keypad { 4u8 } else { 0 })
+        | ((grid.mouse_mode & 0x3) << 3)
+        | (if grid.mouse_sgr { 0x20u8 } else { 0 })
+        | (if grid.focus_events { 0x40u8 } else { 0 });
     buf.push(mode_flags);
     buf.push(if is_scrolled { 1 } else { 0 });
+    // Bytes 12-15: first_display_history_row — index into combined [scrollback, live] array
+    // for the topmost visible display row. Stable when scroll stabilization is active.
+    let first_display_history_row = scrollback_len as i32 - (offset + view_shift) as i32;
+    buf.extend_from_slice(&first_display_history_row.to_le_bytes());
+    // Bytes 16-19: scrollback_len — needed by frontend to convert search match rows to historyRows
+    buf.extend_from_slice(&(scrollback_len as u32).to_le_bytes());
 
     // Cells (12 bytes each)
     let default_cell = Cell::default();
@@ -165,7 +206,7 @@ pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
             buf.push(cell.bg.g);
             buf.push(cell.bg.b);
             buf.push(cell.flags);
-            buf.push(0);
+            buf.push(cell.width); // byte 11: width (was reserved 0)
         }
     }
 
@@ -188,7 +229,7 @@ mod tests {
     fn buffer_length_is_header_plus_cells() {
         let grid = make_grid(10, 5);
         let data = serialize_grid(&grid, 0);
-        assert_eq!(data.len(), 12 + 10 * 5 * 12);
+        assert_eq!(data.len(), 20 + 10 * 5 * 12);
     }
 
     #[test]
@@ -232,6 +273,19 @@ mod tests {
         assert_eq!(data[11], 0);
     }
 
+    #[test]
+    fn mode_flags_encode_mouse_and_focus() {
+        let mut grid = make_grid(10, 5);
+        grid.mouse_mode = 2;
+        grid.mouse_sgr = true;
+        grid.focus_events = true;
+        let data = serialize_grid(&grid, 0);
+        let mf = data[10];
+        assert_eq!((mf >> 3) & 0x3, 2); // mouse_mode = 2
+        assert_ne!(mf & 0x20, 0);         // mouse_sgr
+        assert_ne!(mf & 0x40, 0);         // focus_events
+    }
+
     // --- Scrolled state ---
 
     #[test]
@@ -249,6 +303,23 @@ mod tests {
         assert_eq!(data[11], 1); // scroll flag set
     }
 
+    #[test]
+    fn first_display_history_row_when_scrolled() {
+        let mut grid = make_grid(10, 5);
+        // Push 3 rows to scrollback
+        for _ in 0..3 {
+            grid.primary.lines[0].cells[0].ch = 'X';
+            grid.primary.scroll_up_in_region();
+        }
+        // scrollback_len = 3, offset = 2
+        let data = serialize_grid(&grid, 2);
+        let fdhr = i32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+        // first_display_history_row = scrollback_len - offset = 3 - 2 = 1
+        assert_eq!(fdhr, 1);
+        let sb_len = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+        assert_eq!(sb_len, 3);
+    }
+
     // --- Cell layout ---
 
     #[test]
@@ -260,7 +331,7 @@ mod tests {
         grid.primary.lines[0].cells[0].flags = flags::BOLD;
 
         let data = serialize_grid(&grid, 0);
-        let c = 12; // first cell starts at byte 12
+        let c = 20; // first cell starts at byte 20 (header is now 20 bytes)
 
         let cp = u32::from_le_bytes([data[c], data[c + 1], data[c + 2], data[c + 3]]);
         assert_eq!(cp, 'Z' as u32);
@@ -271,7 +342,7 @@ mod tests {
         assert_eq!(data[c + 8], 50); // bg.g
         assert_eq!(data[c + 9], 60); // bg.b
         assert_eq!(data[c + 10], flags::BOLD); // flags
-        assert_eq!(data[c + 11], 0); // reserved
+        assert_eq!(data[c + 11], 1); // width = 1 (normal)
     }
 
     // --- View shift ---
@@ -292,10 +363,10 @@ mod tests {
         let data = serialize_grid(&grid, 0);
 
         // Display row 0 should be from scrollback ('S')
-        let cp = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+        let cp = u32::from_le_bytes([data[20], data[21], data[22], data[23]]);
         assert_eq!(cp, 'S' as u32);
         // Display row 1 should be grid row 0 ('A')
-        let row1_start = 12 + 4 * 12; // 4 cols × 12 bytes/cell
+        let row1_start = 20 + 4 * 12; // 4 cols × 12 bytes/cell
         let cp2 = u32::from_le_bytes([
             data[row1_start],
             data[row1_start + 1],
@@ -318,7 +389,7 @@ mod tests {
         let data = serialize_grid(&grid, 0);
 
         // Display row 0 should be grid row 0 ('A'), not scrollback
-        let cp = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+        let cp = u32::from_le_bytes([data[20], data[21], data[22], data[23]]);
         assert_eq!(cp, 'A' as u32);
     }
 }

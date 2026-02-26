@@ -14,6 +14,57 @@
   const sidebarWidth = $derived(ui.workspacesWidth);
   const compact = $derived(sidebarWidth < 80);
 
+  // --- Drag-to-reorder state ---
+  let listEl: HTMLDivElement | undefined;
+  let dragId: string | null = null;
+  let dragStartY = 0;
+  let isDraggingActive = $state(false);
+  let dragOverIndex = $state<number | null>(null);
+
+  function getDropIndex(clientY: number): number {
+    if (!listEl) return 0;
+    const groups = listEl.querySelectorAll<HTMLElement>(".workspace-group");
+    for (let i = 0; i < groups.length; i++) {
+      const rect = groups[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return i;
+    }
+    return groups.length;
+  }
+
+  function handleWorkspaceMousedown(e: MouseEvent, wsId: string) {
+    if (e.button !== 0) return;
+    dragId = wsId;
+    dragStartY = e.clientY;
+    window.addEventListener("mousemove", handleDragMove);
+    window.addEventListener("mouseup", handleDragUp);
+  }
+
+  function handleDragMove(e: MouseEvent) {
+    if (!dragId) return;
+    if (!isDraggingActive && Math.abs(e.clientY - dragStartY) > 4) {
+      isDraggingActive = true;
+    }
+    if (isDraggingActive) {
+      dragOverIndex = getDropIndex(e.clientY);
+    }
+  }
+
+  function handleDragUp(e: MouseEvent) {
+    window.removeEventListener("mousemove", handleDragMove);
+    window.removeEventListener("mouseup", handleDragUp);
+    if (isDraggingActive && dragId !== null && dragOverIndex !== null) {
+      const entries = Object.keys(workspaceManager.workspaces);
+      const fromIndex = entries.indexOf(dragId);
+      // Adjust toIndex: removing fromIndex shifts items after it down by 1
+      let toIndex = dragOverIndex;
+      if (fromIndex !== -1 && fromIndex < toIndex) toIndex -= 1;
+      workspaceManager.reorderWorkspace(dragId, toIndex);
+    }
+    dragId = null;
+    isDraggingActive = false;
+    dragOverIndex = null;
+  }
+
   const selectedItem = $derived.by(() => {
     if (!activeId) return null;
     const ws = workspaceManager.workspaces[activeId];
@@ -153,8 +204,11 @@
   aria-label="Workspaces"
   oncontextmenu={handleContextMenu}
 >
-  <div class="flex-1 overflow-y-auto flex flex-col">
-    {#each wsList as workspace (workspace.id)}
+  <div class="flex-1 overflow-y-auto flex flex-col" bind:this={listEl}>
+    {#each wsList as workspace, i (workspace.id)}
+      {#if isDraggingActive && dragOverIndex === i}
+        <div class="ws-drop-indicator"></div>
+      {/if}
       <WorkspaceListItem
         {workspace}
         isActive={workspace.id === activeId}
@@ -164,8 +218,13 @@
         onWorkspaceClick={() => workspaceManager.switchWorkspace(workspace.id)}
         onClose={() => handleCloseWorkspace(workspace.id)}
         onHeaderContextMenu={(e) => handleWorkspaceContextMenu(e, workspace.id)}
+        onHeaderMousedown={(e) => handleWorkspaceMousedown(e, workspace.id)}
+        isDragging={isDraggingActive && workspace.id === dragId}
       />
     {/each}
+    {#if isDraggingActive && dragOverIndex === wsList.length}
+      <div class="ws-drop-indicator"></div>
+    {/if}
     {#if wsList.length === 0}
       <div class="flex flex-col items-center justify-center px-4 h-full text-center">
         <i class="bi bi-window-stack text-2xl text-txt-dim mb-3 block"></i>

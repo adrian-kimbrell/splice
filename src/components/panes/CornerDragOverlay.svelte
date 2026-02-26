@@ -50,7 +50,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="corner-hotspot"
-    style="position: absolute; left: {relX - 12}px; top: {relY - 12}px; width: 24px; height: 24px; z-index: 20; cursor: move;"
+    style="position: absolute; left: calc({relX}px - var(--btn-sm) / 2); top: calc({relY}px - var(--btn-sm) / 2); width: var(--btn-sm); height: var(--btn-sm); z-index: 20; cursor: move;"
     onmousedown={(e) => handleMouseDown(intersection, e)}
   ></div>
 {/each}

@@ -1,5 +1,6 @@
 mod attention;
 mod commands;
+pub mod lsp;
 mod state;
 pub mod terminal;
 mod workspace;
@@ -30,6 +31,7 @@ fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::
         .item(&MenuItemBuilder::with_id("new-file", "New File").accelerator("CmdOrCtrl+N").build(app)?)
         .item(&MenuItemBuilder::with_id("open-file", "Open File…").accelerator("CmdOrCtrl+O").build(app)?)
         .item(&MenuItemBuilder::with_id("open-folder", "Open Folder…").accelerator("CmdOrCtrl+Shift+O").build(app)?)
+        .item(&MenuItemBuilder::with_id("new-window", "New Window").accelerator("CmdOrCtrl+Shift+N").build(app)?)
         .separator()
         .item(&MenuItemBuilder::with_id("save", "Save").accelerator("CmdOrCtrl+S").build(app)?)
         .item(&MenuItemBuilder::with_id("save-as", "Save As…").accelerator("CmdOrCtrl+Shift+S").build(app)?)
@@ -101,9 +103,17 @@ pub fn run() {
 
     let app_state = AppState::new();
 
-    tauri::Builder::default()
+    #[cfg_attr(not(feature = "e2e"), allow(unused_mut))]
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+
+    #[cfg(feature = "e2e")]
+    {
+        builder = builder.plugin(tauri_plugin_webdriver::init());
+    }
+
+    builder
         .manage(Mutex::new(app_state))
         .setup(|app| {
             // Set up native menu bar
@@ -130,43 +140,107 @@ pub fn run() {
                 let _ = window.emit("app:closing", ());
             }
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::fs::read_dir_tree,
-            commands::fs::read_file,
-            commands::fs::write_file,
-            commands::fs::read_file_base64,
-            commands::fs::search_files,
-            commands::fs::get_git_branch,
-            commands::fs::get_recent_files,
-            commands::fs::add_recent_file,
-            commands::fs::get_recent_projects,
-            commands::fs::add_recent_project,
-            commands::fs::watch_path,
-            commands::fs::unwatch_path,
-            commands::fs::create_file_at,
-            commands::fs::create_directory_at,
-            commands::fs::rename_path,
-            commands::fs::delete_path,
-            commands::fs::duplicate_path,
-            commands::fs::reveal_in_file_manager,
-            commands::terminal::spawn_terminal,
-            commands::terminal::write_to_terminal,
-            commands::terminal::resize_terminal,
-            commands::terminal::scroll_terminal,
-            commands::terminal::set_terminal_scroll_offset,
-            commands::terminal::kill_terminal,
-            commands::terminal::search_terminal,
-            commands::terminal::get_terminal_cwd,
-            commands::terminal::install_claude_hook,
-            commands::workspace::get_workspaces,
-            commands::workspace::save_workspace,
-            commands::workspace::delete_workspace,
-            commands::workspace::close_workspace,
-            commands::workspace::set_active_workspace_id,
-            commands::workspace::check_pid_alive,
-            commands::settings::get_settings,
-            commands::settings::update_settings,
-        ])
+        .invoke_handler({
+            #[cfg(not(feature = "e2e"))]
+            { tauri::generate_handler![
+                commands::fs::read_dir_tree,
+                commands::fs::read_file,
+                commands::fs::write_file,
+                commands::fs::read_file_base64,
+                commands::fs::search_files,
+                commands::fs::get_git_branch,
+                commands::fs::get_recent_files,
+                commands::fs::add_recent_file,
+                commands::fs::get_recent_projects,
+                commands::fs::add_recent_project,
+                commands::fs::watch_path,
+                commands::fs::unwatch_path,
+                commands::fs::create_file_at,
+                commands::fs::create_directory_at,
+                commands::fs::rename_path,
+                commands::fs::delete_path,
+                commands::fs::duplicate_path,
+                commands::fs::reveal_in_file_manager,
+                commands::terminal::spawn_terminal,
+                commands::terminal::write_to_terminal,
+                commands::terminal::resize_terminal,
+                commands::terminal::scroll_terminal,
+                commands::terminal::set_terminal_scroll_offset,
+                commands::terminal::kill_terminal,
+                commands::terminal::search_terminal,
+                commands::terminal::get_terminal_cwd,
+                commands::terminal::get_terminal_text_range,
+                commands::terminal::install_claude_hook,
+                commands::workspace::get_workspaces,
+                commands::workspace::save_workspace,
+                commands::workspace::delete_workspace,
+                commands::workspace::close_workspace,
+                commands::workspace::set_active_workspace_id,
+                commands::workspace::reorder_workspaces,
+                commands::workspace::add_allowed_root,
+                commands::workspace::check_pid_alive,
+                commands::workspace::register_window,
+                commands::workspace::unregister_window,
+                commands::workspace::get_secondary_window_labels,
+                commands::settings::get_settings,
+                commands::settings::update_settings,
+                lsp::lsp_check,
+                lsp::lsp_install,
+                lsp::lsp_start,
+                lsp::lsp_notify,
+                lsp::lsp_request,
+            ] }
+            #[cfg(feature = "e2e")]
+            { tauri::generate_handler![
+                commands::fs::read_dir_tree,
+                commands::fs::read_file,
+                commands::fs::write_file,
+                commands::fs::read_file_base64,
+                commands::fs::search_files,
+                commands::fs::get_git_branch,
+                commands::fs::get_recent_files,
+                commands::fs::add_recent_file,
+                commands::fs::get_recent_projects,
+                commands::fs::add_recent_project,
+                commands::fs::watch_path,
+                commands::fs::unwatch_path,
+                commands::fs::create_file_at,
+                commands::fs::create_directory_at,
+                commands::fs::rename_path,
+                commands::fs::delete_path,
+                commands::fs::duplicate_path,
+                commands::fs::reveal_in_file_manager,
+                commands::terminal::spawn_terminal,
+                commands::terminal::write_to_terminal,
+                commands::terminal::resize_terminal,
+                commands::terminal::scroll_terminal,
+                commands::terminal::set_terminal_scroll_offset,
+                commands::terminal::kill_terminal,
+                commands::terminal::search_terminal,
+                commands::terminal::get_terminal_cwd,
+                commands::terminal::get_terminal_text_range,
+                commands::terminal::install_claude_hook,
+                commands::workspace::get_workspaces,
+                commands::workspace::save_workspace,
+                commands::workspace::delete_workspace,
+                commands::workspace::close_workspace,
+                commands::workspace::set_active_workspace_id,
+                commands::workspace::reorder_workspaces,
+                commands::workspace::add_allowed_root,
+                commands::workspace::check_pid_alive,
+                commands::workspace::register_window,
+                commands::workspace::unregister_window,
+                commands::workspace::get_secondary_window_labels,
+                commands::settings::get_settings,
+                commands::settings::update_settings,
+                lsp::lsp_check,
+                lsp::lsp_install,
+                lsp::lsp_start,
+                lsp::lsp_notify,
+                lsp::lsp_request,
+                commands::terminal::get_debug_stats,
+            ] }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -1,3 +1,5 @@
+@import 'bootstrap-icons/font/bootstrap-icons.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -28,10 +30,10 @@
   --syn-mac: #56b6c2;
   --syn-attr: #d19a66;
 
-  --font-size: 13px;
+  --font-size: 15px;
   --font-family: 'Menlo', 'Consolas', 'Courier New', monospace;
   --ui-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-  --line-height: 1.6;
+  --line-height: 1.7;
   --tree-indent: 16px;
 
   --topbar-height: 35px;
@@ -44,6 +46,22 @@
   --pane-border-active: var(--accent);
   --ansi-red: #e06c75;
   --ansi-yellow: #e5c07b;
+
+  /* UI text/icon scale tokens */
+  --ui-xxs: 8px;    /* breadcrumb chevrons, notification chevrons */
+  --ui-xs: 9px;     /* notification icons, terminal claude icon */
+  --ui-sm: 10px;    /* pin icons, sidebar drawer arrows */
+  --ui-label: 11px; /* sidebar section headers, kbd hints, badge text */
+  --ui-body: 12px;  /* tree items, dropdowns, session titles, toasts */
+  --ui-md: 13px;    /* inputs, rename overlay, fold gutter */
+  --ui-btn: 14px;   /* topbar/pane button icons, tab close, welcome icons */
+  --ui-icon: 16px;  /* prominent action icons (session icon, close buttons) */
+
+  /* Component heights / button sizes */
+  --row-sm: 22px;   /* session list items */
+  --row-md: 24px;   /* file tree items */
+  --btn-sm: 24px;   /* pane-action-buttons (24×24) */
+  --btn-md: 28px;   /* topbar icon buttons (28×28) */
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -121,12 +139,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--btn-md);
+  height: var(--btn-md);
   border: none;
   background: transparent;
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: var(--ui-btn);
   cursor: pointer;
   border-radius: 3px;
   transition: background 0.1s, color 0.1s;
@@ -139,25 +157,25 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: var(--btn-sm);
+  height: var(--btn-sm);
   border: none;
   background: transparent;
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: var(--ui-btn);
   cursor: pointer;
   border-radius: 3px;
   transition: background 0.1s, color 0.1s;
 }
 .pane-action-btn:hover { background: var(--bg-hover); color: var(--text-bright); }
-.pane-action-btn.close:hover { background: var(--ansi-red); color: var(--text-bright); }
+.pane-action-btn.close:hover { background: var(--bg-hover); color: var(--ansi-red); }
 
 .sidebar-header {
   height: var(--sidebar-header-height);
   display: flex;
   align-items: center;
   padding: 0 8px;
-  font-size: 11px;
+  font-size: var(--ui-label);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -178,7 +196,7 @@ body {
   cursor: pointer;
 }
 .workspace-title {
-  font-size: 11px;
+  font-size: var(--ui-label);
   color: var(--text-dim);
   font-weight: 500;
   text-transform: uppercase;
@@ -191,7 +209,7 @@ body {
 .workspace-title:hover { color: var(--text); }
 .workspace-rename-input {
   width: 100%;
-  font-size: 11px;
+  font-size: var(--ui-label);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -215,7 +233,7 @@ body {
   padding: 6px 0 6px 20px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
-  font-size: 14px;
+  font-size: var(--ui-btn);
   color: var(--text-dim);
   cursor: pointer;
 }
@@ -232,10 +250,10 @@ body {
 }
 
 .tree-item {
-  height: 24px;
+  height: var(--row-md);
   display: flex;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--ui-body);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
@@ -258,7 +276,7 @@ body {
   cursor: pointer;
   transition: background-color 0.1s;
   position: relative;
-  height: 22px;
+  height: var(--row-sm);
   border-left: 2px solid transparent;
 }
 .session-item.compact {
@@ -276,7 +294,7 @@ body {
 .session-tree-bar {
   position: relative;
   width: 12px;
-  height: 22px;
+  height: var(--row-sm);
   flex-shrink: 0;
 }
 .tree-vertical-line {
@@ -310,7 +328,7 @@ body {
   height: 18px;
   flex-shrink: 0;
   color: var(--text-dim);
-  font-size: 16px;
+  font-size: var(--ui-icon);
 }
 .session-item.active .session-icon { color: var(--text-bright); }
 
@@ -320,7 +338,7 @@ body {
   overflow: hidden;
 }
 .session-title {
-  font-size: 12px;
+  font-size: var(--ui-body);
   color: var(--text);
   font-weight: 400;
   overflow: hidden;
@@ -368,7 +386,7 @@ body.tab-dragging * {
   border: none;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--ui-body);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -377,7 +395,7 @@ body.tab-dragging * {
   color: var(--text-bright);
 }
 .split-dropdown-item i {
-  font-size: 13px;
+  font-size: var(--ui-md);
   width: 16px;
   text-align: center;
   color: var(--text-dim);
@@ -388,7 +406,7 @@ body.tab-dragging * {
 .split-dropdown-item kbd {
   margin-left: auto;
   padding-left: 16px;
-  font-size: 11px;
+  font-size: var(--ui-label);
   color: var(--text-dim);
   font-family: var(--ui-font);
 }
@@ -400,6 +418,11 @@ body.tab-dragging * {
 
 /* Tab context menu — same styles as split-dropdown but no translateX */
 .tab-ctx-menu {
+  transform: none !important;
+}
+
+/* Component context menus (editor, terminal) — no translateX */
+.splice-ctx-menu {
   transform: none !important;
 }
 
@@ -445,7 +468,7 @@ body.corner-dragging * { cursor: move !important; }
   overflow: hidden;
 }
 .welcome-legend {
-  font-size: 10px;
+  font-size: var(--ui-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -463,7 +486,7 @@ body.corner-dragging * { cursor: move !important; }
   border: none;
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--ui-body);
   cursor: pointer;
   transition: background 80ms;
   overflow: hidden;
@@ -473,7 +496,7 @@ body.corner-dragging * { cursor: move !important; }
   color: var(--text-bright);
 }
 .welcome-item i {
-  font-size: 14px;
+  font-size: var(--ui-btn);
   width: 18px;
   text-align: center;
   color: var(--text-dim);
@@ -540,3 +563,19 @@ body.corner-dragging * { cursor: move !important; }
   border-right: none;
   border-radius: 4px 0 0 4px;
 }
+
+/* LSP References panel */
+.lsp-references-panel { position: absolute; bottom: 0; left: 0; right: 0; max-height: 220px; overflow-y: auto; background: var(--bg-palette); border-top: 1px solid var(--border); z-index: 50; font-size: var(--ui-body); }
+.lsp-ref-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; background: var(--bg-tab); font-size: var(--ui-label); color: var(--text-dim); }
+.lsp-ref-header button { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 0 4px; }
+.lsp-ref-file { padding: 3px 10px 1px; color: var(--text-dim); font-size: var(--ui-label); font-weight: 600; }
+.lsp-references-panel button { display: block; width: 100%; text-align: left; padding: 2px 22px; font-size: var(--ui-body); color: var(--text); background: none; border: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lsp-references-panel button:hover { background: var(--bg-hover); color: var(--text-bright); }
+.lsp-ref-empty { padding: 6px 12px; color: var(--text-dim); font-size: var(--ui-body); font-style: italic; }
+
+/* Rename overlay */
+.rename-overlay { z-index: 200; box-shadow: 0 2px 8px rgba(0,0,0,0.5); }
+.rename-input { background: var(--bg-palette); color: var(--text-bright); border: 1px solid var(--accent, #00ff88); padding: 3px 8px; font-size: var(--ui-md); font-family: inherit; outline: none; min-width: 160px; }
+
+/* Workspace drag-to-reorder drop indicator */
+.ws-drop-indicator { height: 2px; background: var(--accent); margin: 0 4px; border-radius: 1px; flex-shrink: 0; }

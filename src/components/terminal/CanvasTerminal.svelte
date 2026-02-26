@@ -1,16 +1,29 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { TerminalRenderer, HEADER_SIZE, CELL_SIZE } from "../../lib/terminal/renderer";
+  import type { TerminalSearchMatch } from "../../lib/ipc/commands";
   import { settings } from "../../lib/stores/settings.svelte";
   import { attentionStore } from "../../lib/stores/attention.svelte";
   import { keyToBytes } from "../../lib/terminal/keyboard";
+  import { workspaceManager } from "../../lib/stores/workspace.svelte";
+  import { showContextMenu } from "../../lib/utils/context-menu";
+
+  function parseHexColor(hex: string): [number, number, number] | null {
+    const h = hex.trim().replace('#', '');
+    if (h.length !== 6) return null;
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
 
   let {
     terminalId = 0,
     active = false,
+    searchMatches = [] as TerminalSearchMatch[],
+    searchActiveIndex = -1,
   }: {
     terminalId?: number;
     active?: boolean;
+    searchMatches?: TerminalSearchMatch[];
+    searchActiveIndex?: number;
   } = $props();
 
   const isTauri = "__TAURI_INTERNALS__" in window;
@@ -24,6 +37,7 @@
   let resizeObserver: ResizeObserver | null = null;
   let unlistenGrid: (() => void) | null = null;
   let unlistenExit: (() => void) | null = null;
+  let unlistenClipboard: (() => void) | null = null;
   let modeFlags = 0;
   let currentCols = 0;
   let currentRows = 0;
@@ -37,6 +51,13 @@
 
   // Selection state
   let isSelecting = false;
+  let dragScrollInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Frame metadata (updated each time a frame arrives)
+  let frameFirstDisplayHistoryRow = 0;
+  let frameScrollbackLen = 0;
+  let frameRows = 0;
+  let frameCols = 0;
 
   // Scroll accumulator for smooth trackpad scrolling
   let scrollAccum = 0;
@@ -48,6 +69,19 @@
   let rafId = 0;
   let scrollRafId = 0;
   let resizeRafId = 0;
+
+  // Convert TerminalSearchMatch[] → SearchMatch[] and push to renderer.
+  // Uses renderer.currentScrollbackLen for the historyRow conversion.
+  $effect(() => {
+    if (!renderer) return;
+    const sbLen = renderer.currentScrollbackLen;
+    const converted = searchMatches.map(m => ({
+      historyRow: sbLen + m.row,
+      colStart: m.col_start,
+      colEnd: m.col_end,
+    }));
+    renderer.setSearchMatches(converted, searchActiveIndex);
+  });
 
   // Re-fit terminal when becoming visible after workspace/tab switch
   $effect(() => {
@@ -80,6 +114,12 @@
     }
   });
 
+  /** Returns true if codepoint is a word boundary (for double-click selection). */
+  function isWordBreak(cp: number): boolean {
+    if (cp <= 32) return true;
+    return '"\'()[]{}|<>'.includes(String.fromCodePoint(cp));
+  }
+
   function handleResize() {
     if (!containerEl || !canvasEl || !renderer || !cachedResizeTerminal) return;
     const rect = containerEl.getBoundingClientRect();
@@ -110,13 +150,22 @@
     }, 530);
   }
 
+  function applyTerminalTheme(bg: string, accent: string) {
+    if (!renderer) return;
+    const bgRgb = parseHexColor(bg);
+    const accentRgb = parseHexColor(accent);
+    if (!bgRgb || !accentRgb) return;
+    renderer.setThemeColors(...bgRgb, ...accentRgb);
+    renderer.rerender();
+  }
+
   onMount(async () => {
     if (!containerEl || !canvasEl || !isTauri || terminalId === 0) return;
 
     const { writeToTerminal, scrollTerminal, resizeTerminal } = await import(
       "../../lib/ipc/commands"
     );
-    const { onTerminalGrid, onTerminalExit } = await import(
+    const { onTerminalGrid, onTerminalExit, onTerminalClipboard } = await import(
       "../../lib/ipc/events"
     );
 
@@ -125,15 +174,40 @@
 
     renderer = new TerminalRenderer(canvasEl, settings.terminal.font_size, `${settings.terminal.font_family}, Consolas, 'Courier New', monospace`);
 
+    // Apply current theme immediately
+    {
+      const style = getComputedStyle(document.documentElement);
+      applyTerminalTheme(
+        style.getPropertyValue('--bg-editor').trim(),
+        style.getPropertyValue('--accent').trim(),
+      );
+    }
+
+    // Listen for theme changes
+    const onThemeApplied = (e: Event) => {
+      const { bg, accent } = (e as CustomEvent).detail;
+      applyTerminalTheme(bg, accent);
+    };
+    window.addEventListener('splice:theme-applied', onThemeApplied);
+    cleanupFns.push(() => window.removeEventListener('splice:theme-applied', onThemeApplied));
+
     // Listen for grid updates, throttle rendering to RAF
     let pendingFrame: Uint8Array | null = null;
 
     unlistenGrid = await onTerminalGrid(
       terminalId,
       (data: Uint8Array) => {
-        if (data.length >= 12) {
+        if (data.length >= HEADER_SIZE) {
+          const hv = new DataView(data.buffer, data.byteOffset);
+          frameCols = hv.getUint16(0, true);
+          frameRows = hv.getUint16(2, true);
           modeFlags = data[10];
+          frameFirstDisplayHistoryRow = hv.getInt32(12, true);
+          frameScrollbackLen = hv.getUint32(16, true);
         }
+        // Update renderer metadata immediately (before RAF) so that rerender()
+        // called from mouse events uses the correct history coordinates in isSelected().
+        if (renderer) renderer.setLatestFrame(data);
         pendingFrame = data;
         if (!rafId) {
           rafId = requestAnimationFrame(() => {
@@ -151,20 +225,60 @@
       // Could show exit message
     });
 
+    // OSC 52: remote clipboard writes (e.g. from tmux, vim over SSH)
+    unlistenClipboard = await onTerminalClipboard(terminalId, (text: string) => {
+      navigator.clipboard.writeText(text).catch(console.error);
+    });
+
     // Initial resize
     handleResize();
+
+    /** Extract selected text via the Rust backend (supports cross-scroll selections). */
+    async function extractSelectionText(): Promise<string> {
+      if (!renderer?.selectionStart || !renderer?.selectionEnd) return "";
+      const a = renderer.selectionStart;
+      const b = renderer.selectionEnd;
+      // lo = smaller historyRow = top/older, hi = larger = bottom/newer
+      const [lo, hi] = a.historyRow <= b.historyRow ? [a, b] : [b, a];
+      const { getTerminalTextRange } = await import("../../lib/ipc/commands");
+      const lines = await getTerminalTextRange(terminalId, lo.historyRow, hi.historyRow);
+      if (lines.length === 0) return "";
+      if (lines.length === 1) {
+        const minCol = Math.min(lo.col, hi.col);
+        const maxCol = Math.max(lo.col, hi.col);
+        return lines[0].substring(minCol, maxCol + 1).trimEnd();
+      }
+      const firstLine = lines[0].substring(lo.col).trimEnd();                          // top row: from lo.col
+      const lastLine = lines[lines.length - 1].substring(0, hi.col + 1).trimEnd();    // bottom row: to hi.col
+      const middleLines = lines.slice(1, -1).map(l => l.trimEnd());
+      return [firstLine, ...middleLines, lastLine].join("\n").replace(/\n+$/, "");
+    }
+
+    /** Encode and send a mouse event to the terminal PTY. */
+    function sendMouseEvent(button: number, cx: number, cy: number, press: boolean) {
+      const mouseSgr = (modeFlags & 0x20) !== 0;
+      if (mouseSgr) {
+        // SGR extended: ESC[<button;cx;cyM (press) / ESC[<button;cx;cym (release)
+        writeToTerminal(terminalId, textEncoder.encode(
+          `\x1b[<${button};${cx};${cy}${press ? "M" : "m"}`
+        ));
+      } else {
+        // X10 fallback: ESC[M<b><x><y> (3 bytes, clamped to 32-255)
+        const b = Math.min(32 + button, 255);
+        const x = Math.min(32 + cx, 255);
+        const y = Math.min(32 + cy, 255);
+        writeToTerminal(terminalId, new Uint8Array([0x1b, 0x5b, 0x4d, b, x, y]));
+      }
+    }
 
     // Keyboard handler
     const onKeyDown = async (e: KeyboardEvent) => {
       // Cmd+C with selection → copy
       if (e.metaKey && e.key === "c" && renderer?.selectionStart) {
         e.preventDefault();
-        const frame = renderer.currentFrame;
-        if (frame) {
-          const text = renderer.getSelectedText(frame);
-          if (text) {
-            await navigator.clipboard.writeText(text);
-          }
+        const text = await extractSelectionText();
+        if (text) {
+          await navigator.clipboard.writeText(text);
         }
         return;
       }
@@ -215,48 +329,71 @@
     canvasEl.addEventListener("paste", onPaste);
     cleanupFns.push(() => canvasEl!.removeEventListener("paste", onPaste));
 
-    // Mouse selection
+    // Mouse selection and protocol forwarding
     const onMouseDown = (e: MouseEvent) => {
-      if (e.button !== 0 || !renderer) return;
+      if (!renderer) return;
+
+      const mouseMode = (modeFlags >> 3) & 0x3;
+
+      // When mouse protocol is active, forward button press to terminal
+      if (mouseMode > 0) {
+        let btn = e.button === 0 ? 0 : e.button === 1 ? 1 : 2;
+        if (e.shiftKey) btn |= 4;
+        if (e.altKey) btn |= 8;
+        if (e.ctrlKey) btn |= 16;
+        const rect = canvasEl!.getBoundingClientRect();
+        const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+        const cx = Math.min(Math.max(1, cell.col + 1), 223); // 1-based, clamped for X10
+        const cy = Math.min(Math.max(1, cell.row + 1), 223);
+        sendMouseEvent(btn, cx, cy, true);
+        return;
+      }
+
+      // Only handle left button for selection
+      if (e.button !== 0) return;
+
       const rect = canvasEl!.getBoundingClientRect();
       const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+      const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
+
+      // Shift+click: extend existing selection
+      if (e.shiftKey && renderer.selectionStart) {
+        renderer.selectionEnd = { historyRow, col: cell.col };
+        renderer.rerender();
+        return;
+      }
 
       if (e.detail === 3) {
-        // Triple-click: select line
-        const cols = currentCols || 80;
-        renderer.setSelection({ col: 0, row: cell.row }, { col: cols - 1, row: cell.row });
+        // Triple-click: select entire line
+        const cols = frameCols || currentCols || 80;
+        renderer.setSelection({ historyRow, col: 0 }, { historyRow, col: cols - 1 });
         renderer.rerender();
         return;
       }
 
       if (e.detail === 2) {
-        // Double-click: word select
+        // Double-click: word select using improved word boundaries
         const data = renderer.currentFrame;
         if (data) {
           const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
           const cols = view.getUint16(0, true);
           let startCol = cell.col;
           let endCol = cell.col;
-          // Scan left for word boundary
           while (startCol > 0) {
             const off = HEADER_SIZE + (cell.row * cols + startCol - 1) * CELL_SIZE;
             if (off + CELL_SIZE > data.length) break;
             const cp = view.getUint32(off, true);
-            if (cp <= 32) break;
+            if (isWordBreak(cp)) break;
             startCol--;
           }
-          // Scan right for word boundary
           while (endCol < cols - 1) {
             const off = HEADER_SIZE + (cell.row * cols + endCol + 1) * CELL_SIZE;
             if (off + CELL_SIZE > data.length) break;
             const cp = view.getUint32(off, true);
-            if (cp <= 32) break;
+            if (isWordBreak(cp)) break;
             endCol++;
           }
-          renderer.setSelection(
-            { col: startCol, row: cell.row },
-            { col: endCol, row: cell.row },
-          );
+          renderer.setSelection({ historyRow, col: startCol }, { historyRow, col: endCol });
           renderer.rerender();
         }
         return;
@@ -264,36 +401,85 @@
 
       // Single click: start selection
       isSelecting = true;
-      renderer.setSelection(cell, cell);
+      renderer.setSelection({ historyRow, col: cell.col }, { historyRow, col: cell.col });
       renderer.rerender();
     };
 
     const onMouseMove = (e: MouseEvent) => {
+      const mouseMode = (modeFlags >> 3) & 0x3;
+
+      // Mouse protocol motion events
+      if (mouseMode > 0) {
+        if (!renderer) return;
+        const isButtonHeld = e.buttons !== 0;
+        if (mouseMode === 3 || (mouseMode === 2 && isButtonHeld)) {
+          const rect = canvasEl!.getBoundingClientRect();
+          const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+          const cx = Math.min(Math.max(1, cell.col + 1), 223);
+          const cy = Math.min(Math.max(1, cell.row + 1), 223);
+          // Derive held button from e.buttons bitmask
+          const btn = (e.buttons & 1) ? 0 : (e.buttons & 4) ? 1 : (e.buttons & 2) ? 2 : 0;
+          sendMouseEvent(32 + btn, cx, cy, true);
+        }
+        return;
+      }
+
       if (!isSelecting || !renderer || !canvasEl) return;
       const rect = canvasEl.getBoundingClientRect();
       const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
-      renderer.selectionEnd = cell;
+      const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
+      renderer.selectionEnd = { historyRow, col: cell.col };
       renderer.rerender();
+
+      // Drag autoscroll: when pointer leaves canvas edges, scroll while dragging
+      if (dragScrollInterval) { clearInterval(dragScrollInterval); dragScrollInterval = null; }
+      const overTop = e.clientY < rect.top;
+      const overBottom = e.clientY > rect.bottom;
+      if (overTop || overBottom) {
+        dragScrollInterval = setInterval(() => {
+          scrollTerminal(terminalId, overTop ? 1 : -1).catch(() => {});
+        }, 80);
+      }
     };
 
-    const onMouseUp = () => {
+    const onMouseUp = async (e: MouseEvent) => {
+      const mouseMode = (modeFlags >> 3) & 0x3;
+
+      // Mouse protocol: forward button release
+      if (mouseMode > 0) {
+        if (!renderer) return;
+        let btn = e.button === 0 ? 0 : e.button === 1 ? 1 : 2;
+        if (e.shiftKey) btn |= 4;
+        if (e.altKey) btn |= 8;
+        if (e.ctrlKey) btn |= 16;
+        const rect = canvasEl!.getBoundingClientRect();
+        const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+        const cx = Math.min(Math.max(1, cell.col + 1), 223);
+        const cy = Math.min(Math.max(1, cell.row + 1), 223);
+        sendMouseEvent(btn, cx, cy, false);
+        return;
+      }
+
+      if (dragScrollInterval) { clearInterval(dragScrollInterval); dragScrollInterval = null; }
       if (!isSelecting) return;
       isSelecting = false;
-      // If start === end, clear selection (was just a click)
+      // If start === end cell, clear selection (was just a click, not a drag)
       if (
         renderer?.selectionStart &&
         renderer?.selectionEnd &&
         renderer.selectionStart.col === renderer.selectionEnd.col &&
-        renderer.selectionStart.row === renderer.selectionEnd.row
+        renderer.selectionStart.historyRow === renderer.selectionEnd.historyRow
       ) {
         renderer.setSelection(null, null);
         renderer.rerender();
-      } else if (settings.terminal.copy_on_select && renderer?.selectionStart && renderer?.selectionEnd) {
-        const frame = renderer.currentFrame;
-        if (frame) {
-          const text = renderer.getSelectedText(frame);
-          if (text) navigator.clipboard.writeText(text).catch(console.error);
+        // URL click: if a URL was hovered at click time, open it
+        if (renderer?.hoveredUrl) {
+          const url = renderer.hoveredUrl.url;
+          import("@tauri-apps/plugin-shell").then(({ open }) => open(url)).catch(() => {});
         }
+      } else if (settings.terminal.copy_on_select && renderer?.selectionStart && renderer?.selectionEnd) {
+        const text = await extractSelectionText();
+        if (text) navigator.clipboard.writeText(text).catch(console.error);
       }
     };
 
@@ -304,10 +490,52 @@
     cleanupFns.push(() => window.removeEventListener("mousemove", onMouseMove));
     cleanupFns.push(() => window.removeEventListener("mouseup", onMouseUp));
 
+    // Canvas-level hover: URL detection (only fires when pointer is over the canvas)
+    const onCanvasMouseMove = (e: MouseEvent) => {
+      if (!renderer || isSelecting || ((modeFlags >> 3) & 0x3) !== 0) return;
+      const rect = canvasEl!.getBoundingClientRect();
+      const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+      const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
+      const url = renderer.detectedUrls.find(u =>
+        u.historyRow === historyRow && cell.col >= u.colStart && cell.col < u.colEnd
+      );
+      const prevHovered = renderer.hoveredUrl;
+      renderer.hoveredUrl = url ?? null;
+      if (prevHovered !== renderer.hoveredUrl) {
+        canvasEl!.style.cursor = url ? "pointer" : "";
+        renderer.rerender();
+      }
+    };
+    const onMouseLeave = () => {
+      if (renderer && renderer.hoveredUrl !== null) {
+        renderer.hoveredUrl = null;
+        canvasEl!.style.cursor = "";
+        renderer.rerender();
+      }
+    };
+    canvasEl.addEventListener("mousemove", onCanvasMouseMove);
+    canvasEl.addEventListener("mouseleave", onMouseLeave);
+    cleanupFns.push(() => canvasEl!.removeEventListener("mousemove", onCanvasMouseMove));
+    cleanupFns.push(() => canvasEl!.removeEventListener("mouseleave", onMouseLeave));
+
     // Mouse wheel for scrollback — accumulate deltas, flush once per RAF
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       if (!renderer) return;
+
+      const mouseMode = (modeFlags >> 3) & 0x3;
+
+      // When mouse protocol is active, forward wheel events as button 64/65
+      if (mouseMode > 0) {
+        const rect = canvasEl!.getBoundingClientRect();
+        const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+        const cx = Math.min(Math.max(1, cell.col + 1), 223);
+        const cy = Math.min(Math.max(1, cell.row + 1), 223);
+        const wheelBtn = e.deltaY < 0 ? 64 : 65; // 64=scroll-up, 65=scroll-down
+        sendMouseEvent(wheelBtn, cx, cy, true);
+        return;
+      }
+
       // Reset accumulator on direction change to avoid stickiness
       if ((e.deltaY > 0 && scrollAccum < 0) || (e.deltaY < 0 && scrollAccum > 0)) {
         scrollAccum = 0;
@@ -328,13 +556,16 @@
     canvasEl.addEventListener("wheel", onWheel, { passive: false });
     cleanupFns.push(() => canvasEl!.removeEventListener("wheel", onWheel));
 
-    // Focus/blur
+    // Focus/blur — send CSI I / CSI O when application requests focus events (mode 1004)
     const onFocus = () => {
       if (renderer) {
         renderer.setFocused(true);
         renderer.rerender();
       }
       resetBlinkTimer();
+      if ((modeFlags & 0x40) !== 0) {
+        writeToTerminal(terminalId, textEncoder.encode("\x1b[I"));
+      }
     };
     const onBlur = () => {
       if (renderer) {
@@ -345,6 +576,9 @@
       if (blinkInterval) {
         clearInterval(blinkInterval);
         blinkInterval = null;
+      }
+      if ((modeFlags & 0x40) !== 0) {
+        writeToTerminal(terminalId, textEncoder.encode("\x1b[O"));
       }
     };
     canvasEl.addEventListener("focus", onFocus);
@@ -366,6 +600,53 @@
     });
     resizeObserver.observe(containerEl);
 
+    // Context menu
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // When mouse protocol is active, suppress context menu (right-click was forwarded as mouse event)
+      if (((modeFlags >> 3) & 0x3) !== 0) return;
+
+      const hasSelection = !!(renderer?.selectionStart && renderer?.selectionEnd);
+
+      showContextMenu([
+        { label: "New Terminal", shortcut: "⌘N", action: () =>
+            workspaceManager.spawnTerminalInWorkspace()
+        },
+        "sep",
+        { label: "Copy",       shortcut: "⌘C", disabled: !hasSelection, action: async () => {
+            const text = await extractSelectionText();
+            if (text) navigator.clipboard.writeText(text).catch(() => {});
+        }},
+        { label: "Paste",      shortcut: "⌘V", action: async () => {
+            const text = await navigator.clipboard.readText().catch(() => "");
+            if (text) writeToTerminal(terminalId, new TextEncoder().encode(text));
+        }},
+        { label: "Select All", shortcut: "⌘A", action: () => {
+            if (!renderer) return;
+            const rows = frameRows || currentRows || 24;
+            const cols = frameCols || currentCols || 80;
+            const sbLen = renderer.currentScrollbackLen;
+            renderer.selectionStart = { historyRow: 0, col: 0 };
+            renderer.selectionEnd   = { historyRow: sbLen + rows - 1, col: cols - 1 };
+            renderer.rerender();
+        }},
+        { label: "Clear",      shortcut: "⌘K", action: () =>
+            writeToTerminal(terminalId, new Uint8Array([0x0c]))
+        },
+        "sep",
+        { label: "Close Terminal Tab", action: () => {
+            const ws = workspaceManager.activeWorkspace;
+            const entry = ws ? Object.entries(ws.panes).find(([_, p]) => p.kind === "terminal" && p.terminalId === terminalId) : undefined;
+            const paneIdToClose = entry?.[0];
+            if (paneIdToClose) workspaceManager.closePaneInWorkspace(paneIdToClose);
+        }},
+      ], e.clientX, e.clientY);
+    };
+    canvasEl.addEventListener("contextmenu", onContextMenu);
+    cleanupFns.push(() => canvasEl!.removeEventListener("contextmenu", onContextMenu));
+
     // Focus on mount
     requestAnimationFrame(() => canvasEl?.focus());
   });
@@ -379,6 +660,8 @@
     rafId = 0;
     scrollRafId = 0;
     resizeRafId = 0;
+    // Clear drag autoscroll interval
+    if (dragScrollInterval) { clearInterval(dragScrollInterval); dragScrollInterval = null; }
     // Null renderer first so any stale RAF callbacks that already started are no-ops
     renderer = null;
     // Remove all event listeners
@@ -388,6 +671,7 @@
     cleanupFns = [];
     unlistenGrid?.();
     unlistenExit?.();
+    unlistenClipboard?.();
     resizeObserver?.disconnect();
     if (blinkInterval) clearInterval(blinkInterval);
   });

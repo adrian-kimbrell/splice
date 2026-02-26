@@ -5,12 +5,28 @@ use std::sync::Mutex;
 use tauri::State;
 extern crate libc;
 
-fn config_path() -> std::path::PathBuf {
+fn config_dir() -> std::path::PathBuf {
     let dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("Splice");
     std::fs::create_dir_all(&dir).ok();
-    dir.join("workspaces.json")
+    dir
+}
+
+/// Returns the workspace config file path for a given window label.
+/// The main window uses the backward-compatible `workspaces.json`;
+/// secondary windows use `workspaces-{label}.json`.
+fn config_path(label: &str) -> std::path::PathBuf {
+    let dir = config_dir();
+    if label == "main" {
+        dir.join("workspaces.json")
+    } else {
+        dir.join(format!("workspaces-{}.json", label))
+    }
+}
+
+fn windows_registry_path() -> std::path::PathBuf {
+    config_dir().join("windows.json")
 }
 
 /// On-disk format (new). Backward-compatible with old `Vec<Workspace>` via fallback parsing.
@@ -22,14 +38,21 @@ struct WorkspacesFile {
     workspaces: Vec<Workspace>,
 }
 
+/// On-disk format for the secondary window registry.
+#[derive(Serialize, Deserialize, Default)]
+struct WindowsRegistry {
+    #[serde(default)]
+    labels: Vec<String>,
+}
+
 #[derive(Serialize)]
 pub struct WorkspacesResponse {
     pub active_workspace_id: Option<String>,
     pub workspaces: Vec<Workspace>,
 }
 
-fn read_workspaces_file() -> Result<WorkspacesFile, String> {
-    let path = config_path();
+fn read_workspaces_file(label: &str) -> Result<WorkspacesFile, String> {
+    let path = config_path(label);
     if !path.exists() {
         return Ok(WorkspacesFile::default());
     }
@@ -49,6 +72,7 @@ fn read_workspaces_file() -> Result<WorkspacesFile, String> {
 }
 
 fn write_workspaces_file(
+    label: &str,
     workspaces: &[Workspace],
     active_workspace_id: Option<&str>,
 ) -> Result<(), String> {
@@ -58,10 +82,43 @@ fn write_workspaces_file(
     };
     let data = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
     // Atomic write: write to a temp file then rename to avoid corruption on crash
-    let dest = config_path();
+    let dest = config_path(label);
     let tmp = dest.with_extension("json.tmp");
     std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &dest).map_err(|e| e.to_string())
+}
+
+fn read_windows_registry() -> WindowsRegistry {
+    let path = windows_registry_path();
+    if !path.exists() {
+        return WindowsRegistry::default();
+    }
+    let data = match std::fs::read_to_string(&path) {
+        Ok(d) => d,
+        Err(_) => return WindowsRegistry::default(),
+    };
+    serde_json::from_str::<WindowsRegistry>(&data).unwrap_or_default()
+}
+
+fn write_windows_registry(registry: &WindowsRegistry) -> Result<(), String> {
+    let data = serde_json::to_string_pretty(registry).map_err(|e| e.to_string())?;
+    std::fs::write(windows_registry_path(), data).map_err(|e| e.to_string())
+}
+
+/// Explicitly grant the app read access to a directory chosen by the user.
+/// Called whenever a workspace's root folder changes before reading the tree.
+#[tauri::command]
+pub fn add_allowed_root(
+    state: State<'_, Mutex<AppState>>,
+    path: String,
+) -> Result<(), String> {
+    let canonical = std::fs::canonicalize(&path)
+        .unwrap_or_else(|_| std::path::PathBuf::from(&path));
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+    if !state.allowed_roots.contains(&canonical) {
+        state.allowed_roots.push(canonical);
+    }
+    Ok(())
 }
 
 /// Remove entries from `allowed_roots` that are not in `active_roots`.
@@ -77,46 +134,53 @@ fn revoke_unused_roots(
 #[tauri::command]
 pub fn get_workspaces(
     state: State<'_, Mutex<AppState>>,
+    window: tauri::WebviewWindow,
 ) -> Result<WorkspacesResponse, String> {
-    // Double-checked lock: fast path returns cached workspaces without file I/O.
-    // TOCTOU is benign here because save_workspace always updates the in-memory cache
-    // before writing to disk — any concurrent save that wins the lock will be reflected
-    // in the second lock acquisition below.
+    let label = window.label().to_string();
+
+    // Fast path: return cached workspaces if already loaded for this window.
     {
         let state = state.lock().map_err(|e| e.to_string())?;
-        if !state.workspaces.is_empty() {
-            return Ok(WorkspacesResponse {
-                active_workspace_id: state.active_workspace_id.clone(),
-                workspaces: state.workspaces.clone(),
-            });
+        if let Some((active_id, workspaces)) = state.window_workspaces.get(&label) {
+            if !workspaces.is_empty() {
+                return Ok(WorkspacesResponse {
+                    active_workspace_id: active_id.clone(),
+                    workspaces: workspaces.clone(),
+                });
+            }
         }
     }
 
-    let file = read_workspaces_file()?;
-    // Populate the in-memory cache if still empty, then return from state so
-    // any concurrent save_workspace that won the lock is reflected in the response.
+    let file = read_workspaces_file(&label)?;
     let mut s = state.lock().map_err(|e| e.to_string())?;
-    if s.workspaces.is_empty() {
-        s.workspaces = file.workspaces;
-        s.active_workspace_id = file.active_workspace_id;
+    {
+        let entry = s.window_workspaces.entry(label.clone()).or_insert_with(|| (None, Vec::new()));
+        if entry.1.is_empty() {
+            *entry = (file.active_workspace_id, file.workspaces);
+        }
     }
+    let (active_id, workspaces) = s
+        .window_workspaces
+        .get(&label)
+        .map(|(a, w)| (a.clone(), w.clone()))
+        .unwrap_or_default();
     Ok(WorkspacesResponse {
-        active_workspace_id: s.active_workspace_id.clone(),
-        workspaces: s.workspaces.clone(),
+        active_workspace_id: active_id,
+        workspaces,
     })
 }
 
 #[tauri::command]
 pub fn save_workspace(
     state: State<'_, Mutex<AppState>>,
+    window: tauri::WebviewWindow,
     workspace: Workspace,
 ) -> Result<(), String> {
-    // Update cache and collect state for writing under lock
+    let label = window.label().to_string();
     let (workspaces, active_id) = {
         let mut state = state.lock().map_err(|e| e.to_string())?;
 
         // Register workspace root as an allowed path.
-        // Canonicalize so symlinks / relative segments can't bypass the root check.
         if !workspace.root_path.is_empty() {
             let root = std::fs::canonicalize(&workspace.root_path)
                 .unwrap_or_else(|_| std::path::PathBuf::from(&workspace.root_path));
@@ -125,66 +189,62 @@ pub fn save_workspace(
             }
         }
 
-        if let Some(existing) = state.workspaces.iter_mut().find(|w| w.id == workspace.id) {
+        let entry = state.window_workspaces.entry(label.clone()).or_insert_with(|| (None, Vec::new()));
+        if let Some(existing) = entry.1.iter_mut().find(|w| w.id == workspace.id) {
             *existing = workspace;
         } else {
-            state.workspaces.push(workspace);
+            entry.1.push(workspace);
         }
-
-        (
-            state.workspaces.clone(),
-            state.active_workspace_id.clone(),
-        )
+        (entry.1.clone(), entry.0.clone())
     };
 
-    // Write file outside of lock
-    write_workspaces_file(&workspaces, active_id.as_deref())
+    write_workspaces_file(&label, &workspaces, active_id.as_deref())
 }
 
 #[tauri::command]
 pub fn delete_workspace(
     state: State<'_, Mutex<AppState>>,
+    window: tauri::WebviewWindow,
     id: String,
 ) -> Result<(), String> {
+    let label = window.label().to_string();
     let (workspaces, active_id) = {
         let mut state = state.lock().map_err(|e| e.to_string())?;
-        state.workspaces.retain(|w| w.id != id);
 
-        if state.active_workspace_id.as_deref() == Some(&id) {
-            state.active_workspace_id = state.workspaces.first().map(|w| w.id.clone());
-        }
+        let (workspaces, active_id, active_roots) = {
+            let entry = state.window_workspaces.entry(label.clone()).or_insert_with(|| (None, Vec::new()));
+            entry.1.retain(|w| w.id != id);
+            if entry.0.as_deref() == Some(&id) {
+                entry.0 = entry.1.first().map(|w| w.id.clone());
+            }
+            let active_roots: Vec<std::path::PathBuf> = entry.1.iter()
+                .filter(|w| !w.root_path.is_empty())
+                .map(|w| std::fs::canonicalize(&w.root_path)
+                    .unwrap_or_else(|_| std::path::PathBuf::from(&w.root_path)))
+                .collect();
+            (entry.1.clone(), entry.0.clone(), active_roots)
+        };
 
-        // Revoke file-system roots no longer referenced by any remaining workspace.
-        // Pre-compute from workspaces to avoid simultaneous mutable+immutable borrows.
-        let active_roots: Vec<std::path::PathBuf> = state.workspaces.iter()
-            .filter(|w| !w.root_path.is_empty())
-            .map(|w| std::fs::canonicalize(&w.root_path)
-                .unwrap_or_else(|_| std::path::PathBuf::from(&w.root_path)))
-            .collect();
         revoke_unused_roots(&mut state.allowed_roots, &active_roots);
-
-        (
-            state.workspaces.clone(),
-            state.active_workspace_id.clone(),
-        )
+        (workspaces, active_id)
     };
 
-    write_workspaces_file(&workspaces, active_id.as_deref())
+    write_workspaces_file(&label, &workspaces, active_id.as_deref())
 }
 
 #[tauri::command]
 pub fn close_workspace(
     state: State<'_, Mutex<AppState>>,
+    window: tauri::WebviewWindow,
     id: String,
 ) -> Result<Vec<u32>, String> {
+    let label = window.label().to_string();
     let (terminal_ids, workspaces, active_id) = {
         let mut state = state.lock().map_err(|e| e.to_string())?;
 
-        // Find workspace and collect its terminal IDs before removing
-        let terminal_ids: Vec<u32> = state
-            .workspaces
-            .iter()
-            .find(|w| w.id == id)
+        // Get terminal IDs before modifying the workspace list
+        let terminal_ids: Vec<u32> = state.window_workspaces.get(&label)
+            .and_then(|(_, wss)| wss.iter().find(|w| w.id == id))
             .map(|w| w.terminal_ids.clone())
             .unwrap_or_default();
 
@@ -193,55 +253,121 @@ pub fn close_workspace(
             state.terminals.remove(tid);
             state.terminal_claude_sessions.remove(tid);
         }
-        // Evict pid cache entries for the killed terminals
         state.pid_to_terminal_cache.retain(|_, cached_tid| !terminal_ids.contains(cached_tid));
 
-        // Remove workspace
-        state.workspaces.retain(|w| w.id != id);
+        // Modify workspace list and compute active_roots in inner block
+        // so that the mutable borrow of window_workspaces is released
+        // before we mutably borrow allowed_roots.
+        let (workspaces, active_id, active_roots) = {
+            let entry = state.window_workspaces.entry(label.clone()).or_insert_with(|| (None, Vec::new()));
+            entry.1.retain(|w| w.id != id);
+            if entry.0.as_deref() == Some(&id) {
+                entry.0 = entry.1.first().map(|w| w.id.clone());
+            }
+            let active_roots: Vec<std::path::PathBuf> = entry.1.iter()
+                .filter(|w| !w.root_path.is_empty())
+                .map(|w| std::fs::canonicalize(&w.root_path)
+                    .unwrap_or_else(|_| std::path::PathBuf::from(&w.root_path)))
+                .collect();
+            (entry.1.clone(), entry.0.clone(), active_roots)
+        };
 
-        // Update active workspace
-        if state.active_workspace_id.as_deref() == Some(&id) {
-            state.active_workspace_id = state.workspaces.first().map(|w| w.id.clone());
-        }
-
-        // Revoke file-system roots no longer referenced by any remaining workspace.
-        let active_roots: Vec<std::path::PathBuf> = state.workspaces.iter()
-            .filter(|w| !w.root_path.is_empty())
-            .map(|w| std::fs::canonicalize(&w.root_path)
-                .unwrap_or_else(|_| std::path::PathBuf::from(&w.root_path)))
-            .collect();
         revoke_unused_roots(&mut state.allowed_roots, &active_roots);
-
-        (
-            terminal_ids,
-            state.workspaces.clone(),
-            state.active_workspace_id.clone(),
-        )
+        (terminal_ids, workspaces, active_id)
     };
 
-    // Write file outside of lock
-    write_workspaces_file(&workspaces, active_id.as_deref())?;
-
+    write_workspaces_file(&label, &workspaces, active_id.as_deref())?;
     Ok(terminal_ids)
 }
 
 #[tauri::command]
 pub fn set_active_workspace_id(
     state: State<'_, Mutex<AppState>>,
+    window: tauri::WebviewWindow,
     id: Option<String>,
 ) -> Result<(), String> {
+    let label = window.label().to_string();
     let (workspaces, active_id) = {
         let mut state = state.lock().map_err(|e| e.to_string())?;
-        state.active_workspace_id = id;
-        (
-            state.workspaces.clone(),
-            state.active_workspace_id.clone(),
-        )
+        let entry = state.window_workspaces.entry(label.clone()).or_insert_with(|| (None, Vec::new()));
+        entry.0 = id;
+        (entry.1.clone(), entry.0.clone())
     };
 
-    write_workspaces_file(&workspaces, active_id.as_deref())
+    write_workspaces_file(&label, &workspaces, active_id.as_deref())
 }
 
+#[tauri::command]
+pub fn reorder_workspaces(
+    state: State<'_, Mutex<AppState>>,
+    window: tauri::WebviewWindow,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    let label = window.label().to_string();
+    let (workspaces, active_id) = {
+        let mut state = state.lock().map_err(|e| e.to_string())?;
+        let entry = state.window_workspaces.entry(label.clone()).or_insert_with(|| (None, Vec::new()));
+
+        let mut reordered: Vec<Workspace> = Vec::with_capacity(entry.1.len());
+        for id in &ids {
+            if let Some(pos) = entry.1.iter().position(|w| &w.id == id) {
+                reordered.push(entry.1[pos].clone());
+            }
+        }
+        // Append any workspaces not in the ids list (safety net)
+        for ws in &entry.1 {
+            if !ids.contains(&ws.id) {
+                reordered.push(ws.clone());
+            }
+        }
+        entry.1 = reordered;
+        (entry.1.clone(), entry.0.clone())
+    };
+    write_workspaces_file(&label, &workspaces, active_id.as_deref())
+}
+
+/// Register a secondary window label in `windows.json` so it can be restored after a crash.
+/// Must be called BEFORE creating the WebviewWindow.
+#[tauri::command]
+pub fn register_window(label: String) -> Result<(), String> {
+    let mut registry = read_windows_registry();
+    if !registry.labels.contains(&label) {
+        registry.labels.push(label);
+    }
+    write_windows_registry(&registry)
+}
+
+/// Unregister a secondary window on graceful close: remove from registry and delete its workspace file.
+#[tauri::command]
+pub fn unregister_window(
+    state: State<'_, Mutex<AppState>>,
+    label: String,
+) -> Result<(), String> {
+    // Remove from registry
+    let mut registry = read_windows_registry();
+    registry.labels.retain(|l| l != &label);
+    write_windows_registry(&registry)?;
+
+    // Delete the per-window workspace file
+    let ws_path = config_path(&label);
+    if ws_path.exists() {
+        std::fs::remove_file(&ws_path).map_err(|e| e.to_string())?;
+    }
+
+    // Clean up in-memory state for this window
+    {
+        let mut state = state.lock().map_err(|e| e.to_string())?;
+        state.window_workspaces.remove(&label);
+    }
+    Ok(())
+}
+
+/// Return the list of registered secondary window labels (non-"main").
+/// Used by the main window on startup to reopen windows that survived a crash.
+#[tauri::command]
+pub fn get_secondary_window_labels() -> Result<Vec<String>, String> {
+    Ok(read_windows_registry().labels)
+}
 
 #[tauri::command]
 pub fn check_pid_alive(pid: u32) -> bool {
@@ -268,4 +394,32 @@ fn is_pid_alive(pid: u32) -> bool {
 #[cfg(not(unix))]
 fn is_pid_alive(_pid: u32) -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_process_is_alive() {
+        assert!(is_pid_alive(std::process::id()));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn obviously_dead_pid_is_not_alive() {
+        // Spawn a trivial child, reap it, then verify its PID is gone.
+        // After wait() the process is reaped so kill(pid, 0) returns ESRCH.
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(!is_pid_alive(pid));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn pid_one_is_alive() {
+        // PID 1 is init/launchd/systemd — always exists
+        assert!(is_pid_alive(1));
+    }
 }

@@ -132,7 +132,7 @@ impl Default for EditorSettings {
     fn default() -> Self {
         Self {
             font_family: "Menlo".to_string(),
-            font_size: 13,
+            font_size: 15,
             tab_size: 4,
             word_wrap: false,
             line_numbers: true,
@@ -150,6 +150,8 @@ impl Default for EditorSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppearanceSettings {
     pub theme: String,
+    #[serde(default = "default_app_font_size")]
+    pub font_size: u32,
     pub ui_scale: u32,
     pub show_status_bar: bool,
     #[serde(default = "default_explorer_side")]
@@ -160,6 +162,9 @@ pub struct AppearanceSettings {
     pub workspaces_width: u32,
 }
 
+fn default_app_font_size() -> u32 {
+    15
+}
 fn default_explorer_side() -> String {
     "left".to_string()
 }
@@ -174,6 +179,7 @@ impl Default for AppearanceSettings {
     fn default() -> Self {
         Self {
             theme: "One Dark".to_string(),
+            font_size: default_app_font_size(),
             ui_scale: 100,
             show_status_bar: true,
             explorer_side: default_explorer_side(),
@@ -204,12 +210,81 @@ impl Default for TerminalSettings {
     fn default() -> Self {
         Self {
             default_shell: "/bin/zsh".to_string(),
-            font_size: 12,
+            font_size: 15,
             cursor_style: "Block".to_string(),
             cursor_blink: true,
             scrollback_lines: 10000,
             font_family: default_terminal_font(),
             copy_on_select: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_pane_json(extra: &str) -> String {
+        format!(
+            r#"{{"id":"p1","pane_type":{{"Terminal":{{"shell":"/bin/zsh","cwd":"/tmp"}}}},"title":"Term"{}}}"#,
+            extra
+        )
+    }
+
+    #[test]
+    fn claude_fields_default_to_none() {
+        let json = make_pane_json("");
+        let pane: PaneInfo = serde_json::from_str(&json).unwrap();
+        assert!(pane.claude_session_id.is_none());
+        assert!(pane.claude_pid.is_none());
+    }
+
+    #[test]
+    fn claude_fields_round_trip() {
+        let json = make_pane_json(r#","claude_session_id":"abc123","claude_pid":42"#);
+        let pane: PaneInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(pane.claude_session_id.as_deref(), Some("abc123"));
+        assert_eq!(pane.claude_pid, Some(42));
+
+        let serialized = serde_json::to_string(&pane).unwrap();
+        let pane2: PaneInfo = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(pane2.claude_session_id.as_deref(), Some("abc123"));
+        assert_eq!(pane2.claude_pid, Some(42));
+    }
+
+    #[test]
+    fn null_session_id_deserializes_to_none() {
+        let json = make_pane_json(r#","claude_session_id":null"#);
+        let pane: PaneInfo = serde_json::from_str(&json).unwrap();
+        assert!(pane.claude_session_id.is_none());
+    }
+
+    #[test]
+    fn workspace_file_migration_from_old_vec_format() {
+        // Old format: bare JSON array of workspaces
+        let old_json = r#"[{"id":"ws1","name":"My WS","root_path":"/home/user","layout":{"type":"Leaf","pane_id":"p1"},"panes":[],"terminal_ids":[],"open_file_paths":[],"active_file_path":null}]"#;
+
+        // WorkspacesFile is private, so test via the public read path used in get_workspaces.
+        // Simulate the fallback: parse as Vec<Workspace> if WorkspacesFile fails.
+        #[derive(serde::Deserialize, Default)]
+        struct WorkspacesFile {
+            #[serde(default)]
+            active_workspace_id: Option<String>,
+            #[serde(default)]
+            workspaces: Vec<Workspace>,
+        }
+
+        let result: Result<WorkspacesFile, _> = serde_json::from_str(old_json);
+        // New format parse should fail (array at root, not object)
+        assert!(result.is_err(), "bare array should not parse as WorkspacesFile object");
+
+        let workspaces: Vec<Workspace> = serde_json::from_str(old_json).unwrap();
+        let migrated = WorkspacesFile {
+            active_workspace_id: None,
+            workspaces,
+        };
+        assert_eq!(migrated.workspaces.len(), 1);
+        assert_eq!(migrated.workspaces[0].id, "ws1");
+        assert!(migrated.active_workspace_id.is_none());
     }
 }

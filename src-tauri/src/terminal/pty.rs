@@ -50,9 +50,13 @@ impl PtySession {
             .map_err(|e| e.to_string())?;
 
         let mut cmd = CommandBuilder::new(shell);
+        cmd.arg("-l"); // login shell: sources ~/.zprofile / ~/.profile so PATH is fully set up
         cmd.cwd(cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        // Don't inherit Claude Code's session marker — terminals spawned by Splice
+        // are fresh shells and should be able to run `claude` freely.
+        cmd.env_remove("CLAUDECODE");
 
         let child = pair.slave
             .spawn_command(cmd)
@@ -78,9 +82,11 @@ impl PtySession {
         let reader_running = Arc::clone(&running);
         let reader_writer = Arc::clone(&writer);
         let reader_notify = Arc::clone(&notify);
+        let reader_scroll_offset = Arc::clone(&scroll_offset);
         let exit_event = format!("terminal:exit:{}", id);
         let title_event = format!("terminal:title:{}", id);
         let bell_event = format!("terminal:bell:{}", id);
+        let clipboard_event = format!("terminal:clipboard:{}", id);
         let app_clone = app.clone();
 
         let reader_handle = thread::spawn(move || {
@@ -97,25 +103,45 @@ impl PtySession {
                         break;
                     }
                     Ok(n) => {
-                        let mut emu = match reader_emulator.write() {
-                            Ok(emu) => emu,
-                            Err(_) => {
-                                reader_running.store(false, Ordering::Relaxed);
-                                let _ = app_clone.emit(&exit_event, 1);
-                                reader_notify.notify();
-                                break;
-                            }
-                        };
-                        emu.advance(&buf[..n]);
+                        // Acquire emulator lock, advance parser, collect pending state,
+                        // then release lock before any I/O or Tauri events.
+                        let (reply, title, bell, clipboard, sb_delta) =
+                            match reader_emulator.write() {
+                                Err(_) => {
+                                    reader_running.store(false, Ordering::Relaxed);
+                                    let _ = app_clone.emit(&exit_event, 1);
+                                    reader_notify.notify();
+                                    break;
+                                }
+                                Ok(mut emu) => {
+                                    let old_sb = if emu.grid.active_is_alt {
+                                        0
+                                    } else {
+                                        emu.grid.primary.scrollback.len()
+                                    };
+                                    emu.advance(&buf[..n]);
+                                    let new_sb = if emu.grid.active_is_alt {
+                                        0
+                                    } else {
+                                        emu.grid.primary.scrollback.len()
+                                    };
+                                    let reply: Vec<u8> = emu.pending_reply.drain(..).collect();
+                                    let title = emu.pending_title.take();
+                                    let bell = std::mem::replace(&mut emu.pending_bell, false);
+                                    let clipboard = emu.pending_clipboard.take();
+                                    let sb_delta = new_sb.saturating_sub(old_sb) as i32;
+                                    (reply, title, bell, clipboard, sb_delta)
+                                }
+                            };
 
-                        // Extract all pending state before dropping the lock
-                        let reply: Vec<u8> = emu.pending_reply.drain(..).collect();
-                        let title = emu.pending_title.take();
-                        let bell = emu.pending_bell;
-                        emu.pending_bell = false;
-                        drop(emu);
+                        // Scroll stabilization: when scrollback grows and the user is
+                        // viewing scrollback, advance the offset by the same delta so
+                        // the display stays anchored to the same content.
+                        if sb_delta > 0 && reader_scroll_offset.load(Ordering::Relaxed) > 0 {
+                            reader_scroll_offset.fetch_add(sb_delta, Ordering::Relaxed);
+                        }
 
-                        // Process all independently
+                        // Process all independently (lock released above)
                         if !reply.is_empty() {
                             if let Ok(mut w) = reader_writer.lock() {
                                 let _ = w.write_all(&reply);
@@ -126,6 +152,9 @@ impl PtySession {
                         }
                         if bell {
                             let _ = app_clone.emit(&bell_event, ());
+                        }
+                        if let Some(text) = clipboard {
+                            let _ = app_clone.emit(&clipboard_event, text);
                         }
 
                         reader_version.fetch_add(1, Ordering::Relaxed);

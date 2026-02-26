@@ -29,3 +29,7 @@ Thumbs.db
 # Benchmark results
 bench-results/
 src-tauri/target/criterion/
+
+# Chaos test artefacts
+.chaos-tmp/
+chaos-logs/

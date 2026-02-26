@@ -127,4 +127,11 @@ export async function applyTheme(name: string): Promise<void> {
   for (const [key, value] of Object.entries(theme)) {
     root.style.setProperty(`--${key}`, value);
   }
+  window.dispatchEvent(new CustomEvent('splice:theme-applied', {
+    detail: {
+      bg: theme['bg-editor'],
+      fg: theme['text'],
+      accent: theme['accent'],
+    }
+  }));
 }

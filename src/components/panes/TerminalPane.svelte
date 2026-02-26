@@ -29,6 +29,8 @@
 
   const notification = $derived(attentionStore.notifications[terminalId] ?? null);
   let searchVisible = $state(false);
+  let searchMatchesList = $state<TerminalSearchMatch[]>([]);
+  let searchActiveIdx = $state(-1);
   let contentAreaEl = $state<HTMLDivElement>();
 
   $effect(() => {
@@ -45,12 +47,17 @@
   }
 
   function handleSearchNavigate(match: TerminalSearchMatch) {
-    // Negative row = scrollback; absolute offset to show it is -match.row.
-    // Visible row (>= 0) = snap back to live view (offset 0).
+    // Negative row = scrollback; offset to show it = -match.row.
+    // Visible row (>= 0) = snap to live view (offset 0).
     const targetOffset = match.row < 0 ? -match.row : 0;
     import("../../lib/ipc/commands").then(({ setTerminalScrollOffset }) => {
       setTerminalScrollOffset(terminalId, targetOffset).catch(console.error);
     });
+  }
+
+  function handleMatchesChange(matches: TerminalSearchMatch[], activeIndex: number) {
+    searchMatchesList = matches;
+    searchActiveIdx = activeIndex;
   }
 </script>
 
@@ -66,10 +73,16 @@
     <TerminalSearch
       {terminalId}
       visible={searchVisible}
-      onClose={() => { searchVisible = false; }}
+      onClose={() => { searchVisible = false; searchMatchesList = []; searchActiveIdx = -1; }}
       onNavigate={handleSearchNavigate}
+      onMatchesChange={handleMatchesChange}
     />
-    <CanvasTerminal {terminalId} active={active} />
+    <CanvasTerminal
+      {terminalId}
+      active={active}
+      searchMatches={searchMatchesList}
+      searchActiveIndex={searchActiveIdx}
+    />
   </div>
 </div>
 

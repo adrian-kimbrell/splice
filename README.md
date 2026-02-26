@@ -31,6 +31,12 @@ Most editors give you one context and ask you to manage the rest yourself. Splic
 - State is fully isolated: switching workspaces never disturbs the other
 - Session persistence — workspaces and terminal directories are restored on next launch
 
+**Multiple windows**
+- `Cmd+Shift+N` opens a new independent window with its own workspace state
+- Each window writes to its own config file (`workspaces-{label}.json`)
+- Window registry (`windows.json`) enables crash recovery — secondary windows reopen automatically on next launch
+- Graceful close removes the window from the registry; crash leaves it for recovery
+
 **Layout**
 - Binary tree split system — split any pane horizontally or vertically into a terminal or editor
 - Drag to resize from edges or intersection corners
@@ -47,6 +53,12 @@ Most editors give you one context and ask you to manage the rest yourself. Splic
 - Git branch indicator per workspace
 - Recent files
 
+**Language servers (LSP)**
+- Automatic install and lifecycle management for language servers
+- Completions, hover docs, go-to-definition, diagnostics, code actions, rename
+- TypeScript (`typescript-language-server`), Rust (`rust-analyzer`), Python (`pylsp`) out of the box
+- Augmented PATH so language servers found in Homebrew/cargo/pyenv are discovered even when launched from Finder
+
 **Terminal**
 - Custom emulator built from scratch — no xterm.js
 - Full xterm-256color parity, 24-bit truecolor, One Dark palette
@@ -57,6 +69,7 @@ Most editors give you one context and ask you to manage the rest yourself. Splic
 **File explorer**
 - Per-workspace tree view with indent guides and folder open/collapse
 - File system watching — tree updates automatically when files change on disk
+- Inline create/rename/delete with context menu
 
 **Claude attention**
 - Surfaces Claude Code permission requests and idle states inline in the footer
@@ -71,6 +84,7 @@ Most editors give you one context and ask you to manage the rest yourself. Splic
 |----------|--------|
 | `Cmd+Opt+Arrow` | Navigate to adjacent pane (spatial) |
 | `Cmd+Opt+Shift+Left/Right` | Switch workspace prev/next |
+| `Cmd+Shift+N` | New window |
 | `Cmd+Z` | Toggle pane zoom |
 | `Cmd+1–9` | Focus pane by index |
 | `Cmd+K` | Command palette |
@@ -107,6 +121,7 @@ PTY reader → VTE parser → Grid mutations → binary serialization → Tauri 
 |-------|-----------|
 | Frontend | Svelte 5 (runes) + Tailwind CSS v3 |
 | Editor | CodeMirror 6 |
+| Language servers | LSP (stdio transport, managed lifecycle) |
 | Terminal renderer | Canvas 2D (custom) |
 | Backend | Tauri v2 + Rust |
 | Terminal | `vte` crate + custom Grid model + `portable-pty` |
@@ -121,8 +136,15 @@ PTY reader → VTE parser → Grid mutations → binary serialization → Tauri 
 
 ```bash
 npm install
-cargo tauri dev       # development with HMR
-cargo tauri build     # production build
+cargo tauri dev                    # development with HMR
+cargo tauri build --debug          # debug bundle (Splice.app)
+cargo tauri build                  # release build
+```
+
+**E2E tests** (requires the `e2e` feature):
+```bash
+npm run build:e2e                  # builds with --features e2e
+npm run test:e2e                   # runs WebdriverIO suite
 ```
 
 ---
@@ -139,6 +161,7 @@ src/                          # Svelte frontend
     overlays/                 # Command palette, settings
   lib/
     ipc/                      # Tauri IPC command/event wrappers
+    lsp/                      # LSP client (completions, hover, diagnostics)
     stores/                   # Svelte 5 reactive stores
       workspace.svelte.ts     # Workspace manager
       workspace-file-ops.ts   # File open/close/save operations
@@ -150,7 +173,7 @@ src/                          # Svelte frontend
     theme/
       themes.ts               # Lazy-loading theme registry
       themes/                 # builtin.ts · popular.ts · extended.ts
-    utils/                    # Keybindings, language detection, settings window
+    utils/                    # Keybindings, language detection, path utils
 
 src-tauri/                    # Rust backend
   src/
@@ -160,9 +183,14 @@ src-tauri/                    # Rust backend
       emitter.rs              # Frame serialization, Condvar-based emitter thread
       color.rs                # One Dark palette, ANSI 256-color table
       pty.rs                  # PTY spawn, read/write threads
+      tests/                  # 199-test terminal emulator unit suite
+    lsp/                      # LSP server lifecycle, stdio transport, request routing
     attention/                # Claude hook HTTP server, process tree matching
     commands/                 # Tauri command handlers (fs, terminal, workspace, settings)
     workspace/                # Workspace persistence and layout types
+
+tests/
+  e2e/                        # WebdriverIO E2E test suite (24 specs)
 ```
 
 ---

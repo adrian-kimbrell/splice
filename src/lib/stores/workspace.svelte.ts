@@ -79,6 +79,19 @@ class WorkspaceManager {
 
   // --- Core ---
 
+  reorderWorkspace(id: string, toIndex: number): void {
+    const entries = Object.entries(this.workspaces);
+    const fromIndex = entries.findIndex(([k]) => k === id);
+    if (fromIndex === -1 || fromIndex === toIndex) return;
+    const [entry] = entries.splice(fromIndex, 1);
+    entries.splice(toIndex, 0, entry);
+    this.workspaces = Object.fromEntries(entries) as Record<string, Workspace>;
+    const ids = Object.keys(this.workspaces);
+    import("../ipc/commands").then(({ reorderWorkspaces }) => {
+      reorderWorkspaces(ids).catch(console.warn);
+    });
+  }
+
   renameWorkspace(id: string, name: string): void {
     const ws = this.workspaces[id];
     if (!ws) return;
@@ -164,10 +177,17 @@ class WorkspaceManager {
     ws.rootPath = rootPath;
     addRecentProject(rootPath);
 
-    // Load file tree
-    this.loadFileTree(wsId);
-    // Fetch git branch
-    this.fetchGitBranch(wsId);
+    // Grant Rust access to this directory, start watching it, then load the tree
+    import("../ipc/commands").then(async ({ addAllowedRoot, watchPath }) => {
+      await addAllowedRoot(rootPath);
+      watchPath(rootPath).catch(() => {});
+    }).finally(() => {
+      this.loadFileTree(wsId);
+      this.fetchGitBranch(wsId);
+    });
+
+    // Persist so a force-reload keeps the updated root path
+    this.debouncedPersistWorkspace(wsId);
   }
 
   async createWorkspaceFromDirectory(rootPath: string): Promise<Workspace | null> {
@@ -209,9 +229,17 @@ class WorkspaceManager {
     ui.explorerVisible = ws.explorerVisible;
     addRecentProject(rootPath);
 
-    // Load file tree and git branch in background
-    this.loadFileTree(id);
-    this.fetchGitBranch(id);
+    // Grant Rust access to this directory, start watching it, then load file tree and git branch
+    import("../ipc/commands").then(async ({ addAllowedRoot, watchPath }) => {
+      await addAllowedRoot(rootPath);
+      watchPath(rootPath).catch(() => {});
+    }).finally(() => {
+      this.loadFileTree(id);
+      this.fetchGitBranch(id);
+    });
+
+    // Persist immediately so a force-reload doesn't lose the workspace
+    this.debouncedPersistWorkspace(id);
 
     return this.workspaces[id];
   }
@@ -286,6 +314,17 @@ class WorkspaceManager {
     }
     const ws = this.workspaces[id];
     if (ws) {
+      // Unwatch the workspace directory and all open file watchers
+      if (ws.rootPath || ws.openFiles.length > 0) {
+        import("../ipc/commands").then(({ unwatchPath }) => {
+          if (ws.rootPath) unwatchPath(ws.rootPath!).catch(() => {});
+          for (const file of ws.openFiles) {
+            if (!file.path.startsWith("untitled-")) {
+              unwatchPath(file.path).catch(() => {});
+            }
+          }
+        });
+      }
       // Clear attention notifications for all terminals in this workspace
       for (const tid of ws.terminalIds) {
         attentionStore.clear(tid);
@@ -788,6 +827,9 @@ class WorkspaceManager {
     this.workspaces[result.ws.id] = result.ws;
     this.loadFileTree(result.ws.id);
     this.fetchGitBranch(result.ws.id);
+    if (result.ws.rootPath) {
+      import("../ipc/commands").then(({ watchPath }) => watchPath(result.ws.rootPath!).catch(() => {}));
+    }
     return result.resumeCount;
   }
 

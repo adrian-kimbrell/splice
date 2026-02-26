@@ -13,6 +13,8 @@
     onWorkspaceClick,
     onClose,
     onHeaderContextMenu,
+    onHeaderMousedown,
+    isDragging = false,
   }: {
     workspace: Workspace;
     isActive?: boolean;
@@ -22,6 +24,8 @@
     onWorkspaceClick: () => void;
     onClose?: () => void;
     onHeaderContextMenu?: (e: MouseEvent) => void;
+    onHeaderMousedown?: (e: MouseEvent) => void;
+    isDragging?: boolean;
   } = $props();
 
   let editing = $state(false);
@@ -75,9 +79,12 @@
   {#if !compact}
     <div
       class="workspace-header group flex items-center"
+      class:opacity-50={isDragging}
+      class:cursor-grabbing={isDragging}
       onclick={onWorkspaceClick}
       ondblclick={(e) => { e.stopPropagation(); startEditing(); }}
       oncontextmenu={onHeaderContextMenu}
+      onmousedown={onHeaderMousedown}
       title="Double-click to rename"
     >
       {#if editing}
@@ -98,7 +105,7 @@
             title="Close Workspace"
             onclick={(e) => { e.stopPropagation(); onClose?.(); }}
           >
-            <i class="bi bi-x-lg" style="font-size: 12px"></i>
+            <i class="bi bi-x-lg" style="font-size: var(--ui-body)"></i>
           </button>
         {/if}
       {/if}
@@ -107,8 +114,11 @@
     <div
       class="workspace-header-compact"
       class:text-txt-bright={isActive}
+      class:opacity-50={isDragging}
+      class:cursor-grabbing={isDragging}
       onclick={onWorkspaceClick}
       oncontextmenu={onHeaderContextMenu}
+      onmousedown={onHeaderMousedown}
       title={workspace.name}
     >
       <i class="bi bi-diagram-2"></i>
@@ -175,7 +185,7 @@
     animation: sidebar-pulse-idle 1.8s ease-in-out infinite;
   }
   .attention-icon {
-    font-size: 9px;
+    font-size: var(--ui-xs);
     animation: bell-throb 1.2s ease-in-out infinite;
   }
   @keyframes sidebar-pulse-permission {

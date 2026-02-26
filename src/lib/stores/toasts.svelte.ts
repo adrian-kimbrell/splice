@@ -2,21 +2,38 @@ export interface Toast {
   id: string;
   message: string;
   kind: "info" | "success" | "error" | "warning";
+  duration?: number;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 export const toasts = $state<Toast[]>([]);
 
 let counter = 0;
+const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
-export function pushToast(message: string, kind: Toast["kind"] = "info", duration = 3000): void {
+export function pushToast(
+  message: string,
+  kind: Toast["kind"] = "info",
+  duration?: number,
+  action?: Toast["action"],
+): void {
   const id = `toast-${++counter}`;
-  toasts.push({ id, message, kind });
-  if (duration > 0) {
-    setTimeout(() => removeToast(id), duration);
+  const effectiveDuration = duration ?? (action ? -1 : 4000);
+  toasts.push({ id, message, kind, duration: effectiveDuration, action });
+  if (effectiveDuration > 0) {
+    timers.set(id, setTimeout(() => removeToast(id), effectiveDuration));
   }
 }
 
 export function removeToast(id: string): void {
+  const timer = timers.get(id);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    timers.delete(id);
+  }
   const idx = toasts.findIndex((t) => t.id === id);
   if (idx !== -1) toasts.splice(idx, 1);
 }

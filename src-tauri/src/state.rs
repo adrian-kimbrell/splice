@@ -7,8 +7,8 @@ use std::path::PathBuf;
 pub struct AppState {
     pub terminals: HashMap<u32, PtySession>,
     pub next_terminal_id: u32,
-    pub workspaces: Vec<Workspace>,
-    pub active_workspace_id: Option<String>,
+    /// window label → (active_workspace_id, workspaces)
+    pub window_workspaces: HashMap<String, (Option<String>, Vec<Workspace>)>,
     pub settings: Settings,
     pub settings_loaded: bool,
     pub allowed_roots: Vec<PathBuf>,
@@ -19,6 +19,8 @@ pub struct AppState {
     pub terminal_claude_sessions: HashMap<u32, (String, u32)>,
     /// claude_pid → terminal_id cache to avoid spawning `ps` on every notification
     pub pid_to_terminal_cache: HashMap<u32, u32>,
+    /// language_id → active LSP session
+    pub lsp_sessions: HashMap<String, crate::lsp::LspSession>,
 }
 
 impl AppState {
@@ -30,8 +32,7 @@ impl AppState {
         Self {
             terminals: HashMap::new(),
             next_terminal_id: 1,
-            workspaces: Vec::new(),
-            active_workspace_id: None,
+            window_workspaces: HashMap::new(),
             settings: Settings::default(),
             settings_loaded: false,
             allowed_roots,
@@ -39,6 +40,7 @@ impl AppState {
             watchers: HashMap::new(),
             terminal_claude_sessions: HashMap::new(),
             pid_to_terminal_cache: HashMap::new(),
+            lsp_sessions: HashMap::new(),
         }
     }
 }

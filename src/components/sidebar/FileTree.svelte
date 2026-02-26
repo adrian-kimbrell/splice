@@ -560,7 +560,7 @@
 
 <div
   bind:this={treeEl}
-  class="py-1.5 flex-1"
+  class="py-1.5 flex-1 min-w-max"
   role="tree"
   tabindex="0"
   onkeydown={handleKeyDown}
@@ -584,7 +584,7 @@
         class:bi-chevron-right={!rootExpanded}
       ></i>
       <i class="bi bi-folder2 tree-file-icon folder text-lg mr-1.5 shrink-0"></i>
-      <span class="text-txt-bright font-semibold truncate" title={rootPath}>{rootName}</span>
+      <span class="text-txt-bright font-semibold whitespace-nowrap" title={rootPath}>{rootName}</span>
     </div>
   {/if}
   {#if rootExpanded}

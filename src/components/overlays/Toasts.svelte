@@ -12,13 +12,16 @@
 {#if toasts.length > 0}
   <div class="fixed bottom-12 right-4 z-[200] flex flex-col gap-2 pointer-events-none">
     {#each toasts as toast (toast.id)}
-      <button
-        class="toast pointer-events-auto toast-{toast.kind}"
-        onclick={() => removeToast(toast.id)}
-      >
+      <div class="toast pointer-events-auto toast-{toast.kind}">
         <i class="bi {iconMap[toast.kind]}"></i>
-        <span>{toast.message}</span>
-      </button>
+        <span class="toast-message">{toast.message}</span>
+        {#if toast.action}
+          <button class="toast-action" onclick={() => { toast.action?.onClick(); removeToast(toast.id); }}>
+            {toast.action.label}
+          </button>
+        {/if}
+        <button class="toast-dismiss" onclick={() => removeToast(toast.id)}>✕</button>
+      </div>
     {/each}
   </div>
 {/if}
@@ -30,24 +33,53 @@
     gap: 8px;
     padding: 8px 14px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: var(--ui-body);
     color: var(--text-bright);
     background: var(--bg-palette);
     border: 1px solid var(--border);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    cursor: pointer;
     animation: toast-in 200ms ease-out;
     min-width: 200px;
-    max-width: 400px;
+    max-width: 420px;
     text-align: left;
   }
   .toast:hover {
     background: var(--bg-hover);
   }
+  .toast-message {
+    flex: 1;
+  }
   .toast-success i { color: var(--ansi-green); }
   .toast-error i { color: var(--ansi-red); }
   .toast-warning i { color: var(--ansi-yellow); }
   .toast-info i { color: var(--accent); }
+
+  .toast-action {
+    margin-left: 4px;
+    padding: 2px 10px;
+    background: var(--accent, #00ff88);
+    color: #000;
+    border: none;
+    border-radius: 3px;
+    font-size: var(--ui-label);
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .toast-action:hover { opacity: 0.85; }
+
+  .toast-dismiss {
+    margin-left: 2px;
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.5;
+    font-size: var(--ui-md);
+    padding: 0 2px;
+    line-height: 1;
+  }
+  .toast-dismiss:hover { opacity: 1; }
 
   @keyframes toast-in {
     from { opacity: 0; transform: translateX(20px); }

@@ -20,6 +20,7 @@ export interface Settings {
   };
   appearance: {
     theme: string;
+    font_size: number;
     ui_scale: number;
     show_status_bar: boolean;
     explorer_side: "left" | "right";
@@ -45,7 +46,7 @@ const defaultSettings: Settings = {
   },
   editor: {
     font_family: "Menlo",
-    font_size: 13,
+    font_size: 15,
     tab_size: 4,
     word_wrap: false,
     line_numbers: true,
@@ -59,6 +60,7 @@ const defaultSettings: Settings = {
   },
   appearance: {
     theme: "Splice Default",
+    font_size: 15,
     ui_scale: 100,
     show_status_bar: true,
     explorer_side: "left",
@@ -67,7 +69,7 @@ const defaultSettings: Settings = {
   },
   terminal: {
     default_shell: "/bin/zsh",
-    font_size: 12,
+    font_size: 15,
     cursor_style: "Block",
     cursor_blink: true,
     scrollback_lines: 10000,
@@ -109,6 +111,7 @@ export function debouncedSaveSettings(): void {
 
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
+    saveTimer = null;
     try {
       const { updateSettings } = await import("../ipc/commands");
       await updateSettings(settings as Settings);
@@ -116,4 +119,15 @@ export function debouncedSaveSettings(): void {
       console.error("Failed to save settings:", e);
     }
   }, 500);
+}
+
+export function flushSettingsSave(): void {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  if (!isTauri || !settingsInitPromise) return;
+  import("../ipc/commands").then(({ updateSettings }) =>
+    updateSettings(settings as Settings)
+  ).catch((e) => console.error("Failed to flush settings:", e));
 }

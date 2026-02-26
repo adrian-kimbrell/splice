@@ -20,6 +20,12 @@ export function onTerminalExit(id: number, callback: (code: number) => void) {
   });
 }
 
+export function onTerminalClipboard(id: number, callback: (text: string) => void) {
+  return listen<string>(`terminal:clipboard:${id}`, (event) => {
+    callback(event.payload);
+  });
+}
+
 export interface AttentionPayload {
   terminal_id: number;
   notification_type: string;

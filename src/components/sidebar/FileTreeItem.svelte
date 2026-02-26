@@ -180,7 +180,7 @@
       class:bi-folder2-open={expanded}
       class:bi-folder2={!expanded}
     ></i>
-    <span class="text-txt-bright font-medium truncate" title={entry.name}>{entry.name}</span>
+    <span class="text-txt-bright font-medium whitespace-nowrap" title={entry.name}>{entry.name}</span>
     {#if loading}
       <span class="text-txt-dim text-[10px] ml-1">...</span>
     {/if}
@@ -189,7 +189,7 @@
     <i
       class="bi {icon?.icon} tree-file-icon {icon?.cls} text-lg mr-1.5 shrink-0"
     ></i>
-    <span class="truncate" title={entry.name}>{entry.name}</span>
+    <span class="whitespace-nowrap" title={entry.name}>{entry.name}</span>
   {/if}
 </div>
 

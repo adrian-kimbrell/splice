@@ -177,7 +177,7 @@
   <!-- Right: status + actions -->
   {#if branch}
     <span class="text-[11px] text-txt-dim whitespace-nowrap mr-1 shrink-0 flex items-center gap-1">
-      <i class="bi bi-git" style="font-size: 10px;"></i>{branch}
+      <i class="bi bi-git" style="font-size: var(--ui-sm);"></i>{branch}
     </span>
   {/if}
   {#if language}
@@ -208,7 +208,7 @@
     flex: 1;
     min-width: 0;
     padding: 0 8px;
-    font-size: 11px;
+    font-size: var(--ui-label);
     overflow: visible;
     position: relative;
   }
@@ -223,13 +223,13 @@
   }
 
   .notif-icon {
-    font-size: 9px;
+    font-size: var(--ui-xs);
     flex-shrink: 0;
     animation: claude-pulse 1.2s ease-in-out infinite;
   }
 
   .notif-label {
-    font-size: 10px;
+    font-size: var(--ui-sm);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -257,13 +257,13 @@
 
   .notif-more {
     color: var(--text-dim);
-    font-size: 10px;
+    font-size: var(--ui-sm);
     flex-shrink: 0;
     margin-left: 2px;
   }
 
   .notif-chevron {
-    font-size: 8px;
+    font-size: var(--ui-xxs);
     color: var(--text-dim);
     flex-shrink: 0;
   }
@@ -275,7 +275,7 @@
     border: none;
     cursor: pointer;
     padding: 0 2px;
-    font-size: 13px;
+    font-size: var(--ui-md);
     border-radius: 3px;
     display: flex;
     align-items: center;
@@ -308,7 +308,7 @@
     gap: 5px;
     height: var(--topbar-height);
     padding: 0 10px;
-    font-size: 11px;
+    font-size: var(--ui-label);
     border-bottom: 1px solid var(--border);
   }
   .notif-dropdown-row:last-child {

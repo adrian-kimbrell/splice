@@ -185,7 +185,7 @@
     class="drag-ghost fixed pointer-events-none z-50 flex items-center gap-2 px-3 py-1.5 text-xs"
     style="left: {gx + 14}px; top: {gy + 2}px;"
   >
-    <i class="bi bi-file-earmark" style="font-size: 12px; opacity: 0.6;"></i>
+    <i class="bi bi-file-earmark" style="font-size: var(--ui-body); opacity: 0.6;"></i>
     {ghostLabel}
   </div>
 {/if}

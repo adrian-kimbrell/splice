@@ -9,6 +9,7 @@ pub mod erase;
 pub mod fuzz;
 pub mod modes;
 pub mod osc;
+pub mod pty_spawn;
 pub mod real_apps;
 pub mod replies;
 pub mod resize;

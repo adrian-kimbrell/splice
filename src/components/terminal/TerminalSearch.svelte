@@ -6,11 +6,13 @@
     visible = false,
     onClose,
     onNavigate,
+    onMatchesChange,
   }: {
     terminalId: number;
     visible?: boolean;
     onClose?: () => void;
     onNavigate?: (match: TerminalSearchMatch) => void;
+    onMatchesChange?: (matches: TerminalSearchMatch[], activeIndex: number) => void;
   } = $props();
 
   let query = $state("");
@@ -24,6 +26,7 @@
     if (!query) {
       matches = [];
       currentIndex = 0;
+      onMatchesChange?.([], -1);
       return;
     }
     matches = [];
@@ -35,21 +38,27 @@
       if (gen !== searchGen) return; // a newer search superseded this one
       matches = result;
       currentIndex = matches.length > 0 ? matches.length - 1 : 0; // Start at last (most recent)
+      onMatchesChange?.(matches, matches.length > 0 ? currentIndex : -1);
       if (matches.length > 0) onNavigate?.(matches[currentIndex]);
     } catch {
-      if (gen === searchGen) matches = [];
+      if (gen === searchGen) {
+        matches = [];
+        onMatchesChange?.([], -1);
+      }
     }
   }
 
   function prev() {
     if (matches.length === 0) return;
     currentIndex = (currentIndex - 1 + matches.length) % matches.length;
+    onMatchesChange?.(matches, currentIndex);
     onNavigate?.(matches[currentIndex]);
   }
 
   function next() {
     if (matches.length === 0) return;
     currentIndex = (currentIndex + 1) % matches.length;
+    onMatchesChange?.(matches, currentIndex);
     onNavigate?.(matches[currentIndex]);
   }
 
@@ -97,13 +106,13 @@
       {matches.length > 0 ? `${currentIndex + 1}/${matches.length}` : "No results"}
     </span>
     <button class="text-txt-dim hover:text-txt" title="Previous" onclick={prev}>
-      <i class="bi bi-chevron-up" style="font-size: 12px;"></i>
+      <i class="bi bi-chevron-up" style="font-size: var(--ui-body);"></i>
     </button>
     <button class="text-txt-dim hover:text-txt" title="Next" onclick={next}>
-      <i class="bi bi-chevron-down" style="font-size: 12px;"></i>
+      <i class="bi bi-chevron-down" style="font-size: var(--ui-body);"></i>
     </button>
     <button class="text-txt-dim hover:text-txt" title="Close" onclick={onClose}>
-      <i class="bi bi-x" style="font-size: 14px;"></i>
+      <i class="bi bi-x" style="font-size: var(--ui-btn);"></i>
     </button>
   </div>
 {/if}

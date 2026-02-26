@@ -80,7 +80,7 @@ export const editorTheme = EditorView.theme({
     padding: "0 4px",
     cursor: "pointer",
     color: "var(--text-dim)",
-    fontSize: "11px",
+    fontSize: "var(--ui-label)",
     lineHeight: "inherit",
   },
   ".cm-foldGutter .cm-gutterElement:hover": {
@@ -94,7 +94,7 @@ export const editorTheme = EditorView.theme({
   },
   ".cm-panels input, .cm-panels button": {
     fontFamily: "var(--ui-font)",
-    fontSize: "12px",
+    fontSize: "var(--ui-body)",
     color: "var(--text)",
   },
   ".cm-panels input": {
@@ -118,7 +118,7 @@ export const editorTheme = EditorView.theme({
     backgroundColor: "var(--bg-hover)",
   },
   ".cm-panels label": {
-    fontSize: "12px",
+    fontSize: "var(--ui-body)",
     color: "var(--text-dim)",
   },
   ".cm-panel.cm-search": {

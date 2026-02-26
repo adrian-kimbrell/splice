@@ -128,6 +128,7 @@ export async function fetchGitBranchImpl(ws: Workspace): Promise<void> {
 }
 
 export async function loadFileTreeImpl(ws: Workspace): Promise<void> {
+  if (!ws.rootPath) return;
   try {
     const { readDirTree } = await import("../ipc/commands");
     ws.fileTree = await readDirTree(ws.rootPath);

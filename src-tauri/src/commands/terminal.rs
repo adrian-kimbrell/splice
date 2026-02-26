@@ -327,6 +327,64 @@ fn cwd_of_pid(pid: u32) -> Option<String> {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn cwd_of_pid(_pid: u32) -> Option<String> { None }
 
+/// Returns lines for the given history row range, ordered top-to-bottom (oldest first).
+/// `history_start` and `history_end` are direct indices into the combined
+///   [scrollback[0..scrollback_len], live[0..rows]] array:
+///   0 = oldest scrollback row, scrollback_len + rows - 1 = newest live row.
+/// history_start ≤ history_end; result[0] = history_start (top/older), result[last] = history_end.
+#[tauri::command]
+pub fn get_terminal_text_range(
+    state: State<'_, Mutex<AppState>>,
+    id: u32,
+    history_start: i32,
+    history_end: i32,
+) -> Result<Vec<String>, String> {
+    let emulator_arc = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        let session = state
+            .terminals
+            .get(&id)
+            .ok_or_else(|| format!("Terminal {} not found", id))?;
+        std::sync::Arc::clone(&session.emulator)
+    };
+
+    let emu = emulator_arc.read().map_err(|e| e.to_string())?;
+    let buf = emu.grid.active();
+    let scrollback_len = buf.scrollback.len();
+    let cols = emu.grid.cols as usize;
+
+    let lo = history_start.max(0) as usize;
+    let hi = history_end.max(0) as usize;
+    if lo > hi {
+        return Ok(vec![]);
+    }
+
+    let mut result = Vec::with_capacity(hi - lo + 1);
+    for history_row in lo..=hi {
+        let text = if history_row < scrollback_len {
+            let row = &buf.scrollback[history_row];
+            row.cells[..cols.min(row.cells.len())]
+                .iter()
+                .map(|c| if c.ch == '\0' { ' ' } else { c.ch })
+                .collect()
+        } else {
+            let live_idx = history_row - scrollback_len;
+            if live_idx < buf.lines.len() {
+                let row = &buf.lines[live_idx];
+                row.cells[..cols.min(row.cells.len())]
+                    .iter()
+                    .map(|c| if c.ch == '\0' { ' ' } else { c.ch })
+                    .collect()
+            } else {
+                String::new()
+            }
+        };
+        result.push(text);
+    }
+
+    Ok(result)
+}
+
 #[tauri::command]
 pub fn install_claude_hook(state: State<'_, Mutex<AppState>>) -> Result<(), String> {
     // Guard: ensure the attention server is actually running before installing the hook
@@ -336,4 +394,81 @@ pub fn install_claude_hook(state: State<'_, Mutex<AppState>>) -> Result<(), Stri
         .attention_port
         .ok_or("Attention server not started")?;
     crate::attention::install_hook()
+}
+
+#[cfg(test)]
+mod tests {
+    /// Simulate the state mutations performed by `kill_terminal`:
+    ///   1. Remove from terminal_claude_sessions
+    ///   2. Evict pid_to_terminal_cache entries for that terminal
+    fn kill_terminal_state(
+        sessions: &mut std::collections::HashMap<u32, (String, u32)>,
+        pid_cache: &mut std::collections::HashMap<u32, u32>,
+        id: u32,
+    ) {
+        sessions.remove(&id);
+        pid_cache.retain(|_, &mut tid| tid != id);
+    }
+
+    #[test]
+    fn session_removed_when_terminal_killed() {
+        let mut sessions = std::collections::HashMap::new();
+        let mut pid_cache = std::collections::HashMap::new();
+        sessions.insert(1u32, ("sess-abc".to_string(), 1234u32));
+
+        kill_terminal_state(&mut sessions, &mut pid_cache, 1);
+
+        assert!(!sessions.contains_key(&1));
+    }
+
+    #[test]
+    fn pid_cache_evicted_for_killed_terminal() {
+        let mut sessions = std::collections::HashMap::new();
+        let mut pid_cache = std::collections::HashMap::new();
+        // terminal 1 has two claude PIDs in cache
+        pid_cache.insert(100u32, 1u32);
+        pid_cache.insert(101u32, 1u32);
+        // terminal 2 has one PID in cache
+        pid_cache.insert(200u32, 2u32);
+        sessions.insert(1u32, ("sess-1".to_string(), 100u32));
+        sessions.insert(2u32, ("sess-2".to_string(), 200u32));
+
+        kill_terminal_state(&mut sessions, &mut pid_cache, 1);
+
+        // terminal 1's PIDs are gone
+        assert!(!pid_cache.contains_key(&100));
+        assert!(!pid_cache.contains_key(&101));
+        // terminal 2's PID survives
+        assert_eq!(pid_cache.get(&200), Some(&2));
+    }
+
+    #[test]
+    fn other_terminal_sessions_unaffected() {
+        let mut sessions = std::collections::HashMap::new();
+        let mut pid_cache = std::collections::HashMap::new();
+        sessions.insert(1u32, ("sess-1".to_string(), 100u32));
+        sessions.insert(2u32, ("sess-2".to_string(), 200u32));
+        pid_cache.insert(100u32, 1u32);
+        pid_cache.insert(200u32, 2u32);
+
+        kill_terminal_state(&mut sessions, &mut pid_cache, 1);
+
+        assert!(!sessions.contains_key(&1));
+        assert_eq!(sessions.get(&2).map(|(s, _)| s.as_str()), Some("sess-2"));
+        assert_eq!(pid_cache.get(&200), Some(&2));
+    }
+}
+
+#[cfg(feature = "e2e")]
+#[tauri::command]
+pub fn get_debug_stats(
+    state: tauri::State<'_, std::sync::Mutex<crate::state::AppState>>,
+) -> serde_json::Value {
+    let state = state.lock().unwrap();
+    serde_json::json!({
+        "terminal_count": state.terminals.len(),
+        "watcher_count":  state.watchers.len(),
+        "workspace_count": state.workspaces.len(),
+        "lsp_session_count": state.lsp_sessions.len(),
+    })
 }

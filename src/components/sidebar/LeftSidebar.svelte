@@ -43,7 +43,7 @@
 </script>
 
 <div class="bg-sidebar border-border flex flex-col overflow-hidden" class:border-r={side === "left"} class:border-l={side === "right"} style="grid-column: {side === 'left' ? 1 : 5}; grid-row: 1">
-  <div class="flex-1 overflow-y-auto flex flex-col">
+  <div class="flex-1 overflow-auto flex flex-col">
     {#if ui.sidebarMode === "search"}
       <SearchPanel />
     {:else if hasFolder}

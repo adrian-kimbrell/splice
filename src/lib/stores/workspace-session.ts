@@ -5,13 +5,155 @@ import { remapLayout, findFirstLeaf, frontendToRustLayout } from "./workspace-ty
 import { collectLeafIds } from "./layout.svelte";
 import { settings } from "./settings.svelte";
 
-/** terminalId → pending retry timer IDs for claude --resume injection */
-const pendingResumeTimers = new Map<number, ReturnType<typeof setTimeout>[]>();
+interface PendingResume {
+  timers: ReturnType<typeof setTimeout>[];
+  abort: AbortController;
+}
+
+/** terminalId → pending resume state (abort controller + retry timers) */
+const pendingResumeTimers = new Map<number, PendingResume>();
 
 /** Cancel all pending --resume retries for a terminal (call on session success or terminal kill). */
 export function cancelPendingResume(terminalId: number): void {
-  const timers = pendingResumeTimers.get(terminalId);
-  if (timers) { timers.forEach(clearTimeout); pendingResumeTimers.delete(terminalId); }
+  const pending = pendingResumeTimers.get(terminalId);
+  if (pending) {
+    pending.timers.forEach(clearTimeout);
+    pending.abort.abort();
+    pendingResumeTimers.delete(terminalId);
+  }
+}
+
+/** Returns true if `id` is a safe Claude session ID (alphanumeric, hyphens, underscores, 1–128 chars). */
+export function isValidSessionId(id: string): boolean {
+  return /^[a-zA-Z0-9_-]{1,128}$/.test(id);
+}
+
+/**
+ * Waits until the shell is idle at a prompt by detecting cursor stability.
+ * Subscribes to terminal frame events and resolves once the cursor has not
+ * moved for `stableMs` after an initial `minWait` period.
+ * Falls back to resolving after `hardTimeout` if stability is never reached.
+ */
+export async function waitForShellReady(
+  terminalId: number,
+  opts: { minWait: number; stableMs: number; hardTimeout: number },
+  deps: {
+    subscribeToFrames: (id: number, cb: (data: Uint8Array) => void) => Promise<() => void>;
+    signal?: AbortSignal;
+  },
+): Promise<void> {
+  let resolvePromise!: () => void;
+  const promise = new Promise<void>((r) => { resolvePromise = r; });
+
+  let unsubscribeFn: (() => void) | null = null;
+  let stableTimer: ReturnType<typeof setTimeout> | null = null;
+  let hardTimer: ReturnType<typeof setTimeout> | null = null;
+  let minWaitTimer: ReturnType<typeof setTimeout> | null = null;
+  let isDone = false;
+  let minWaitDone = false;
+  let lastCursorKey = "";
+
+  function cleanup() {
+    if (unsubscribeFn) { unsubscribeFn(); unsubscribeFn = null; }
+    if (stableTimer !== null) { clearTimeout(stableTimer); stableTimer = null; }
+    if (hardTimer !== null) { clearTimeout(hardTimer); hardTimer = null; }
+    if (minWaitTimer !== null) { clearTimeout(minWaitTimer); minWaitTimer = null; }
+  }
+
+  function done() {
+    if (isDone) return;
+    isDone = true;
+    cleanup();
+    resolvePromise();
+  }
+
+  if (deps.signal?.aborted) {
+    resolvePromise();
+    return promise;
+  }
+  deps.signal?.addEventListener("abort", done, { once: true });
+
+  hardTimer = setTimeout(done, opts.hardTimeout);
+
+  unsubscribeFn = await deps.subscribeToFrames(terminalId, (data: Uint8Array) => {
+    if (isDone || !minWaitDone) return;
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const col = view.getUint16(4, true);
+    const row = view.getUint16(6, true);
+    const key = `${col}:${row}`;
+    if (key !== lastCursorKey) {
+      lastCursorKey = key;
+      if (stableTimer !== null) clearTimeout(stableTimer);
+      stableTimer = setTimeout(done, opts.stableMs);
+    }
+  });
+
+  if (isDone) {
+    unsubscribeFn();
+    unsubscribeFn = null;
+    return promise;
+  }
+
+  minWaitTimer = setTimeout(() => {
+    minWaitDone = true;
+    minWaitTimer = null;
+    stableTimer = setTimeout(done, opts.stableMs);
+  }, opts.minWait);
+
+  return promise;
+}
+
+/**
+ * Schedule `claude --resume {sessionId}` injection into a terminal.
+ * Waits for shell-ready detection (cursor stability after `staggerMs`), then
+ * retries 3 times at +0ms, +5000ms, +13000ms.
+ * Cancels all retries if `savedPid` is still alive (Claude didn't exit).
+ */
+export function scheduleClaudeResume(
+  terminalId: number,
+  sessionId: string,
+  savedPid: number | null,
+  staggerMs: number,
+  deps: {
+    checkPidAlive: (pid: number) => Promise<boolean>;
+    writeToTerminal: (id: number, data: Uint8Array) => Promise<void>;
+    subscribeToFrames: (id: number, cb: (data: Uint8Array) => void) => Promise<() => void>;
+  },
+): void {
+  (async () => {
+    const abort = new AbortController();
+    pendingResumeTimers.set(terminalId, { timers: [], abort });
+
+    await waitForShellReady(
+      terminalId,
+      { minWait: staggerMs, stableMs: 400, hardTimeout: 10_000 },
+      { subscribeToFrames: deps.subscribeToFrames, signal: abort.signal },
+    );
+
+    if (!pendingResumeTimers.has(terminalId)) return; // cancelled
+
+    const pending = pendingResumeTimers.get(terminalId)!;
+    const RETRY_EXTRA = [0, 5000, 13000];
+    for (const extra of RETRY_EXTRA) {
+      const t = setTimeout(async () => {
+        if (!pendingResumeTimers.has(terminalId)) return;
+        if (savedPid !== null) {
+          try {
+            const alive = await deps.checkPidAlive(savedPid);
+            if (alive) {
+              console.info(`Claude PID ${savedPid} still alive; cancelling --resume for terminal ${terminalId}`);
+              cancelPendingResume(terminalId);
+              return;
+            }
+          } catch { /* ignore — if check fails, proceed with resume */ }
+        }
+        try {
+          await deps.writeToTerminal(terminalId, new TextEncoder().encode(`claude --resume ${sessionId}\n`));
+        } catch (e) { console.warn("claude --resume injection failed:", e); }
+      }, extra);
+      pending.timers.push(t);
+    }
+  })();
 }
 
 export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string | null): Promise<void> {
@@ -86,6 +228,7 @@ export async function restoreWorkspaceImpl(
   // Hoist all IPC imports once to avoid repeated dynamic import overhead in loops.
   const { spawnTerminal, readFile, checkPidAlive, writeToTerminal, killTerminal } =
     await import("../ipc/commands");
+  const { onTerminalGrid } = await import("../ipc/events");
 
   const idMap = new Map<string, string>();
   // Each claude resume injection is staggered so they don't all hit the shell at once.
@@ -149,38 +292,16 @@ export async function restoreWorkspaceImpl(
           const sessionId = paneInfo.claude_session_id;
           const savedPid = paneInfo.claude_pid ?? null;
 
-          if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sessionId)) {
+          if (!isValidSessionId(sessionId)) {
             console.warn("Refusing to inject suspicious session ID:", sessionId);
           } else {
-            const baseDelay = 2000 + (resumeStartIndex + localClaudeResumeIndex) * 300;
+            const baseDelay = 500 + (resumeStartIndex + localClaudeResumeIndex) * 300;
             localClaudeResumeIndex++;
-
-            // 3 attempts: immediately at baseDelay, then +5s, +13s
-            const RETRY_EXTRA = [0, 5000, 13000];
-            const timers: ReturnType<typeof setTimeout>[] = [];
-            pendingResumeTimers.set(terminalId, timers);
-
-            for (const extra of RETRY_EXTRA) {
-              const t = setTimeout(async () => {
-                if (!pendingResumeTimers.has(terminalId)) return; // cancelled by success or kill
-                // If the saved Claude PID is still alive, Claude didn't exit when Splice closed.
-                // Cancel all retries to avoid spawning a second overlapping Claude process.
-                if (savedPid !== null) {
-                  try {
-                    const alive = await checkPidAlive(savedPid);
-                    if (alive) {
-                      console.info(`Claude PID ${savedPid} still alive; cancelling --resume for terminal ${terminalId}`);
-                      cancelPendingResume(terminalId);
-                      return;
-                    }
-                  } catch { /* ignore — if check fails, proceed with resume */ }
-                }
-                try {
-                  await writeToTerminal(terminalId, new TextEncoder().encode(`claude --resume ${sessionId}\n`));
-                } catch (e) { console.warn("claude --resume injection failed:", e); }
-              }, baseDelay + extra);
-              timers.push(t);
-            }
+            scheduleClaudeResume(terminalId, sessionId, savedPid, baseDelay, {
+              checkPidAlive,
+              writeToTerminal,
+              subscribeToFrames: onTerminalGrid,
+            });
           }
         }
       } catch (e) {

@@ -60,6 +60,19 @@ export async function getTerminalCwd(id: number): Promise<string | null> {
   return invoke<string | null>("get_terminal_cwd", { id });
 }
 
+/** Returns terminal lines for a history row range.
+ *  historyStart = top/older (smaller index), historyEnd = bottom/newer (larger index).
+ *  Both are direct indices into the combined [scrollback, live] array:
+ *    0 = oldest scrollback, scrollback_len + rows - 1 = newest live row.
+ *  Result is ordered top-to-bottom (oldest first, index 0 = historyStart row). */
+export async function getTerminalTextRange(
+  id: number,
+  historyStart: number,
+  historyEnd: number,
+): Promise<string[]> {
+  return invoke("get_terminal_text_range", { id, historyStart, historyEnd });
+}
+
 export interface TerminalSearchMatch {
   row: number;
   col_start: number;
@@ -114,9 +127,17 @@ export async function setActiveWorkspaceId(id: string | null): Promise<void> {
   return invoke("set_active_workspace_id", { id });
 }
 
+export async function reorderWorkspaces(ids: string[]): Promise<void> {
+  return invoke("reorder_workspaces", { ids });
+}
+
 
 export async function deleteWorkspace(id: string): Promise<void> {
   return invoke("delete_workspace", { id });
+}
+
+export async function addAllowedRoot(path: string): Promise<void> {
+  return invoke("add_allowed_root", { path });
 }
 
 export async function closeWorkspace(id: string): Promise<number[]> {
@@ -230,4 +251,36 @@ export async function searchFiles(
     caseSensitive,
     maxResults: maxResults ?? null,
   });
+}
+
+export async function lspCheck(languageId: string): Promise<boolean> {
+  return invoke("lsp_check", { languageId });
+}
+
+export async function lspInstall(languageId: string): Promise<void> {
+  return invoke("lsp_install", { languageId });
+}
+
+export async function lspStart(languageId: string, workspaceRoot: string): Promise<void> {
+  return invoke("lsp_start", { languageId, workspaceRoot });
+}
+
+export async function lspNotify(languageId: string, method: string, params: unknown): Promise<void> {
+  return invoke("lsp_notify", { languageId, method, params });
+}
+
+export async function lspRequest(languageId: string, method: string, params: unknown): Promise<unknown> {
+  return invoke("lsp_request", { languageId, method, params });
+}
+
+export async function registerWindow(label: string): Promise<void> {
+  return invoke("register_window", { label });
+}
+
+export async function unregisterWindow(label: string): Promise<void> {
+  return invoke("unregister_window", { label });
+}
+
+export async function getSecondaryWindowLabels(): Promise<string[]> {
+  return invoke("get_secondary_window_labels");
 }

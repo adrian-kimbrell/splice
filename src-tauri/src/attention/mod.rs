@@ -512,7 +512,12 @@ fn install_hook_entry(
 pub fn install_hook() -> Result<(), String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
     let settings_path = home.join(".claude").join("settings.json");
+    install_hook_at(&settings_path)
+}
 
+/// Install Splice hooks into the Claude settings file at `settings_path`.
+/// Extracted to allow testing with a temp-dir path without touching `~/.claude/settings.json`.
+pub fn install_hook_at(settings_path: &std::path::Path) -> Result<(), String> {
     // Create parent dir if needed
     if let Some(parent) = settings_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -520,7 +525,7 @@ pub fn install_hook() -> Result<(), String> {
 
     // Read existing JSON or start with {}
     let mut root: serde_json::Value = if settings_path.exists() {
-        let content = std::fs::read_to_string(&settings_path).map_err(|e| e.to_string())?;
+        let content = std::fs::read_to_string(settings_path).map_err(|e| e.to_string())?;
         serde_json::from_str(&content).unwrap_or(serde_json::Value::Object(Default::default()))
     } else {
         serde_json::Value::Object(Default::default())
@@ -553,7 +558,138 @@ pub fn install_hook() -> Result<(), String> {
     // Atomic write: write to a temp file then rename to avoid racing with Claude itself
     let tmp = settings_path.with_extension("json.tmp");
     std::fs::write(&tmp, updated).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &settings_path).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, settings_path).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Read settings.json from a temp dir, return the parsed JSON value.
+    fn read_settings(dir: &std::path::Path) -> serde_json::Value {
+        let path = dir.join("settings.json");
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    }
+
+    /// Count how many hook entries across all hook keys contain `marker` in their command.
+    fn count_hooks_with_marker(root: &serde_json::Value, marker: &str) -> usize {
+        let Some(hooks) = root.get("hooks").and_then(|h| h.as_object()) else {
+            return 0;
+        };
+        hooks.values().flat_map(|arr| arr.as_array().into_iter().flatten()).filter(|entry| {
+            entry.get("hooks").and_then(|h| h.as_array()).map(|hh| {
+                hh.iter().any(|h| {
+                    h.get("command").and_then(|c| c.as_str())
+                        .map(|s| s.contains(marker)).unwrap_or(false)
+                })
+            }).unwrap_or(false)
+        }).count()
+    }
+
+    /// Return the command string for the first hook entry containing `marker`, if any.
+    fn find_hook_command<'a>(root: &'a serde_json::Value, marker: &str) -> Option<String> {
+        let hooks = root.get("hooks")?.as_object()?;
+        for arr in hooks.values() {
+            for entry in arr.as_array()?.iter() {
+                for h in entry.get("hooks")?.as_array()?.iter() {
+                    if let Some(cmd) = h.get("command").and_then(|c| c.as_str()) {
+                        if cmd.contains(marker) {
+                            return Some(cmd.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn hook_script_contains_session_endpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        let cmd = find_hook_command(&root, "splice-session-hook-v2").unwrap();
+        assert!(cmd.contains("/session"), "hook command should contain /session endpoint");
+    }
+
+    #[test]
+    fn hook_script_contains_token_header() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        let cmd = find_hook_command(&root, "splice-session-hook-v2").unwrap();
+        assert!(cmd.contains("X-Splice-Token"), "hook command should include X-Splice-Token header");
+    }
+
+    #[test]
+    fn hook_script_reads_claude_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        let cmd = find_hook_command(&root, "splice-session-hook-v2").unwrap();
+        assert!(cmd.contains("os.getppid()"), "hook command should read parent PID via os.getppid()");
+    }
+
+    #[test]
+    fn hook_installation_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        install_hook_at(&path).unwrap();
+        install_hook_at(&path).unwrap();
+        let root = read_settings(dir.path());
+        let count = count_hooks_with_marker(&root, "splice-session-hook-v2");
+        assert_eq!(count, 1, "session hook should appear exactly once after two installs");
+    }
+
+    #[test]
+    fn hook_removes_old_malloc_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        // Write a settings file with an old malloc-attention-hook entry
+        let old = serde_json::json!({
+            "hooks": {
+                "Notification": [{
+                    "matcher": "",
+                    "hooks": [{"type": "command", "command": "python3 -c \"...\" # malloc-attention-hook"}]
+                }]
+            }
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&old).unwrap()).unwrap();
+
+        install_hook_at(&path).unwrap();
+        let root = read_settings(dir.path());
+
+        assert_eq!(count_hooks_with_marker(&root, "malloc-attention-hook"), 0,
+            "old malloc-attention-hook marker should be gone after install");
+        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook"), 1,
+            "splice-attention-hook should be present after install");
+    }
+
+    #[test]
+    fn hook_removes_old_malloc_session_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        let old = serde_json::json!({
+            "hooks": {
+                "SessionStart": [{
+                    "matcher": "",
+                    "hooks": [{"type": "command", "command": "python3 -c \"...\" # malloc-session-hook"}]
+                }]
+            }
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&old).unwrap()).unwrap();
+
+        install_hook_at(&path).unwrap();
+        let root = read_settings(dir.path());
+
+        assert_eq!(count_hooks_with_marker(&root, "malloc-session-hook"), 0,
+            "old malloc-session-hook marker should be gone");
+        assert_eq!(count_hooks_with_marker(&root, "splice-session-hook-v2"), 1,
+            "splice-session-hook-v2 should be present");
+    }
 }

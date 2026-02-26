@@ -9,6 +9,7 @@
   import CommandPalette from "./overlays/CommandPalette.svelte";
   import Toasts from "./overlays/Toasts.svelte";
   import { openSettingsWindow } from "../lib/utils/settings-window";
+  import { openNewWindow } from "../lib/utils/new-window";
   import { ui } from "../lib/stores/ui.svelte";
   import { initKeybindings, enterZenMode, exitZenMode } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
@@ -17,13 +18,14 @@
   import type { TabDragData } from "../lib/stores/drag.svelte";
   import { workspaceManager, type Workspace } from "../lib/stores/workspace.svelte";
   import { getLanguageName } from "../lib/utils/language";
-  import { settings, initSettings, debouncedSaveSettings } from "../lib/stores/settings.svelte";
+  import { settings, initSettings, debouncedSaveSettings, flushSettingsSave } from "../lib/stores/settings.svelte";
   import type { Settings } from "../lib/stores/settings.svelte";
   import { applyTheme } from "../lib/theme/themes";
   import { dispatchEditorAction } from "../lib/stores/editor-actions.svelte";
   import { recentFiles, loadRecentFiles, addRecentFile } from "../lib/stores/recent-files.svelte";
   import { recentProjects, loadRecentProjects } from "../lib/stores/recent-projects.svelte";
   import { pushToast } from "../lib/stores/toasts.svelte";
+  import { isUnderRoot } from "../lib/utils/path-utils";
   import { cancelPendingResume } from "../lib/stores/workspace-session";
 
   // Pre-import commands module for fast access after first load
@@ -177,6 +179,14 @@
 
   function handlePaneClick(paneId: string) {
     workspaceManager.setActivePaneId(paneId);
+  }
+
+  function handleWindowFocus() {
+    const paneId = ui.zoomedPaneId ?? workspaceManager.activeWorkspace?.activePaneId;
+    if (!paneId) return;
+    const paneEl = document.querySelector(`[data-pane-id="${paneId}"]`);
+    const target = paneEl?.querySelector<HTMLElement>('canvas[tabindex], .cm-content');
+    target?.focus();
   }
 
   function handleTabDrop(
@@ -379,6 +389,234 @@
 
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+  const taglines = [
+    "A modern code editor",
+    "Where bugs go to die",
+    "Works on my machine™",
+    "Just one more refactor",
+    "git blame someone else",
+    "printf debugging approved",
+    "Built different (in Rust)",
+    "Tab width: none of your business",
+    "Ships code. Eventually.",
+    "Bespoke code spelunking",
+    "It's giving… IDE",
+    "For the love of semicolons",
+    "Ctrl+Z is a lifestyle",
+    "The code writes itself (it doesn't)",
+    "$ git commit -m 'fix'",
+    "Stack Overflow, but faster",
+    "404: work-life balance not found",
+    "Your compiler's best friend",
+    "Now with 20% fewer segfaults",
+    "undefined is not a bug",
+    "Technically it compiles",
+    "rm -rf /node_modules && pray",
+    "Have you tried turning it off and on again?",
+    "It's not a bug, it's a feature",
+    "Powered by caffeine and spite",
+    "Your second favourite editor",
+    "We have dark mode (obviously)",
+    "Shipping bugs at the speed of light",
+    "Brought to you by a sleep-deprived developer",
+    "Type-safe, probably",
+    "async/await for the soul",
+    "// TODO: add more taglines",
+    "segfault (core dumped)",
+    "NaN out of 10 developers recommend",
+    "sudo make me a sandwich",
+    "merge conflicts not included",
+    "git push --force (don't)",
+    "0 days since last npm audit",
+    "cargo build --release (please wait)",
+    "Lovingly crafted by humans, allegedly",
+    "Your therapist recommended this",
+    "Less vim, more vibe",
+    "Emacs users welcome (but concerned)",
+    "VSCode refugees welcome",
+    "No Copilot required",
+    "Born in a terminal, raised in a browser",
+    "Actually reads the error messages",
+    "The IDE your IDE wants to be",
+    "Making spaghetti code look beautiful",
+    "Compiling… please stand by",
+    "For developers who like to live dangerously",
+    "100% organic, free-range code",
+    "The last editor you'll ever need (until the next one)",
+    "Batteries not included. node_modules are.",
+    "Stack trace? More like stack novel",
+    "Where console.log goes to shine",
+    "One semicolon to rule them all",
+    "Off by one error not included",
+    "Ship it",
+    "It builds locally",
+    "In production, no one can hear you scream",
+    "git init and pray",
+    "Documentation? We don't do that here",
+    "Comments are for quitters",
+    "Linting: the voice in your head that won't shut up",
+    "We don't talk about v0.0.1",
+    "Refactoring is just rearranging deck chairs",
+    "YOLO-driven development",
+    "Now hiring: rubber duck",
+    "Agile: we move the goalposts so you don't have to",
+    "DELETE FROM todo_list WHERE done = false",
+    "Hello, World!",
+    "exit 0",
+    ":wq",
+    "^C",
+    "throw new Error('not my problem')",
+    "// this should not happen",
+    "// I have no idea why this works",
+    "catch (e) { /* ¯\\_(ツ)_/¯ */ }",
+    "Making JavaScript slightly less painful",
+    "Rust: because C++ wasn't scary enough",
+    "undefined behaviour is a vibe",
+    "Garbage collected, unlike my thoughts",
+    "Null pointer? Barely know her",
+    "The heap called, it's full",
+    "Memory leaks are just long-term thinking",
+    "Premature optimisation is the root of all evil",
+    "Big O(h no)",
+    "O(n²) problems",
+    "Recursion: see recursion",
+    "A monad is just a monoid in the category of endofunctors",
+    "Write once, debug everywhere",
+    "It works in staging",
+    "Blame the intern",
+    "The cloud is just someone else's computer",
+    "Deploying at 4:59pm on a Friday",
+    "One linter to rule them all",
+    "Prettier? I barely know her",
+    "ESLint said no",
+    "TypeScript: making JavaScript feel something",
+    "Type inference is your friend",
+    "any is always the answer",
+    "// eslint-disable-next-line",
+    "@ts-ignore and pray",
+    "Where import cycles go to flourish",
+    "Side effects? What side effects?",
+    "Pure functions, impure thoughts",
+    "Referential transparency achieved",
+    "Immutable data, mutable deadlines",
+    "The bus factor is 1",
+    "10x developer (of bugs)",
+    "Senior developer: someone who's made more mistakes",
+    "git log --oneline (sobbing)",
+    "git stash pop (recklessly)",
+    "Detached HEAD? Relatable",
+    "Cherry-pick responsibly",
+    "Rebase: the forbidden technique",
+    "Your branch is 847 commits behind main",
+    "Force push forgiveness, not permission",
+    "No tests, no mercy",
+    "Tests are just code that tests your patience",
+    "100% test coverage (of the wrong things)",
+    "TDD: Test Driven Despair",
+    "CI/CD: Crying In / Crying Daily",
+    "Docker: it works in the container",
+    "Kubernetes: because one abstraction wasn't enough",
+    "Microservices: distributing the blame",
+    "Serverless: someone else's problem",
+    "The database is probably fine",
+    "SELECT * FROM problems",
+    "N+1 queries? Bold strategy",
+    "Indexes are for people who care",
+    "Normalisation: overrated",
+    "It's not a deadlock, it's a standoff",
+    "Race conditions build character",
+    "mutex my beloved",
+    "Async all the way down",
+    "Callback hell: now with async/await",
+    "Promises were made",
+    "Event loop trauma",
+    "Maximum call stack exceeded (emotionally)",
+    "Heap snapshot: don't look",
+    "Profiling is just self-reflection for code",
+    "Lighthouse score: 23",
+    "Bundle size: eventually your problem",
+    "Tree shaking the will to live",
+    "webpack config: cursed artifact",
+    "Vite: fast, unlike your backend",
+    "Hot module replacement for the soul",
+    "The DOM is not your friend",
+    "innerHTML and we don't care",
+    "z-index: 9999",
+    "display: flex (and cry)",
+    "It looks fine on my screen",
+    "Mobile-first (lies)",
+    "Responsive by accident",
+    "Accessibility? Noted",
+    "Semantic HTML is a myth",
+    "Div soup, anyone?",
+    "CSS: Cascading Style Suffering",
+    "margin: auto (hoping for the best)",
+    "!important considered harmful",
+    "Dark mode: the only mode",
+    "Light mode users need not apply",
+    "fn main() { println!(\"help\"); }",
+    "The borrow checker is always right",
+    "Lifetime annotations: trust the process",
+    "unsafe { /* here be dragons */ }",
+    "cargo clippy --fix (a blessing)",
+    "No GC, no problem",
+    "Zero-cost abstractions, infinite-cost debugging",
+    "Where null references come to die",
+    "Option<hope>",
+    "Result<sanity, Error>",
+    "unwrap() and cope",
+    "Match exhaustively or don't match at all",
+    "Move semantics: no take-backs",
+    "The borrower always pays",
+    "impl Display for Frustration",
+    "Vec<thought> is empty",
+    "HashMap<desire, reality>",
+    "Arc<Mutex<Sanity>>",
+    "Box<dyn Problem>",
+    "where T: Tired",
+    "Fearless concurrency (terrified developer)",
+    "Clippy has thoughts",
+    "The type system is trying to help",
+    "Compiler error E0502: overlapping borrows on your dreams",
+    "Made with ❤️ and stack traces",
+    "404: motivation not found",
+    "Stands for nothing, ships for everything",
+    "est. git init",
+    "Offline-first, online-last",
+    "Your keyboard deserves better",
+    "Pair programming with yourself",
+    "Single-threaded ambitions",
+    "println! considered elegant",
+    "The linter loves you (it just has a funny way of showing it)",
+    "Every pixel placed with indifference",
+    "Tabs. Final answer.",
+    "Spaces. Just kidding. Tabs.",
+    "Vim mode: coming eventually",
+    "Opens instantly (the terminal does)",
+    "No electron was harmed",
+    "Lighter than VS Code by several pounds",
+    "Memory usage: surprisingly reasonable",
+    "The one with the good terminal",
+    "More terminal, less configuration",
+    "Commit early, commit often, commit regrets",
+    "Your git history is a cry for help",
+    "main is just a suggestion",
+    "const correctness is a personality",
+    "Monorepo survivor",
+    "cargo test (fingers crossed)",
+    "One weird trick to ship faster",
+    "Buy low, sell high, deploy on Fridays",
+    "If it's stupid but it works…",
+    "First, do no harm. Then, ship.",
+    "Don't panic (but maybe panic)",
+    "Loading your existential dread…",
+    "Compiles in release mode",
+    "Indexed by anxiety",
+    "Where WIP commits go to live",
+    "Sponsored by no one, loved by someone",
+  ];
+  const tagline = taglines[Math.floor(Math.random() * taglines.length)];
+
   async function openDroppedFiles(paths: string[]) {
     if (!workspaceManager.activeWorkspace) {
       workspaceManager.createEmptyWorkspace();
@@ -472,6 +710,10 @@
     document.documentElement.style.zoom = `${settings.appearance.ui_scale / 100}`;
   });
 
+  $effect(() => {
+    document.documentElement.style.setProperty("--font-size", `${settings.appearance.font_size}px`);
+  });
+
   onMount(async () => {
     const stopKeybindings = initKeybindings();
     // Eagerly pre-import commands module
@@ -487,6 +729,7 @@
     let unlistenMenu: (() => void) | null = null;
     let unlistenDragDrop: (() => void) | null = null;
     let unlistenFileChanged: (() => void) | null = null;
+    let unlistenTreeChanged: (() => void) | null = null;
     let unlistenClosing: (() => void) | null = null;
     let unlistenSession: (() => void) | null = null;
 
@@ -511,6 +754,105 @@
     workspaceManager.initializeWorkspaces();
     loadRecentFiles();
     loadRecentProjects();
+
+    // Main window: reopen any secondary windows registered before a crash
+    if (isTauri) {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const currentLabel = getCurrentWindow().label;
+      if (currentLabel === "main") {
+        const { getSecondaryWindowLabels } = await getCommands();
+        const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+        const labels = await getSecondaryWindowLabels();
+        for (const l of labels) {
+          new WebviewWindow(l, {
+            url: "/",
+            title: "Splice",
+            width: 1280,
+            height: 800,
+            minWidth: 800,
+            minHeight: 600,
+            decorations: true,
+            resizable: true,
+          });
+        }
+      }
+    }
+
+    // Expose test helpers for WebDriver E2E automation
+    (window as unknown as Record<string, unknown>).__spliceTest = {
+      openWorkspace: (path: string) => workspaceManager.createWorkspaceFromDirectory(path),
+      closeAllWorkspaces: () =>
+        Promise.all(
+          Object.keys(workspaceManager.workspaces).map((id) =>
+            workspaceManager.closeWorkspaceWithCleanup(id)
+          )
+        ),
+      getWorkspaceIds: () => Object.keys(workspaceManager.workspaces),
+      /** Promote the active preview tab in the active editor pane to a permanent (pinned) tab. */
+      pinCurrentTab: () => {
+        const activeWs = workspaceManager.activeWorkspace;
+        if (!activeWs) return;
+        const pane = activeWs.activePaneId ? activeWs.panes[activeWs.activePaneId] : null;
+        if (!pane || pane.kind !== "editor") return;
+        const activePath = pane.activeFilePath;
+        if (activePath) workspaceManager.promotePreviewTab(activePath);
+      },
+      /** Switch the active workspace by ID. */
+      switchToWorkspace: (id: string) => workspaceManager.switchWorkspace(id),
+      /** Return the currently active workspace ID. */
+      getActiveWorkspaceId: () => workspaceManager.activeWorkspaceId,
+      /** Open a file as a permanent (non-preview) tab in the active pane. */
+      openFilePinned: async (filePath: string) => {
+        const name = filePath.split("/").pop() ?? filePath;
+        const existing = workspaceManager.activeWorkspace?.openFileIndex[filePath];
+        const content = existing
+          ? existing.content
+          : await getCommands().then((c) => c.readFile(filePath));
+        workspaceManager.openFileInWorkspace({ name, path: filePath, content, preview: false });
+      },
+      /** Directly mark the active file in the active pane as dirty (for E2E tests). */
+      markActiveFileDirty: () => {
+        const activeWs = workspaceManager.activeWorkspace;
+        if (!activeWs) return;
+        const pane = activeWs.activePaneId ? activeWs.panes[activeWs.activePaneId] : null;
+        if (!pane || pane.kind !== "editor" || !pane.activeFilePath) return;
+        const file = activeWs.openFileIndex[pane.activeFilePath];
+        if (file) file.dirty = true;
+      },
+      /** Ensure the file explorer sidebar is visible (for E2E tests). */
+      showExplorer: () => { ui.explorerVisible = true; },
+      /** Return sidebar logical state (for E2E tests — avoids display:contents WebDriver ambiguity). */
+      getSidebarState: () => ({ explorerVisible: ui.explorerVisible, sidebarMode: ui.sidebarMode }),
+      /** Update the active file's in-memory content and mark it dirty (for save-verification tests). */
+      updateActiveFileContent: (content: string) => {
+        const activeWs = workspaceManager.activeWorkspace;
+        if (!activeWs) return;
+        const pane = activeWs.activePaneId ? activeWs.panes[activeWs.activePaneId] : null;
+        if (!pane || pane.kind !== "editor" || !pane.activeFilePath) return;
+        const file = activeWs.openFileIndex[pane.activeFilePath];
+        if (file) { file.content = content; file.dirty = true; }
+      },
+      /** Return registered secondary window labels from windows.json (for E2E tests). */
+      getWindowRegistry: async () => {
+        const { getSecondaryWindowLabels } = await getCommands();
+        return getSecondaryWindowLabels();
+      },
+      /** Open a new secondary window (for E2E tests). */
+      openNewWindow: () => openNewWindow(),
+      /** Return true if zen mode is active. */
+      isZenMode: () => ui.zenMode,
+      /** Return the current ui_scale (for command palette execution verification). */
+      getUiScale: () => settings.appearance.ui_scale,
+      /** Return Rust-side AppState HashMap sizes (e2e debug command, only works in --features e2e build). */
+      getDebugStats: async () => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          return await invoke("get_debug_stats");
+        } catch {
+          return null;
+        }
+      },
+    };
     const stopGitPolling = workspaceManager.startGitBranchPolling();
 
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
@@ -595,6 +937,9 @@
             case "new-terminal":
               workspaceManager.spawnTerminalInWorkspace();
               break;
+            case "new-window":
+              openNewWindow();
+              break;
             case "zen-mode":
               if (ui.zenMode) exitZenMode(); else enterZenMode();
               break;
@@ -625,13 +970,20 @@
       // Persist all workspaces before the window closes, awaiting completion
       import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
         const appWindow = getCurrentWindow();
+        const currentLabel = appWindow.label;
         unlistenClosing = await appWindow.onCloseRequested(async (event) => {
           event.preventDefault();
+          flushSettingsSave();
           await Promise.allSettled(
             Object.keys(workspaceManager.workspaces).map(wsId =>
               workspaceManager.persistWorkspace(wsId)
             )
           );
+          // Graceful close of secondary window: remove from registry + delete workspace file
+          if (currentLabel !== "main") {
+            const { unregisterWindow } = await getCommands();
+            await unregisterWindow(currentLabel).catch(console.warn);
+          }
           try {
             await appWindow.destroy();
           } catch {
@@ -662,6 +1014,21 @@
           }
         }
       }).then((fn) => { unlistenFileChanged = fn; });
+
+      // Listen for directory tree changes (new/deleted/renamed files)
+      let treeChangeTimer: ReturnType<typeof setTimeout> | null = null;
+      listen<string>("tree:changed", (event) => {
+        if (treeChangeTimer) clearTimeout(treeChangeTimer);
+        treeChangeTimer = setTimeout(() => {
+          treeChangeTimer = null;
+          const changedPath = event.payload;
+          for (const [wsId, w] of Object.entries(workspaceManager.workspaces)) {
+            if (w.rootPath && isUnderRoot(changedPath, w.rootPath)) {
+              workspaceManager.loadFileTree(wsId);
+            }
+          }
+        }, 300);
+      }).then((fn) => { unlistenTreeChanged = fn; });
 
       // Listen for native file drag-and-drop
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
@@ -739,11 +1106,15 @@
       unlistenMenu?.();
       unlistenDragDrop?.();
       unlistenFileChanged?.();
+      if (treeChangeTimer) clearTimeout(treeChangeTimer);
+      unlistenTreeChanged?.();
       unlistenClosing?.();
       unlistenSession?.();
     };
   });
 </script>
+
+<svelte:window onfocus={handleWindowFocus} />
 
 <div
   class="grid h-screen"
@@ -857,6 +1228,10 @@
               </div>
             {/if}
           </div>
+          {:else}
+          <div class="flex-1 flex items-center justify-center">
+            <div style="width: 96px; height: 96px; opacity: 0.35; background-color: var(--accent); -webkit-mask-image: url('/logo.png'); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; mask-image: url('/logo.png'); mask-size: contain; mask-repeat: no-repeat; mask-position: center;" aria-hidden="true"></div>
+          </div>
           {/if}
         {:else}
           <div class="flex-1 flex items-center justify-center">
@@ -890,7 +1265,7 @@
             <div style="width: 64px; height: 64px; background-color: var(--accent); -webkit-mask-image: url('/logo.png'); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; mask-image: url('/logo.png'); mask-size: contain; mask-repeat: no-repeat; mask-position: center;" aria-label="Splice"></div>
             <div>
               <div class="text-txt-bright text-xl font-medium">Splice</div>
-              <div class="text-txt-dim text-xs">A modern code editor</div>
+              <div class="text-txt-dim text-xs">{tagline}</div>
             </div>
           </div>
 
@@ -993,7 +1368,7 @@
     title={leftVisible ? `Hide ${leftLabel}` : `Show ${leftLabel}`}
     onclick={toggleLeft}
   >
-    <i class="bi bi-chevron-{leftVisible ? 'left' : 'right'}" style="font-size: 10px;"></i>
+    <i class="bi bi-chevron-{leftVisible ? 'left' : 'right'}" style="font-size: var(--ui-sm);"></i>
   </button>
 </div>
 
@@ -1007,6 +1382,6 @@
     title={rightVisible ? `Hide ${rightLabel}` : `Show ${rightLabel}`}
     onclick={toggleRight}
   >
-    <i class="bi bi-chevron-{rightVisible ? 'right' : 'left'}" style="font-size: 10px;"></i>
+    <i class="bi bi-chevron-{rightVisible ? 'right' : 'left'}" style="font-size: var(--ui-sm);"></i>
   </button>
 </div>

@@ -1,8 +1,5 @@
-const DEFAULT_BG_R = 0x1e;
-const DEFAULT_BG_G = 0x1e;
-const DEFAULT_BG_B = 0x1e;
 
-export const HEADER_SIZE = 12;
+export const HEADER_SIZE = 20;
 export const CELL_SIZE = 12;
 
 // Cell flag constants (must match Rust grid::flags)
@@ -33,6 +30,15 @@ for (let i = 32; i < 128; i++) {
   asciiChars[i] = String.fromCodePoint(i);
 }
 
+// URL detection regex
+const URL_REGEX = /https?:\/\/[^\s"'>)\]]{3,}/g;
+
+export interface SearchMatch {
+  historyRow: number;
+  colStart: number;
+  colEnd: number;
+}
+
 export class TerminalRenderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -49,9 +55,20 @@ export class TerminalRenderer {
   private prevCursorCol = -1;
   private prevCursorRow = -1;
 
-  // Selection state
-  selectionStart: { col: number; row: number } | null = null;
-  selectionEnd: { col: number; row: number } | null = null;
+  // Selection state — coordinates use historyRow: index into combined
+  // [scrollback[0..n], live[0..rows]] array.
+  // historyRow=0 = oldest scrollback row; increases toward bottom/newer.
+  selectionStart: { historyRow: number; col: number } | null = null;
+  selectionEnd: { historyRow: number; col: number } | null = null;
+
+  // Current frame metadata (updated at the top of render())
+  private _currentFirstDisplayHistoryRow = 0;
+  private _currentRows = 0;
+  private _currentScrollbackLen = 0;
+
+  get currentFirstDisplayHistoryRow() { return this._currentFirstDisplayHistoryRow; }
+  get currentRows() { return this._currentRows; }
+  get currentScrollbackLen() { return this._currentScrollbackLen; }
 
   // Cursor blink
   private cursorBlinkVisible = true;
@@ -59,9 +76,29 @@ export class TerminalRenderer {
   // Focus
   private _isFocused = true;
 
+  // Search highlighting
+  private searchMatches: SearchMatch[] = [];
+  private searchActiveIndex = -1;
+  private searchMatchByRow = new Map<number, Array<{ colStart: number; colEnd: number; idx: number }>>();
+
+  // Theme-derived colors — updated via setThemeColors()
+  private themeBgR = 0x1e;
+  private themeBgG = 0x1e;
+  private themeBgB = 0x1e;
+  private cursorR = 0xff;
+  private cursorG = 0xff;
+  private cursorB = 0xff;
+  private selectionColor = "rgba(100, 150, 255, 0.3)";
+  private scrolledColor  = "rgba(97, 175, 239, 0.7)";
+
+  // URL detection
+  detectedUrls: Array<{ historyRow: number; colStart: number; colEnd: number; url: string }> = [];
+  hoveredUrl: { historyRow: number; colStart: number; colEnd: number; url: string } | null = null;
+  private urlsNeedUpdate = false;
+
   constructor(
     canvas: HTMLCanvasElement,
-    fontSize = 12,
+    fontSize = 15,
     fontFamily = "Menlo, Consolas, 'Courier New', monospace",
   ) {
     this.canvas = canvas;
@@ -86,9 +123,24 @@ export class TerminalRenderer {
 
   measureFont() {
     this.ctx.font = `${this.fontSize}px ${this.fontFamily}`;
+    this.ctx.textBaseline = "top";
     const metrics = this.ctx.measureText("W");
     this._cellWidth = Math.round(metrics.width);
-    this._cellHeight = Math.ceil(this.fontSize * 1.2);
+
+    // Measure actual glyph descent for characters with descenders.
+    // With textBaseline="top", actualBoundingBoxDescent is the distance from
+    // the draw Y position (em-square top) down to the bottom of the glyph.
+    // For fonts like Menlo whose ascender+descender > 1em, this exceeds fontSize.
+    // textYOffset = Math.round((ch - fontSize)/2) centers the em square in the cell.
+    // For the full glyph to fit: textYOffset + glyphBottom ≤ ch
+    //   => ch ≥ 2*glyphBottom - fontSize
+    // Add 2px safety margin for sub-pixel rendering on Retina displays.
+    const descMetrics = this.ctx.measureText("gjpqy");
+    const glyphBottom = descMetrics.actualBoundingBoxDescent;
+    this._cellHeight = Math.max(
+      Math.ceil(this.fontSize * 1.2),
+      Math.ceil(2 * glyphBottom - this.fontSize) + 2,
+    );
   }
 
   calculateGridSize(
@@ -126,11 +178,33 @@ export class TerminalRenderer {
   }
 
   setSelection(
-    start: { col: number; row: number } | null,
-    end: { col: number; row: number } | null,
+    start: { historyRow: number; col: number } | null,
+    end: { historyRow: number; col: number } | null,
   ) {
     this.selectionStart = start;
     this.selectionEnd = end;
+  }
+
+  setSearchMatches(matches: SearchMatch[], activeIndex: number) {
+    this.searchMatches = matches;
+    this.searchActiveIndex = activeIndex;
+    // Build a row-indexed map for O(1) lookup during render
+    this.searchMatchByRow = new Map();
+    for (let i = 0; i < matches.length; i++) {
+      const m = matches[i];
+      let rowList = this.searchMatchByRow.get(m.historyRow);
+      if (!rowList) {
+        rowList = [];
+        this.searchMatchByRow.set(m.historyRow, rowList);
+      }
+      rowList.push({ colStart: m.colStart, colEnd: m.colEnd, idx: i });
+    }
+    this.forceFullRedraw = true;
+  }
+
+  /** Convert a display row to a historyRow (index into combined [scrollback, live] array). */
+  displayToHistoryRow(displayRow: number, fdhr: number): number {
+    return fdhr + displayRow;
   }
 
   updateFont(fontSize: number, fontFamily: string) {
@@ -142,6 +216,15 @@ export class TerminalRenderer {
     this.lastFillStyle = "";
   }
 
+  setThemeColors(bgR: number, bgG: number, bgB: number,
+                 accentR: number, accentG: number, accentB: number) {
+    this.themeBgR = bgR; this.themeBgG = bgG; this.themeBgB = bgB;
+    this.cursorR = accentR; this.cursorG = accentG; this.cursorB = accentB;
+    this.selectionColor = `rgba(${accentR},${accentG},${accentB},0.25)`;
+    this.scrolledColor  = `rgba(${accentR},${accentG},${accentB},0.7)`;
+    this.forceFullRedraw = true;
+  }
+
   pixelToCell(x: number, y: number): { col: number; row: number } {
     return {
       col: Math.floor(x / this._cellWidth),
@@ -149,21 +232,44 @@ export class TerminalRenderer {
     };
   }
 
-  private isSelected(col: number, row: number): boolean {
+  private isSelected(col: number, displayRow: number): boolean {
     if (!this.selectionStart || !this.selectionEnd) return false;
-    let s = this.selectionStart;
-    let e = this.selectionEnd;
-    // Normalize so s is before e
-    if (s.row > e.row || (s.row === e.row && s.col > e.col)) {
-      [s, e] = [e, s];
+    const historyRow = this._currentFirstDisplayHistoryRow + displayRow;
+    // Normalize: lo = smaller historyRow (top/older), hi = larger (bottom/newer)
+    let lo = this.selectionStart;
+    let hi = this.selectionEnd;
+    if (lo.historyRow > hi.historyRow) { [lo, hi] = [hi, lo]; }
+
+    if (historyRow < lo.historyRow || historyRow > hi.historyRow) return false;
+    if (historyRow === lo.historyRow && historyRow === hi.historyRow) {
+      // Single row — column range between start and end
+      const minCol = Math.min(lo.col, hi.col);
+      const maxCol = Math.max(lo.col, hi.col);
+      return col >= minCol && col <= maxCol;
     }
-    if (row < s.row || row > e.row) return false;
-    if (row === s.row && row === e.row) return col >= s.col && col <= e.col;
-    if (row === s.row) return col >= s.col;
-    if (row === e.row) return col <= e.col;
-    return true;
+    // Multi-row:
+    // lo = top row (older historyRow): selection from lo.col to end-of-line
+    // hi = bottom row (newer historyRow): selection from 0 to hi.col
+    if (historyRow === lo.historyRow) return col >= lo.col;
+    if (historyRow === hi.historyRow) return col <= hi.col;
+    return true; // middle rows: entire row selected
   }
 
+  /** Update the stored latest frame and metadata without rendering.
+   *  Call this when frame data arrives so rerender() from mouse events always
+   *  uses up-to-date history coordinates in isSelected(). */
+  setLatestFrame(data: Uint8Array) {
+    if (data.length < HEADER_SIZE) return;
+    this.lastFrame = data;
+    const view = new DataView(data.buffer, data.byteOffset);
+    this._currentFirstDisplayHistoryRow = view.getInt32(12, true);
+    this._currentRows = view.getUint16(2, true);
+    this._currentScrollbackLen = view.getUint32(16, true);
+    this.urlsNeedUpdate = true;
+  }
+
+  /** Extract selected text from the current frame (visible rows only).
+   *  For cross-scroll selections, use the Rust get_terminal_text_range command. */
   getSelectedText(data: Uint8Array): string {
     if (!this.selectionStart || !this.selectionEnd || data.length < HEADER_SIZE)
       return "";
@@ -206,6 +312,38 @@ export class TerminalRenderer {
     }
   }
 
+  private detectUrls(data: Uint8Array, view: DataView, rows: number, cols: number) {
+    this.detectedUrls = [];
+    const fdhr = this._currentFirstDisplayHistoryRow;
+    for (let row = 0; row < rows; row++) {
+      // Reconstruct row text from cell codepoints
+      let rowText = "";
+      for (let col = 0; col < cols; col++) {
+        const off = HEADER_SIZE + (row * cols + col) * CELL_SIZE;
+        if (off + 4 > data.length) break;
+        const cp = view.getUint32(off, true);
+        const width = data[off + 11];
+        if (width === 0) {
+          // Right-half placeholder: contribute a space to text (position it correctly)
+          rowText += " ";
+        } else {
+          rowText += cp > 32 ? String.fromCodePoint(cp) : " ";
+        }
+      }
+      // Find URLs in row text
+      URL_REGEX.lastIndex = 0;
+      let match;
+      while ((match = URL_REGEX.exec(rowText)) !== null) {
+        this.detectedUrls.push({
+          historyRow: fdhr + row,
+          colStart: match.index,
+          colEnd: match.index + match[0].length,
+          url: match[0],
+        });
+      }
+    }
+  }
+
   render(data: Uint8Array) {
     if (data.length < HEADER_SIZE) return;
     this.lastFrame = data;
@@ -219,6 +357,13 @@ export class TerminalRenderer {
     const cursorStyle = view.getUint8(9);
     // byte 10: modeFlags (read by CanvasTerminal)
     const isScrolled = view.getUint8(11) !== 0;
+    // bytes 12-15: first_display_history_row
+    const firstDisplayHistoryRow = view.getInt32(12, true);
+    // bytes 16-19: scrollback_len
+    const scrollbackLen = view.getUint32(16, true);
+    this._currentFirstDisplayHistoryRow = firstDisplayHistoryRow;
+    this._currentRows = rows;
+    this._currentScrollbackLen = scrollbackLen;
 
     const ctx = this.ctx;
     const cw = this._cellWidth;
@@ -238,7 +383,7 @@ export class TerminalRenderer {
 
     if (fullRedraw) {
       // Clear entire canvas
-      this.setFill(rgbString(DEFAULT_BG_R, DEFAULT_BG_G, DEFAULT_BG_B));
+      this.setFill(rgbString(this.themeBgR, this.themeBgG, this.themeBgB));
       ctx.fillRect(0, 0, canvasW, canvasH);
     }
 
@@ -246,15 +391,27 @@ export class TerminalRenderer {
     ctx.textBaseline = "top";
     const textYOffset = Math.round((ch - this.fontSize) / 2);
     const hasSelection = this.selectionStart !== null && this.selectionEnd !== null;
+    const hasSearchMatches = this.searchMatchByRow.size > 0;
+    const hasHoveredUrl = this.hoveredUrl !== null;
 
     // Draw cells
     for (let row = 0; row < rows; row++) {
+      const rowHistoryRow = firstDisplayHistoryRow + row;
+      const rowSearchMatches = hasSearchMatches ? this.searchMatchByRow.get(rowHistoryRow) : undefined;
+      const hovUrl = hasHoveredUrl ? this.hoveredUrl : null;
+
       for (let col = 0; col < cols; col++) {
         const offset = HEADER_SIZE + (row * cols + col) * CELL_SIZE;
         if (offset + CELL_SIZE > data.length) break;
 
+        const cellWidth = data[offset + 11]; // 0=right-half placeholder, 1=normal, 2=wide left
+        // Right-half placeholder: background was drawn by the wide char cell; skip entirely
+        if (cellWidth === 0) continue;
+
+        const drawW = cellWidth === 2 ? cw * 2 : cw; // wide cells span 2 columns
+
         // Dirty-region check: skip cells where all 12 bytes match previous frame
-        // Always redraw cursor cells (old and new position) and selected cells
+        // Always redraw cursor cells (old and new position) and selected/search cells
         if (!fullRedraw) {
           const isCursorCell = (col === cursorCol && row === cursorRow) ||
                                (col === oldCursorCol && row === oldCursorRow);
@@ -265,6 +422,18 @@ export class TerminalRenderer {
               if (data[offset + b] !== prev![offset + b]) {
                 same = false;
                 break;
+              }
+            }
+            // For wide chars also check right-half cell
+            if (same && cellWidth === 2 && col + 1 < cols) {
+              const nextOffset = HEADER_SIZE + (row * cols + col + 1) * CELL_SIZE;
+              if (nextOffset + CELL_SIZE <= data.length) {
+                for (let b = 0; b < CELL_SIZE; b++) {
+                  if (data[nextOffset + b] !== prev![nextOffset + b]) {
+                    same = false;
+                    break;
+                  }
+                }
               }
             }
             if (same) continue;
@@ -290,9 +459,14 @@ export class TerminalRenderer {
           [fgB, bgB] = [bgB, fgB];
         }
 
-        // Always draw background (needed for inverse correctness)
-        this.setFill(rgbString(bgR, bgG, bgB));
-        ctx.fillRect(x, y, cw, ch);
+        // Always draw background (needed for inverse correctness; wide cells cover 2 cols)
+        // Substitute the Rust default bg sentinel (0x1e1e1e) with the current theme bg
+        const isSentinel = bgR === 0x1e && bgG === 0x1e && bgB === 0x1e;
+        const drawBgR = isSentinel ? this.themeBgR : bgR;
+        const drawBgG = isSentinel ? this.themeBgG : bgG;
+        const drawBgB = isSentinel ? this.themeBgB : bgB;
+        this.setFill(rgbString(drawBgR, drawBgG, drawBgB));
+        ctx.fillRect(x, y, drawW, ch);
 
         // Draw character if printable (skip hidden text)
         if (codepoint > 32 && !(flags & FLAG_HIDDEN)) {
@@ -327,27 +501,48 @@ export class TerminalRenderer {
         // UNDERLINE decoration
         if (flags & FLAG_UNDERLINE) {
           this.setFill(rgbString(fgR, fgG, fgB));
-          ctx.fillRect(x, y + ch - 1, cw, 1);
+          ctx.fillRect(x, y + ch - 1, drawW, 1);
         }
 
         // STRIKETHROUGH decoration
         if (flags & FLAG_STRIKETHROUGH) {
           this.setFill(rgbString(fgR, fgG, fgB));
-          ctx.fillRect(x, y + Math.round(ch / 2), cw, 1);
+          ctx.fillRect(x, y + Math.round(ch / 2), drawW, 1);
         }
 
-        // Selection overlay
-        if (hasSelection && this.isSelected(col, row)) {
-          ctx.fillStyle = "rgba(100, 150, 255, 0.3)";
+        // Hovered URL underline
+        if (hovUrl && hovUrl.historyRow === rowHistoryRow && col >= hovUrl.colStart && col < hovUrl.colEnd) {
+          this.setFill(rgbString(fgR, fgG, fgB));
+          ctx.fillRect(x, y + ch - 1, cw, 1);
           this.lastFillStyle = "";
-          ctx.fillRect(x, y, cw, ch);
+        }
+
+        // Selection overlay (wide cells get overlay on left half; right-half is skipped above)
+        if (hasSelection && this.isSelected(col, row)) {
+          ctx.fillStyle = this.selectionColor;
+          this.lastFillStyle = "";
+          ctx.fillRect(x, y, drawW, ch);
+        }
+
+        // Search match overlay
+        if (rowSearchMatches) {
+          for (const m of rowSearchMatches) {
+            if (col >= m.colStart && col < m.colEnd) {
+              ctx.fillStyle = m.idx === this.searchActiveIndex
+                ? "rgba(255, 200, 0, 0.6)"
+                : "rgba(200, 150, 0, 0.35)";
+              this.lastFillStyle = "";
+              ctx.fillRect(x, y, cw, ch);
+              break;
+            }
+          }
         }
       }
     }
 
     // Scrolled indicator
     if (isScrolled) {
-      ctx.fillStyle = "rgba(97, 175, 239, 0.7)";
+      ctx.fillStyle = this.scrolledColor;
       this.lastFillStyle = "";
       ctx.fillRect(0, 0, canvasW, 2);
     }
@@ -365,7 +560,7 @@ export class TerminalRenderer {
 
       if (!this._isFocused) {
         // Hollow rectangle when unfocused
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+        ctx.strokeStyle = `rgba(${this.cursorR},${this.cursorG},${this.cursorB},0.7)`;
         ctx.lineWidth = 1;
         ctx.strokeRect(cx + 0.5, cy + 0.5, cw - 1, ch - 1);
       } else {
@@ -373,28 +568,34 @@ export class TerminalRenderer {
           case 0: // block
           case 1: // blinking block
           case 2: // steady block
-            ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+            ctx.fillStyle = `rgba(${this.cursorR},${this.cursorG},${this.cursorB},0.5)`;
             this.lastFillStyle = "";
             ctx.fillRect(cx, cy, cw, ch);
             break;
           case 3: // blinking underline
           case 4: // steady underline
-            ctx.fillStyle = "#ffffff";
+            ctx.fillStyle = `rgb(${this.cursorR},${this.cursorG},${this.cursorB})`;
             this.lastFillStyle = "";
             ctx.fillRect(cx, cy + ch - 2, cw, 2);
             break;
           case 5: // blinking bar
           case 6: // steady bar
-            ctx.fillStyle = "#ffffff";
+            ctx.fillStyle = `rgb(${this.cursorR},${this.cursorG},${this.cursorB})`;
             this.lastFillStyle = "";
             ctx.fillRect(cx, cy, 2, ch);
             break;
           default:
-            ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+            ctx.fillStyle = `rgba(${this.cursorR},${this.cursorG},${this.cursorB},0.5)`;
             this.lastFillStyle = "";
             ctx.fillRect(cx, cy, cw, ch);
         }
       }
+    }
+
+    // URL detection (only when frame content has changed)
+    if (this.urlsNeedUpdate) {
+      this.detectUrls(data, view, rows, cols);
+      this.urlsNeedUpdate = false;
     }
 
     // Save frame for dirty-region comparison on next render

@@ -203,6 +203,11 @@ export function initKeybindings(): () => void {
 
     const mod = e.metaKey || e.ctrlKey;
 
+    // Block reload (Cmd+R, Cmd+Shift+R) and devtools (Cmd+Option+I, F12)
+    if (mod && (e.key === "r" || e.key === "R")) { e.preventDefault(); return; }
+    if (mod && e.altKey && (e.key === "i" || e.key === "I")) { e.preventDefault(); return; }
+    if (e.key === "F12") { e.preventDefault(); return; }
+
     // Cmd/Ctrl + S: Save Active File
     if (mod && e.key === "s") {
       e.preventDefault();

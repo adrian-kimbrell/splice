@@ -122,7 +122,7 @@
       class="attention-bell shrink-0 mr-2 flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
       style="color: {notification.type === 'permission' ? 'var(--ansi-red)' : 'var(--ansi-yellow)'}; background: {notification.type === 'permission' ? 'rgba(224,108,117,0.12)' : 'rgba(229,192,123,0.12)'};"
     >
-      <i class="bi bi-claude" style="font-size: 9px;"></i>
+      <i class="bi bi-claude" style="font-size: var(--ui-xs);"></i>
       {notification.type === 'permission' ? 'permission' : 'waiting'}
     </span>
   {/if}
@@ -166,7 +166,7 @@
     {/if}
     {#if onClose}
       <button class="pane-action-btn close" title="Close" onclick={onClose}>
-        <i class="bi bi-x-lg" style="font-size: 16px"></i>
+        <i class="bi bi-x-lg" style="font-size: var(--ui-icon)"></i>
       </button>
     {/if}
   </span>

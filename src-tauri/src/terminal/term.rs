@@ -1,3 +1,4 @@
+use base64::Engine;
 use crate::terminal::color::{ansi_256_color, Rgb, ANSI_COLORS, DEFAULT_BG, DEFAULT_FG};
 use crate::terminal::grid::{flags, Grid};
 use smallvec::SmallVec;
@@ -8,6 +9,7 @@ pub struct Emulator {
     pub pending_title: Option<String>,
     pub pending_reply: Vec<u8>,
     pub pending_bell: bool,
+    pub pending_clipboard: Option<String>,
 }
 
 impl Emulator {
@@ -18,6 +20,7 @@ impl Emulator {
             pending_title: None,
             pending_reply: Vec::new(),
             pending_bell: false,
+            pending_clipboard: None,
         }
     }
 
@@ -29,6 +32,7 @@ impl Emulator {
             pending_title: &mut self.pending_title,
             pending_reply: &mut self.pending_reply,
             pending_bell: &mut self.pending_bell,
+            pending_clipboard: &mut self.pending_clipboard,
         };
         parser.advance(&mut performer, bytes);
     }
@@ -43,6 +47,7 @@ struct GridPerformer<'a> {
     pending_title: &'a mut Option<String>,
     pending_reply: &'a mut Vec<u8>,
     pending_bell: &'a mut bool,
+    pending_clipboard: &'a mut Option<String>,
 }
 
 impl<'a> GridPerformer<'a> {
@@ -141,9 +146,44 @@ impl<'a> GridPerformer<'a> {
     }
 }
 
+/// Map DEC special graphics characters (0x60–0x7E) to Unicode box-drawing/symbols.
+fn dec_special_map(c: char) -> char {
+    match c {
+        'j' => '┘',
+        'k' => '┐',
+        'l' => '┌',
+        'm' => '└',
+        'n' => '┼',
+        'q' => '─',
+        't' => '├',
+        'u' => '┤',
+        'v' => '┴',
+        'w' => '┬',
+        'x' => '│',
+        '`' => '◆',
+        'a' => '▒',
+        'f' => '°',
+        'g' => '±',
+        'o' => '⎺',
+        'p' => '⎻',
+        'r' => '⎼',
+        's' => '⎽',
+        'y' => '≤',
+        'z' => '≥',
+        '{' => 'π',
+        '}' => '£',
+        '~' => '·',
+        _ => c,
+    }
+}
+
 impl<'a> vte::Perform for GridPerformer<'a> {
     fn print(&mut self, c: char) {
-        self.grid.write_char(c);
+        // Apply active charset mapping (DEC special graphics, etc.)
+        let buf = self.grid.active();
+        let charset = if buf.active_charset == 0 { buf.charset_g0 } else { buf.charset_g1 };
+        let mapped = if charset == 1 { dec_special_map(c) } else { c };
+        self.grid.write_char(mapped);
     }
 
     fn execute(&mut self, byte: u8) {
@@ -153,8 +193,8 @@ impl<'a> vte::Perform for GridPerformer<'a> {
             0x09 => self.grid.tab(),                      // HT
             0x0A | 0x0B | 0x0C => self.grid.linefeed(),  // LF, VT, FF
             0x0D => self.grid.carriage_return(),          // CR
-            0x0E => {}                                    // SO (shift out) — no-op
-            0x0F => {}                                    // SI (shift in) — no-op
+            0x0E => self.grid.active_mut().active_charset = 1, // SO: shift to G1
+            0x0F => self.grid.active_mut().active_charset = 0, // SI: shift to G0
             _ => {}
         }
     }
@@ -181,6 +221,11 @@ impl<'a> vte::Perform for GridPerformer<'a> {
                         12 => {} // cursor blink — no-op
                         25 => self.grid.cursor_visible = true,
                         47 | 1047 => self.grid.enter_alt_screen_simple(),
+                        1000 => self.grid.mouse_mode = 1,
+                        1002 => self.grid.mouse_mode = 2,
+                        1003 => self.grid.mouse_mode = 3,
+                        1004 => self.grid.focus_events = true,
+                        1006 => self.grid.mouse_sgr = true,
                         1048 => self.grid.save_cursor(),
                         1049 => self.grid.enter_alt_screen(),
                         2004 => self.grid.bracketed_paste = true,
@@ -193,6 +238,11 @@ impl<'a> vte::Perform for GridPerformer<'a> {
                         12 => {} // cursor blink — no-op
                         25 => self.grid.cursor_visible = false,
                         47 | 1047 => self.grid.leave_alt_screen_simple(),
+                        1000 => { if self.grid.mouse_mode == 1 { self.grid.mouse_mode = 0; } }
+                        1002 => { if self.grid.mouse_mode == 2 { self.grid.mouse_mode = 0; } }
+                        1003 => { if self.grid.mouse_mode == 3 { self.grid.mouse_mode = 0; } }
+                        1004 => self.grid.focus_events = false,
+                        1006 => self.grid.mouse_sgr = false,
                         1048 => self.grid.restore_cursor(),
                         1049 => self.grid.leave_alt_screen(),
                         2004 => self.grid.bracketed_paste = false,
@@ -228,6 +278,18 @@ impl<'a> vte::Perform for GridPerformer<'a> {
             'D' => {
                 let n = Self::get_param(&params_vec, 0, 1);
                 self.grid.cursor_back(n);
+            }
+            'E' => {
+                // CNL — Cursor Next Line: move down N lines, then CR
+                let n = Self::get_param(&params_vec, 0, 1);
+                self.grid.cursor_down(n);
+                self.grid.carriage_return();
+            }
+            'F' => {
+                // CPL — Cursor Previous Line: move up N lines, then CR
+                let n = Self::get_param(&params_vec, 0, 1);
+                self.grid.cursor_up(n);
+                self.grid.carriage_return();
             }
             'G' => {
                 let col = Self::get_param(&params_vec, 0, 1).max(1) - 1;
@@ -369,11 +431,31 @@ impl<'a> vte::Perform for GridPerformer<'a> {
                     }
                 }
             }
+            b"52" => {
+                // OSC 52: clipboard write
+                // Format: ESC ] 52 ; Pc ; Pd BEL
+                // params[1] = selection (e.g. "c" for clipboard), params[2] = base64 data
+                if params.len() >= 3 {
+                    if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(params[2]) {
+                        if let Ok(text) = String::from_utf8(decoded) {
+                            *self.pending_clipboard = Some(text);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, byte: u8) {
+        match (intermediates.first(), byte) {
+            // DEC charset designation
+            (Some(b'('), b'B') => self.grid.active_mut().charset_g0 = 0, // G0 = ASCII
+            (Some(b'('), b'0') => self.grid.active_mut().charset_g0 = 1, // G0 = DEC special
+            (Some(b')'), b'B') => self.grid.active_mut().charset_g1 = 0, // G1 = ASCII
+            (Some(b')'), b'0') => self.grid.active_mut().charset_g1 = 1, // G1 = DEC special
+            _ => {}
+        }
         match (byte, intermediates) {
             (b'7', _) => self.grid.save_cursor(),           // DECSC
             (b'8', &[b'#']) => self.grid.alignment_test(),  // DECALN (ESC # 8)
@@ -523,5 +605,74 @@ mod tests {
         let mut emu = make_emu(80, 24);
         emu.advance(b"\x1b]0;My Title\x07");
         assert_eq!(emu.pending_title, Some("My Title".to_string()));
+    }
+
+    // --- DEC special graphics charset ---
+
+    #[test]
+    fn dec_special_graphics_maps_box_drawing() {
+        let mut emu = make_emu(20, 5);
+        // ESC ( 0 → designate G0 as DEC special graphics
+        // SI already selects G0 (active_charset=0)
+        emu.advance(b"\x1b(0");
+        emu.advance(b"jklm"); // ┘┐┌└
+        assert_eq!(emu.grid.primary.lines[0].cells[0].ch, '┘');
+        assert_eq!(emu.grid.primary.lines[0].cells[1].ch, '┐');
+        assert_eq!(emu.grid.primary.lines[0].cells[2].ch, '┌');
+        assert_eq!(emu.grid.primary.lines[0].cells[3].ch, '└');
+    }
+
+    #[test]
+    fn so_si_switches_charsets() {
+        let mut emu = make_emu(20, 5);
+        emu.advance(b"\x1b(0"); // G0 = DEC special
+        emu.advance(b"\x1b)B"); // G1 = ASCII
+        emu.advance(b"\x0e"); // SO: switch to G1 (ASCII)
+        emu.advance(b"j");    // should be literal 'j', not '┘'
+        assert_eq!(emu.grid.primary.lines[0].cells[0].ch, 'j');
+        emu.advance(b"\x0f"); // SI: switch back to G0 (DEC special)
+        emu.advance(b"j");    // should be '┘'
+        assert_eq!(emu.grid.primary.lines[0].cells[1].ch, '┘');
+    }
+
+    // --- Mouse protocol ---
+
+    #[test]
+    fn mouse_mode_1000_set_and_clear() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b[?1000h");
+        assert_eq!(emu.grid.mouse_mode, 1);
+        emu.advance(b"\x1b[?1000l");
+        assert_eq!(emu.grid.mouse_mode, 0);
+    }
+
+    #[test]
+    fn mouse_sgr_set_and_clear() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b[?1006h");
+        assert!(emu.grid.mouse_sgr);
+        emu.advance(b"\x1b[?1006l");
+        assert!(!emu.grid.mouse_sgr);
+    }
+
+    // --- Focus events ---
+
+    #[test]
+    fn focus_events_set_and_clear() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b[?1004h");
+        assert!(emu.grid.focus_events);
+        emu.advance(b"\x1b[?1004l");
+        assert!(!emu.grid.focus_events);
+    }
+
+    // --- OSC 52 clipboard ---
+
+    #[test]
+    fn osc_52_decodes_base64_clipboard() {
+        let mut emu = make_emu(80, 24);
+        // base64("hello") = "aGVsbG8="
+        emu.advance(b"\x1b]52;c;aGVsbG8=\x07");
+        assert_eq!(emu.pending_clipboard, Some("hello".to_string()));
     }
 }

@@ -311,7 +311,7 @@
     {/if}
     {#if onClose}
       <button class="pane-action-btn close" title="Close" onclick={onClose}>
-        <i class="bi bi-x-lg" style="font-size: 16px"></i>
+        <i class="bi bi-x-lg" style="font-size: var(--ui-icon)"></i>
       </button>
     {/if}
   </div>

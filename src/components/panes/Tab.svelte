@@ -61,7 +61,7 @@
   onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onclick(); } }}
 >
   {#if pinned}
-    <i class="bi bi-pin-fill" style="font-size: 10px; color: var(--text-dim); margin-right: 2px;"></i>
+    <i class="bi bi-pin-fill" style="font-size: var(--ui-sm); color: var(--text-dim); margin-right: 2px;"></i>
   {/if}
   <span class="mr-1" style:font-style={preview ? "italic" : "normal"}>{name}</span>
   {#if onclose && !pinned}
@@ -80,7 +80,7 @@
       onclick={(e) => { e.stopPropagation(); onclose?.(); }}
       title="Close"
     >
-      <i class="bi bi-x" style="font-size: 14px; line-height: 1;"></i>
+      <i class="bi bi-x" style="font-size: var(--ui-btn); line-height: 1;"></i>
     </button>
   {/if}
 </div>

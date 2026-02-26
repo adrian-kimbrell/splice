@@ -17,7 +17,8 @@
         "minWidth": 800,
         "minHeight": 600,
         "decorations": true,
-        "resizable": true
+        "resizable": true,
+        "acceptFirstMouse": true
       }
     ],
     "security": {
