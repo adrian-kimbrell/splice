@@ -1,0 +1,250 @@
+use super::TerminalHarness;
+use crate::terminal::color::{ansi_256_color, Rgb, ANSI_COLORS, DEFAULT_BG, DEFAULT_FG};
+use crate::terminal::grid::flags;
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn sgr_reset_all() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[1;3;4;31;42m"); // bold + italic + underline + red fg + green bg
+    h.feed_str("\x1b[0m");            // reset
+    assert_eq!(h.emu.grid.primary.pen.flags, 0);
+    assert_eq!(h.emu.grid.primary.pen.fg, DEFAULT_FG);
+    assert_eq!(h.emu.grid.primary.pen.bg, DEFAULT_BG);
+}
+
+#[test]
+fn sgr_reset_via_empty_sequence() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[1m");
+    h.feed_str("\x1b[m"); // bare SGR with no params → reset
+    assert_eq!(h.emu.grid.primary.pen.flags & flags::BOLD, 0);
+}
+
+// ── Individual flags ──────────────────────────────────────────────────────────
+
+#[test]
+fn sgr_bold() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[1m");
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::BOLD, 0);
+}
+
+#[test]
+fn sgr_dim() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[2m");
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::DIM, 0);
+}
+
+#[test]
+fn sgr_italic() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[3m");
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::ITALIC, 0);
+}
+
+#[test]
+fn sgr_underline() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[4m");
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::UNDERLINE, 0);
+}
+
+#[test]
+fn sgr_blink() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[5m");
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::BLINK, 0);
+}
+
+#[test]
+fn sgr_inverse() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[7m");
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::INVERSE, 0);
+}
+
+#[test]
+fn sgr_hidden() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[8m");
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::HIDDEN, 0);
+}
+
+#[test]
+fn sgr_strikethrough() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[9m");
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::STRIKETHROUGH, 0);
+}
+
+// ── Flag resets (22–29) ───────────────────────────────────────────────────────
+
+#[test]
+fn sgr_22_clears_bold_and_dim() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[1;2m"); // bold + dim
+    h.feed_str("\x1b[22m");  // reset intensity
+    assert_eq!(h.emu.grid.primary.pen.flags & (flags::BOLD | flags::DIM), 0);
+}
+
+#[test]
+fn sgr_23_clears_italic() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[3m\x1b[23m");
+    assert_eq!(h.emu.grid.primary.pen.flags & flags::ITALIC, 0);
+}
+
+#[test]
+fn sgr_24_clears_underline() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[4m\x1b[24m");
+    assert_eq!(h.emu.grid.primary.pen.flags & flags::UNDERLINE, 0);
+}
+
+// ── Stacked attributes ────────────────────────────────────────────────────────
+
+#[test]
+fn sgr_stacked_attrs() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[1;4;31m"); // bold + underline + red fg
+    let pen = h.emu.grid.primary.pen;
+    assert_ne!(pen.flags & flags::BOLD, 0);
+    assert_ne!(pen.flags & flags::UNDERLINE, 0);
+    assert_eq!(pen.fg, ANSI_COLORS[1]); // red = index 1
+}
+
+// ── 16-color foreground (30–37, 90–97) ───────────────────────────────────────
+
+#[test]
+fn sgr_fg_16_normal_colors() {
+    let mut h = TerminalHarness::new(80, 24);
+    for i in 0u16..8 {
+        h.feed_str(&format!("\x1b[{}m", 30 + i));
+        assert_eq!(h.emu.grid.primary.pen.fg, ANSI_COLORS[i as usize]);
+    }
+}
+
+#[test]
+fn sgr_fg_bright_colors() {
+    let mut h = TerminalHarness::new(80, 24);
+    for i in 0u16..8 {
+        h.feed_str(&format!("\x1b[{}m", 90 + i));
+        assert_eq!(h.emu.grid.primary.pen.fg, ANSI_COLORS[8 + i as usize]);
+    }
+}
+
+#[test]
+fn sgr_fg_reset() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[31m"); // red
+    h.feed_str("\x1b[39m"); // default fg
+    assert_eq!(h.emu.grid.primary.pen.fg, DEFAULT_FG);
+}
+
+// ── 16-color background (40–47, 100–107) ─────────────────────────────────────
+
+#[test]
+fn sgr_bg_16_normal_colors() {
+    let mut h = TerminalHarness::new(80, 24);
+    for i in 0u16..8 {
+        h.feed_str(&format!("\x1b[{}m", 40 + i));
+        assert_eq!(h.emu.grid.primary.pen.bg, ANSI_COLORS[i as usize]);
+    }
+}
+
+#[test]
+fn sgr_bg_bright_colors() {
+    let mut h = TerminalHarness::new(80, 24);
+    for i in 0u16..8 {
+        h.feed_str(&format!("\x1b[{}m", 100 + i));
+        assert_eq!(h.emu.grid.primary.pen.bg, ANSI_COLORS[8 + i as usize]);
+    }
+}
+
+#[test]
+fn sgr_bg_reset() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[41m"); // red bg
+    h.feed_str("\x1b[49m"); // default bg
+    assert_eq!(h.emu.grid.primary.pen.bg, DEFAULT_BG);
+}
+
+// ── 256-color ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn sgr_256_fg() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[38;5;200m");
+    assert_eq!(h.emu.grid.primary.pen.fg, ansi_256_color(200));
+}
+
+#[test]
+fn sgr_256_bg() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[48;5;0m");
+    assert_eq!(h.emu.grid.primary.pen.bg, ansi_256_color(0));
+}
+
+#[test]
+fn sgr_256_grayscale_fg() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[38;5;240m"); // index 240 = grayscale
+    assert_eq!(h.emu.grid.primary.pen.fg, ansi_256_color(240));
+}
+
+// ── Truecolor (38;2 / 48;2) ───────────────────────────────────────────────────
+
+#[test]
+fn sgr_truecolor_fg() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[38;2;255;128;0m");
+    assert_eq!(h.emu.grid.primary.pen.fg, Rgb { r: 255, g: 128, b: 0 });
+}
+
+#[test]
+fn sgr_truecolor_bg() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[48;2;0;64;128m");
+    assert_eq!(h.emu.grid.primary.pen.bg, Rgb { r: 0, g: 64, b: 128 });
+}
+
+#[test]
+fn sgr_truecolor_black_fg() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[38;2;0;0;0m");
+    assert_eq!(h.emu.grid.primary.pen.fg, Rgb { r: 0, g: 0, b: 0 });
+}
+
+#[test]
+fn sgr_truecolor_white_bg() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[48;2;255;255;255m");
+    assert_eq!(h.emu.grid.primary.pen.bg, Rgb { r: 255, g: 255, b: 255 });
+}
+
+// ── Attributes persist across writes ─────────────────────────────────────────
+
+#[test]
+fn sgr_persists_across_writes() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[1m"); // bold
+    h.feed_str("ABC");
+    // Each written cell should have the bold flag
+    assert_ne!(h.flags_at(0, 0) & flags::BOLD, 0);
+    assert_ne!(h.flags_at(0, 1) & flags::BOLD, 0);
+    assert_ne!(h.flags_at(0, 2) & flags::BOLD, 0);
+}
+
+#[test]
+fn sgr_color_persists_across_writes() {
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[38;2;200;100;50m");
+    h.feed_str("XYZ");
+    let expected = Rgb { r: 200, g: 100, b: 50 };
+    assert_eq!(h.fg_at(0, 0), expected);
+    assert_eq!(h.fg_at(0, 1), expected);
+    assert_eq!(h.fg_at(0, 2), expected);
+}

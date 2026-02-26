@@ -18,6 +18,8 @@ pub struct Cell {
     pub fg: Rgb,
     pub bg: Rgb,
     pub flags: u8,
+    /// 1 = normal width, 2 = wide char (left half), 0 = wide char (right-half placeholder)
+    pub width: u8,
 }
 
 impl Default for Cell {
@@ -27,6 +29,7 @@ impl Default for Cell {
             fg: DEFAULT_FG,
             bg: DEFAULT_BG,
             flags: 0,
+            width: 1,
         }
     }
 }
@@ -75,6 +78,11 @@ pub struct ScreenBuffer {
     /// (screen has been filled since the clear). Used by emitter to
     /// skip view-shift compositing after an explicit clear.
     pub cleared: bool,
+    /// DEC charset state: 0=ASCII, 1=DEC special graphics
+    pub charset_g0: u8,
+    pub charset_g1: u8,
+    /// Active charset slot: 0=G0, 1=G1
+    pub active_charset: u8,
     saved_cursor_col: u16,
     saved_cursor_row: u16,
     saved_pen: Pen,
@@ -94,6 +102,9 @@ impl ScreenBuffer {
             scrollback: VecDeque::new(),
             max_scrollback,
             cleared: false,
+            charset_g0: 0,
+            charset_g1: 0,
+            active_charset: 0,
             saved_cursor_col: 0,
             saved_cursor_row: 0,
             saved_pen: Pen::default(),
@@ -201,6 +212,12 @@ pub struct Grid {
     pub app_keypad: bool,
     pub tab_stops: Vec<bool>,
     pub last_char: char,
+    /// Mouse protocol: 0=off, 1=X10(1000), 2=button-tracking(1002), 3=any-event(1003)
+    pub mouse_mode: u8,
+    /// SGR extended mouse encoding (1006)
+    pub mouse_sgr: bool,
+    /// Focus events mode (1004): sends CSI I on focus, CSI O on blur
+    pub focus_events: bool,
 }
 
 impl Grid {
@@ -219,6 +236,9 @@ impl Grid {
             app_keypad: false,
             tab_stops: default_tab_stops(cols),
             last_char: ' ',
+            mouse_mode: 0,
+            mouse_sgr: false,
+            focus_events: false,
         }
     }
 
@@ -249,14 +269,23 @@ impl Grid {
 
 
     pub fn write_char(&mut self, c: char) {
+        use unicode_width::UnicodeWidthChar;
         self.last_char = c;
+        let char_width = UnicodeWidthChar::width(c).unwrap_or(1) as u16;
+
+        // Combining/zero-width: attach to previous cell, don't advance cursor
+        if char_width == 0 {
+            return;
+        }
+
         let cols = self.cols;
         let auto_wrap = self.auto_wrap;
         let buf = self.active_mut();
-        if buf.cursor_col >= cols {
+
+        // Wrap if character won't fit in remaining columns
+        if buf.cursor_col + char_width > cols {
             if auto_wrap {
                 buf.cursor_col = 0;
-                // inline linefeed logic to avoid borrow issues
                 if buf.cursor_row == buf.scroll_bottom {
                     buf.scroll_up_in_region();
                 } else if buf.cursor_row < buf.scroll_bottom {
@@ -264,20 +293,35 @@ impl Grid {
                 }
                 // else: cursor is below the scroll region — leave it as-is
             } else {
-                buf.cursor_col = cols.saturating_sub(1);
+                buf.cursor_col = cols.saturating_sub(char_width);
             }
         }
+
         let col = buf.cursor_col as usize;
         let row = buf.cursor_row as usize;
-        if row < buf.lines.len() && col < buf.lines[row].cells.len() {
-            buf.lines[row].cells[col] = Cell {
-                ch: c,
-                fg: buf.pen.fg,
-                bg: buf.pen.bg,
-                flags: buf.pen.flags,
-            };
+        if row < buf.lines.len() {
+            // Write primary cell
+            if col < buf.lines[row].cells.len() {
+                buf.lines[row].cells[col] = Cell {
+                    ch: c,
+                    fg: buf.pen.fg,
+                    bg: buf.pen.bg,
+                    flags: buf.pen.flags,
+                    width: char_width as u8,
+                };
+            }
+            // Write placeholder for right half of wide char
+            if char_width == 2 && col + 1 < buf.lines[row].cells.len() {
+                buf.lines[row].cells[col + 1] = Cell {
+                    ch: ' ',
+                    fg: buf.pen.fg,
+                    bg: buf.pen.bg,
+                    flags: 0,
+                    width: 0,
+                };
+            }
         }
-        buf.cursor_col += 1;
+        buf.cursor_col += char_width;
     }
 
     pub fn linefeed(&mut self) {
@@ -390,35 +434,37 @@ impl Grid {
     pub fn erase_in_display(&mut self, mode: u16) {
         let buf = self.active_mut();
         let (row, col) = (buf.cursor_row as usize, buf.cursor_col as usize);
+        // BCE: erased cells inherit the current pen background colour.
+        let blank = Cell { ch: ' ', fg: DEFAULT_FG, bg: buf.pen.bg, flags: 0, width: 1 };
         match mode {
             0 => {
                 if row < buf.lines.len() {
                     for c in col..buf.lines[row].cells.len() {
-                        buf.lines[row].cells[c] = Cell::default();
+                        buf.lines[row].cells[c] = blank;
                     }
                 }
                 for r in (row + 1)..buf.lines.len() {
                     for cell in &mut buf.lines[r].cells {
-                        *cell = Cell::default();
+                        *cell = blank;
                     }
                 }
             }
             1 => {
                 for r in 0..row {
                     for cell in &mut buf.lines[r].cells {
-                        *cell = Cell::default();
+                        *cell = blank;
                     }
                 }
                 if row < buf.lines.len() {
                     for c in 0..=col.min(buf.lines[row].cells.len().saturating_sub(1)) {
-                        buf.lines[row].cells[c] = Cell::default();
+                        buf.lines[row].cells[c] = blank;
                     }
                 }
             }
             2 => {
                 for r in 0..buf.lines.len() {
                     for cell in &mut buf.lines[r].cells {
-                        *cell = Cell::default();
+                        *cell = blank;
                     }
                 }
                 buf.cleared = true;
@@ -426,7 +472,7 @@ impl Grid {
             3 => {
                 for r in 0..buf.lines.len() {
                     for cell in &mut buf.lines[r].cells {
-                        *cell = Cell::default();
+                        *cell = blank;
                     }
                 }
                 buf.scrollback.clear();
@@ -443,20 +489,21 @@ impl Grid {
         if row >= buf.lines.len() {
             return;
         }
+        let blank = Cell { ch: ' ', fg: DEFAULT_FG, bg: buf.pen.bg, flags: 0, width: 1 };
         match mode {
             0 => {
                 for c in col..buf.lines[row].cells.len() {
-                    buf.lines[row].cells[c] = Cell::default();
+                    buf.lines[row].cells[c] = blank;
                 }
             }
             1 => {
                 for c in 0..=col.min(buf.lines[row].cells.len().saturating_sub(1)) {
-                    buf.lines[row].cells[c] = Cell::default();
+                    buf.lines[row].cells[c] = blank;
                 }
             }
             2 => {
                 for cell in &mut buf.lines[row].cells {
-                    *cell = Cell::default();
+                    *cell = blank;
                 }
             }
             _ => {}
@@ -467,10 +514,11 @@ impl Grid {
         let buf = self.active_mut();
         let row = buf.cursor_row as usize;
         let col = buf.cursor_col as usize;
+        let blank = Cell { ch: ' ', fg: DEFAULT_FG, bg: buf.pen.bg, flags: 0, width: 1 };
         if row < buf.lines.len() {
             let end = (col + n as usize).min(buf.lines[row].cells.len());
             for c in col..end {
-                buf.lines[row].cells[c] = Cell::default();
+                buf.lines[row].cells[c] = blank;
             }
         }
     }
@@ -483,13 +531,14 @@ impl Grid {
         if row >= buf.lines.len() {
             return;
         }
+        let blank = Cell { ch: ' ', fg: DEFAULT_FG, bg: buf.pen.bg, flags: 0, width: 1 };
         let n = (n as usize).min(cols.saturating_sub(col));
         let line = &mut buf.lines[row].cells;
         for i in (col + n..cols).rev() {
             line[i] = line[i - n];
         }
         for i in col..(col + n).min(cols) {
-            line[i] = Cell::default();
+            line[i] = blank;
         }
     }
 
@@ -501,13 +550,14 @@ impl Grid {
         if row >= buf.lines.len() {
             return;
         }
+        let blank = Cell { ch: ' ', fg: DEFAULT_FG, bg: buf.pen.bg, flags: 0, width: 1 };
         let n = (n as usize).min(cols.saturating_sub(col));
         let line = &mut buf.lines[row].cells;
         for i in col..(cols - n) {
             line[i] = line[i + n];
         }
         for i in (cols - n)..cols {
-            line[i] = Cell::default();
+            line[i] = blank;
         }
     }
 
@@ -657,6 +707,7 @@ impl Grid {
                 cell.fg = crate::terminal::color::DEFAULT_FG;
                 cell.bg = crate::terminal::color::DEFAULT_BG;
                 cell.flags = 0;
+                cell.width = 1;
             }
         }
     }
@@ -874,5 +925,29 @@ mod tests {
         assert_eq!(buf.cursor_row, 7);
         assert_eq!(buf.pen.fg, Rgb { r: 255, g: 0, b: 0 });
         assert_eq!(buf.pen.flags, flags::BOLD);
+    }
+
+    // --- wide character write ---
+
+    #[test]
+    fn wide_char_writes_left_and_placeholder() {
+        let mut grid = Grid::new(10, 5, 0);
+        grid.write_char('あ'); // CJK, width=2
+        assert_eq!(grid.primary.lines[0].cells[0].ch, 'あ');
+        assert_eq!(grid.primary.lines[0].cells[0].width, 2);
+        assert_eq!(grid.primary.lines[0].cells[1].ch, ' ');
+        assert_eq!(grid.primary.lines[0].cells[1].width, 0);
+        assert_eq!(grid.primary.cursor_col, 2);
+    }
+
+    #[test]
+    fn wide_char_wraps_when_one_col_remaining() {
+        let mut grid = Grid::new(5, 5, 0);
+        // Move cursor to col 4 (last column)
+        grid.primary.cursor_col = 4;
+        grid.write_char('あ'); // width=2, doesn't fit → wraps
+        assert_eq!(grid.primary.cursor_col, 2); // written at col 0 of next row
+        assert_eq!(grid.primary.cursor_row, 1);
+        assert_eq!(grid.primary.lines[1].cells[0].ch, 'あ');
     }
 }
