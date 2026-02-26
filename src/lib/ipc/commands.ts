@@ -284,3 +284,7 @@ export async function unregisterWindow(label: string): Promise<void> {
 export async function getSecondaryWindowLabels(): Promise<string[]> {
   return invoke("get_secondary_window_labels");
 }
+
+export async function saveTempImage(data: Uint8Array, ext: string): Promise<string> {
+  return invoke("save_temp_image", { data, ext });
+}

@@ -647,6 +647,27 @@ pub fn reveal_in_file_manager(
     Ok(())
 }
 
+/// Save raw bytes to a timestamped file in the system temp directory and return
+/// the absolute path. Used for clipboard image paste: the frontend reads image
+/// data from the ClipboardEvent, sends it here, and types the returned path
+/// into the terminal so the user can reference it in a Claude prompt.
+///
+/// The extension is sanitised to alphanumeric only (max 10 chars) so the caller
+/// cannot inject a malicious filename component.
+#[tauri::command]
+pub fn save_temp_image(data: Vec<u8>, ext: String) -> Result<String, String> {
+    let clean_ext: String = ext.chars().filter(|c| c.is_alphanumeric()).take(10).collect();
+    let ext_str = if clean_ext.is_empty() { "png".to_string() } else { clean_ext };
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let path = std::env::temp_dir().join(format!("clipboard-{}.{}", ts, ext_str));
+    std::fs::write(&path, &data)
+        .map_err(|e| format!("Failed to save clipboard image: {}", e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 // ─── Unit tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]

@@ -162,7 +162,7 @@
   onMount(async () => {
     if (!containerEl || !canvasEl || !isTauri || terminalId === 0) return;
 
-    const { writeToTerminal, scrollTerminal, resizeTerminal } = await import(
+    const { writeToTerminal, scrollTerminal, resizeTerminal, saveTempImage } = await import(
       "../../lib/ipc/commands"
     );
     const { onTerminalGrid, onTerminalExit, onTerminalClipboard } = await import(
@@ -283,8 +283,11 @@
         return;
       }
 
-      // Cmd+V → let browser fire native paste event (handled by onPaste)
+      // Cmd+V → flag this terminal as the paste target, then let the browser fire
+      // the paste event (intercepted at document capture level by onPaste below).
       if (e.metaKey && e.key === "v") {
+        pendingPaste = true;
+        setTimeout(() => { pendingPaste = false; }, 100);
         return;
       }
 
@@ -304,9 +307,36 @@
     canvasEl.addEventListener("keydown", onKeyDown);
     cleanupFns.push(() => canvasEl!.removeEventListener("keydown", onKeyDown));
 
-    // Paste event handler (for right-click paste, etc.)
+    // Paste handler — registered at document capture level so it fires before
+    // CodeMirror's contenteditable receives the event. On macOS/WKWebView the
+    // browser routes paste to the nearest editable element (CodeMirror) even
+    // when the canvas has keyboard focus, bypassing canvas-level listeners.
+    // pendingPaste (set in onKeyDown above) identifies this terminal as the
+    // intended paste target.
+    let pendingPaste = false;
     const onPaste = (e: ClipboardEvent) => {
+      if (!pendingPaste) return;
+      pendingPaste = false;
       e.preventDefault();
+      e.stopImmediatePropagation();
+
+      // Image paste: save to a temp file and type the path into the terminal.
+      if (e.clipboardData?.items) {
+        for (const item of Array.from(e.clipboardData.items)) {
+          if (item.type.startsWith("image/")) {
+            const blob = item.getAsFile();
+            if (blob) {
+              const ext = item.type.split("/")[1].replace("jpeg", "jpg");
+              blob.arrayBuffer().then(async (buf) => {
+                const path = await saveTempImage(new Uint8Array(buf), ext);
+                writeToTerminal(terminalId, textEncoder.encode(path));
+              }).catch(console.error);
+            }
+            return;
+          }
+        }
+      }
+
       const text = e.clipboardData?.getData("text");
       if (!text) return;
       const bracketed = (modeFlags & 1) !== 0;
@@ -326,8 +356,8 @@
       }
       writeToTerminal(terminalId, bytes);
     };
-    canvasEl.addEventListener("paste", onPaste);
-    cleanupFns.push(() => canvasEl!.removeEventListener("paste", onPaste));
+    document.addEventListener("paste", onPaste, { capture: true });
+    cleanupFns.push(() => document.removeEventListener("paste", onPaste, { capture: true }));
 
     // Mouse selection and protocol forwarding
     const onMouseDown = (e: MouseEvent) => {
