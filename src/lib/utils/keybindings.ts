@@ -320,6 +320,21 @@ export function initKeybindings(): () => void {
       ui.explorerVisible = true;
     }
 
+    // Cmd/Ctrl + Shift + M: Problems panel
+    if (mod && e.shiftKey && e.key === "M") {
+      e.preventDefault();
+      ui.sidebarMode = ui.sidebarMode === "problems" ? "files" : "problems";
+      ui.explorerVisible = true;
+    }
+
+    // Cmd/Ctrl + Shift + H: Find & Replace
+    if (mod && e.shiftKey && e.key === "H") {
+      e.preventDefault();
+      ui.sidebarMode = "search";
+      ui.explorerVisible = true;
+      document.dispatchEvent(new CustomEvent("splice:open-replace"));
+    }
+
     // Cmd/Ctrl + 1-9: Switch to pane by index
     if (mod && !e.shiftKey && e.code >= "Digit1" && e.code <= "Digit9") {
       const ws = workspaceManager.activeWorkspace;

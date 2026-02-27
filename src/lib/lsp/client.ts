@@ -1,5 +1,12 @@
 import { lspStart, lspNotify, lspRequest, lspCheck, lspInstall } from "../ipc/commands";
 
+export interface LspCompletionItem {
+  label: string;
+  detail?: string;
+  kind?: number;
+  documentation?: string | { kind: string; value: string };
+}
+
 export interface LspPos {
   line: number;
   character: number;
@@ -290,6 +297,49 @@ class LspClient {
       return (result as WorkspaceEdit) ?? null;
     } catch {
       return null;
+    }
+  }
+
+  async hover(filePath: string, position: LspPos): Promise<string | null> {
+    const langId = this.getLanguageId(filePath);
+    if (!langId) return null;
+    try {
+      const result = await lspRequest(langId, "textDocument/hover", {
+        textDocument: { uri: this.fileUri(filePath) },
+        position,
+      });
+      if (!result) return null;
+      const contents = (result as { contents?: unknown }).contents;
+      if (!contents) return null;
+      if (typeof contents === "string") return contents;
+      if (typeof contents === "object" && "value" in (contents as object))
+        return (contents as { value: string }).value;
+      if (Array.isArray(contents))
+        return contents
+          .map((c: unknown) => (typeof c === "string" ? c : (c as { value: string }).value))
+          .join("\n---\n");
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  async complete(filePath: string, position: LspPos, triggerKind = 1): Promise<LspCompletionItem[]> {
+    const langId = this.getLanguageId(filePath);
+    if (!langId) return [];
+    try {
+      const result = await lspRequest(langId, "textDocument/completion", {
+        textDocument: { uri: this.fileUri(filePath) },
+        position,
+        context: { triggerKind },
+      });
+      if (!result) return [];
+      const items = Array.isArray(result)
+        ? result
+        : ((result as { items?: LspCompletionItem[] }).items ?? []);
+      return items as LspCompletionItem[];
+    } catch {
+      return [];
     }
   }
 

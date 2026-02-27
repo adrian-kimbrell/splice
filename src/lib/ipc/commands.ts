@@ -231,6 +231,10 @@ export async function duplicatePath(path: string): Promise<string> {
   return invoke("duplicate_path", { path });
 }
 
+export async function copyPath(src: string, dest: string): Promise<void> {
+  return invoke("copy_path", { src, dest });
+}
+
 export async function checkPidAlive(pid: number): Promise<boolean> {
   return invoke("check_pid_alive", { pid });
 }

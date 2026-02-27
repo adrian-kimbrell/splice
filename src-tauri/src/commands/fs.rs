@@ -610,6 +610,33 @@ pub fn duplicate_path(
     Ok(new_path.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+pub fn copy_path(
+    state: State<'_, Mutex<AppState>>,
+    src: String,
+    dest: String,
+) -> Result<(), String> {
+    let allowed_roots = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        state.allowed_roots.clone()
+    };
+    let src_path = validate_path(&src, &allowed_roots)?;
+    // Validate dest parent is under allowed roots
+    let dest_path = Path::new(&dest);
+    let dest_parent = dest_path.parent().ok_or_else(|| format!("Invalid destination path: '{}'", dest))?;
+    if dest_parent.as_os_str().is_empty() || !dest_parent.exists() {
+        return Err(format!("Destination parent directory does not exist: '{}'", dest_parent.display()));
+    }
+    validate_path(&dest_parent.to_string_lossy(), &allowed_roots)?;
+    if src_path.is_dir() {
+        copy_dir_recursive(&src_path, dest_path)
+    } else {
+        fs::copy(&src_path, dest_path)
+            .map(|_| ())
+            .map_err(|e| format!("Failed to copy '{}' to '{}': {}", src, dest, e))
+    }
+}
+
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
     fs::create_dir_all(dst).map_err(|e| format!("Failed to create dir '{}': {}", dst.display(), e))?;
     for entry in fs::read_dir(src).map_err(|e| e.to_string())? {

@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, scrollPastEnd, placeholder, keymap } from "@codemirror/view";
+  import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, scrollPastEnd, placeholder, keymap, hoverTooltip } from "@codemirror/view";
   import { EditorState, Compartment } from "@codemirror/state";
+  import { linter, lintGutter, setDiagnostics } from "@codemirror/lint";
+  import type { Diagnostic as CmDiagnostic } from "@codemirror/lint";
+  import type { CompletionContext, CompletionResult } from "@codemirror/autocomplete";
   import { bracketMatching, indentOnInput, foldGutter, foldKeymap, indentUnit, indentRange } from "@codemirror/language";
   import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from "@codemirror/commands";
   import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from "@codemirror/autocomplete";
@@ -14,6 +17,7 @@
   import { showContextMenu } from "../../lib/utils/context-menu";
   import { lspClient } from "../../lib/lsp/client";
   import type { LspLocation, LspPos, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
+  import { getDiagnosticsForUri } from "../../lib/stores/diagnostics.svelte";
   import { pushToast } from "../../lib/stores/toasts.svelte";
 
   let {
@@ -51,6 +55,9 @@
   const autoSaveCompartment = new Compartment();
   const minimapCompartment = new Compartment();
   const indentGuidesCompartment = new Compartment();
+  const lintCompartment = new Compartment();
+  const hoverCompartment = new Compartment();
+  const completionCompartment = new Compartment();
 
   // LSP state
   let lspReferences = $state<LspLocation[] | null>(null);
@@ -299,6 +306,73 @@
       });
   }
 
+  // LSP completion kind → CM6 type label
+  function lspKindToType(kind: number | undefined): string {
+    switch (kind) {
+      case 2: case 3: return "function";
+      case 4: return "function";   // constructor
+      case 5: return "variable";   // field
+      case 6: return "variable";
+      case 7: return "class";
+      case 8: return "interface";
+      case 9: return "namespace";
+      case 10: return "variable";  // enum
+      case 14: return "keyword";
+      case 15: return "text";
+      case 17: return "variable";  // color
+      case 18: return "text";      // file
+      case 20: return "constant";  // enum member
+      case 21: return "class";     // struct
+      default: return "text";
+    }
+  }
+
+  function buildLspCompletionSource(fp: string) {
+    return async (context: CompletionContext): Promise<CompletionResult | null> => {
+      if (!isTauri || !lspClient.getLanguageId(fp)) return null;
+      const pos = context.pos;
+      const lineInfo = context.state.doc.lineAt(pos);
+      const lspPos: LspPos = { line: lineInfo.number - 1, character: pos - lineInfo.from };
+      const word = context.matchBefore(/\w*/);
+      // Only fire for explicit invocation or after typing at least 1 char
+      if (!context.explicit && (!word || word.from === word.to)) return null;
+      const items = await lspClient.complete(fp, lspPos).catch(() => []);
+      if (!items.length) return null;
+      return {
+        from: word ? word.from : pos,
+        options: items.map(item => ({
+          label: item.label,
+          detail: item.detail,
+          type: lspKindToType(item.kind),
+        })),
+        validFor: /^\w*$/,
+      };
+    };
+  }
+
+  function buildHoverExtension(fp: string) {
+    return hoverTooltip(
+      async (_view: EditorView, pos: number) => {
+        if (!isTauri || !lspClient.getLanguageId(fp)) return null;
+        const lineInfo = _view.state.doc.lineAt(pos);
+        const lspPos: LspPos = { line: lineInfo.number - 1, character: pos - lineInfo.from };
+        const text = await lspClient.hover(fp, lspPos).catch(() => null);
+        if (!text) return null;
+        return {
+          pos,
+          create() {
+            const dom = document.createElement("div");
+            dom.className = "cm-lsp-hover";
+            dom.style.cssText = "max-width:400px;padding:4px 8px;font-size:12px;white-space:pre-wrap;word-break:break-word;";
+            dom.textContent = text;
+            return { dom };
+          },
+        };
+      },
+      { hoverTime: 300 },
+    );
+  }
+
   onMount(() => {
     const s = settings.editor;
 
@@ -339,7 +413,10 @@
         scrollThrottle,
         bracketMatchingCompartment.of(s.bracket_matching ? bracketMatching() : []),
         closeBracketsCompartment.of(s.auto_close_brackets ? closeBrackets() : []),
-        autocompletion(),
+        lintGutter(),
+        lintCompartment.of([]),
+        hoverCompartment.of([]),
+        completionCompartment.of(autocompletion()),
         indentOnInput(),
         indentUnitCompartment.of(indentUnit.of(s.insert_spaces ? " ".repeat(s.tab_size) : "\t")),
         foldGutter(),
@@ -634,6 +711,45 @@
         lspChangeTimer = null;
       }
     };
+  });
+
+  // LSP: update lint diagnostics when diagnostics store changes
+  $effect(() => {
+    if (!viewReady || !view) return;
+    const uri = lspClient.fileUri(filePath);
+    const diags = getDiagnosticsForUri(uri);
+    const cmDiags: CmDiagnostic[] = [];
+    for (const d of diags) {
+      try {
+        const fromLine = view.state.doc.line(d.range.start.line + 1);
+        const toLine = view.state.doc.line(d.range.end.line + 1);
+        const from = Math.min(fromLine.from + d.range.start.character, fromLine.to);
+        const to = Math.min(toLine.from + d.range.end.character, toLine.to);
+        const severity = d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info";
+        cmDiags.push({ from, to, severity, message: d.message });
+      } catch {
+        // Skip diagnostics for lines that don't exist in current doc
+      }
+    }
+    view.dispatch(setDiagnostics(view.state, cmDiags));
+  });
+
+  // LSP: wire hover and completion extensions when file path changes
+  $effect(() => {
+    if (!viewReady || !view || !isTauri) return;
+    const fp = filePath;
+    const hasLsp = !!lspClient.getLanguageId(fp) && !fp.startsWith("untitled-");
+    if (hasLsp) {
+      view.dispatch({ effects: [
+        hoverCompartment.reconfigure(buildHoverExtension(fp)),
+        completionCompartment.reconfigure(autocompletion({ override: [buildLspCompletionSource(fp)], activateOnTyping: true })),
+      ]});
+    } else {
+      view.dispatch({ effects: [
+        hoverCompartment.reconfigure([]),
+        completionCompartment.reconfigure(autocompletion()),
+      ]});
+    }
   });
 
   async function handleContextMenu(e: MouseEvent) {

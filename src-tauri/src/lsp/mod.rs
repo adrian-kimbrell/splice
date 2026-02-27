@@ -4,7 +4,7 @@ use std::env;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::State;
+use tauri::{Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
@@ -14,6 +14,7 @@ pub struct LspSession {
     pub pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     pub next_id: Arc<AtomicU64>,
     pub language_id: String,
+    pub app_handle: tauri::AppHandle,
 }
 
 /// Returns an augmented PATH string that includes common developer tool locations
@@ -156,6 +157,7 @@ async fn lsp_reader(
     stdout: impl tokio::io::AsyncRead + Unpin,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     reply_tx: mpsc::UnboundedSender<Vec<u8>>,
+    app_handle: tauri::AppHandle,
 ) {
     let mut reader = BufReader::new(stdout);
     loop {
@@ -191,10 +193,19 @@ async fn lsp_reader(
         // Server-to-client requests have both "id" and "method".
         // We must respond to them or the server will stall waiting.
         if msg.get("method").is_some() {
+            if msg.get("id").is_none() {
+                // Pure notification (no id) — handle specific ones we care about
+                if let Some("textDocument/publishDiagnostics") = msg.get("method").and_then(Value::as_str) {
+                    if let Some(params) = msg.get("params") {
+                        let _ = app_handle.emit("lsp:diagnostics", params);
+                    }
+                }
+                continue;
+            }
+            // Server-initiated request (has both method and id) — respond
             if let Some(reply) = handle_server_request(&msg) {
                 let _ = reply_tx.send(reply);
             }
-            // Notifications (method but no id, or method with id but unknown) are ignored
             continue;
         }
 
@@ -218,7 +229,7 @@ async fn lsp_reader(
 }
 
 impl LspSession {
-    pub async fn spawn(language_id: &str, workspace_root: &str) -> Result<Self, String> {
+    pub async fn spawn(language_id: &str, workspace_root: &str, app_handle: tauri::AppHandle) -> Result<Self, String> {
         let (cmd_path, args) = get_lsp_command(language_id)?;
 
         let mut command = Command::new(&cmd_path);
@@ -262,8 +273,9 @@ impl LspSession {
         let reply_tx = stdin_tx.clone();
 
         // Reader task: parses JSON-RPC and handles both responses and server requests
+        let app_handle_clone = app_handle.clone();
         tokio::spawn(async move {
-            lsp_reader(stdout, pending_clone, reply_tx).await;
+            lsp_reader(stdout, pending_clone, reply_tx, app_handle_clone).await;
         });
 
         // Child-wait task: reaps the process to prevent zombies
@@ -276,6 +288,7 @@ impl LspSession {
             pending,
             next_id: Arc::new(AtomicU64::new(1)),
             language_id: language_id.to_string(),
+            app_handle,
         };
 
         session.initialize(language_id, workspace_root).await?;
@@ -448,6 +461,7 @@ pub async fn lsp_install(language_id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn lsp_start(
+    app: tauri::AppHandle,
     state: State<'_, Mutex<crate::state::AppState>>,
     language_id: String,
     workspace_root: String,
@@ -462,7 +476,7 @@ pub async fn lsp_start(
         }
     }
     // Spawn outside the lock — this awaits the initialize handshake
-    let session = LspSession::spawn(&language_id, &workspace_root).await?;
+    let session = LspSession::spawn(&language_id, &workspace_root, app).await?;
     {
         let mut locked = state
             .lock()

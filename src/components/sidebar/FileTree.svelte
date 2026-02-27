@@ -3,6 +3,7 @@
   import type { FileEntry } from "../../lib/stores/files.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
+  import { fileClipboard } from "../../lib/stores/file-clipboard.svelte";
 
   let {
     entries,
@@ -314,14 +315,29 @@
 
     if (isFileOrFolder) {
       items.push({ separator: true, label: "" });
-      items.push({ label: "Cut", shortcut: "\u2318X", disabled: true });
-      items.push({ label: "Copy", shortcut: "\u2318C", disabled: true });
+      items.push({
+        label: "Cut",
+        shortcut: "\u2318X",
+        disabled: path === rootPath,
+        action: () => fileClipboard.set({ op: "cut", path }),
+      });
+      items.push({
+        label: "Copy",
+        shortcut: "\u2318C",
+        disabled: path === rootPath,
+        action: () => fileClipboard.set({ op: "copy", path }),
+      });
       items.push({
         label: "Duplicate",
         shortcut: "\u2318D",
         action: () => actionDuplicate(path),
       });
-      items.push({ label: "Paste", shortcut: "\u2318V", disabled: true });
+      items.push({
+        label: "Paste",
+        shortcut: "\u2318V",
+        disabled: !fileClipboard.value,
+        action: () => actionPaste(kind === "file" ? parentDir : path),
+      });
 
       items.push({ separator: true, label: "" });
       items.push({
@@ -433,6 +449,28 @@
       await refreshTree();
     } catch (e) {
       console.error("Failed to duplicate:", e);
+    }
+  }
+
+  async function actionPaste(destDir: string) {
+    const cb = fileClipboard.value;
+    if (!cb) return;
+    const basename = cb.path.split("/").pop() ?? "";
+    const dest = destDir + "/" + basename;
+    try {
+      if (cb.op === "copy") {
+        const { copyPath } = await import("../../lib/ipc/commands");
+        await copyPath(cb.path, dest);
+        await refreshTree();
+      } else {
+        // cut = move
+        const { renamePath } = await import("../../lib/ipc/commands");
+        await renamePath(cb.path, dest);
+        await refreshTree();
+        fileClipboard.clear();
+      }
+    } catch (e) {
+      console.error("Failed to paste:", e);
     }
   }
 
