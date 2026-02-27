@@ -6,6 +6,7 @@
   import { ui } from "../../lib/stores/ui.svelte";
   import { diagnosticsStore, getDiagnosticCounts, type LspDiagnostic } from "../../lib/stores/diagnostics.svelte";
   import { lspClient } from "../../lib/lsp/client";
+  import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
 
   let {
     entries,
@@ -48,6 +49,18 @@
     return fullPath;
   }
 
+  async function handleDiagnosticClick(filePath: string, line: number) {
+    try {
+      const { readFile } = await import("../../lib/ipc/commands");
+      const content = await readFile(filePath);
+      const name = filePath.split("/").pop() ?? "untitled";
+      workspaceManager.openFileInWorkspace({ name, path: filePath, content });
+      setTimeout(() => dispatchEditorAction("goto-line-number", line + 1), 50);
+    } catch (e) {
+      console.error("Failed to navigate to diagnostic:", e);
+    }
+  }
+
   function severityIcon(sev: number): string {
     switch (sev) {
       case 1: return "bi-x-circle-fill text-red-400";
@@ -82,7 +95,7 @@
       class:text-accent={ui.sidebarMode === "files"}
       class:text-txt-dim={ui.sidebarMode !== "files"}
       title="Files"
-      onclick={() => { ui.sidebarMode = ui.sidebarMode === "files" ? "files" : "files"; }}
+      onclick={() => { ui.sidebarMode = "files"; }}
     >
       <i class="bi bi-folder2 text-sm"></i>
     </button>
@@ -130,11 +143,14 @@
                 <span class="text-txt-dim/60 ml-auto shrink-0">({diags.length})</span>
               </div>
               {#each diags as diag}
-                <div class="px-3 py-0.5 flex items-start gap-1.5 hover:bg-selected">
+                <button
+                  class="w-full text-left px-3 py-0.5 flex items-start gap-1.5 hover:bg-selected cursor-pointer"
+                  onclick={() => handleDiagnosticClick(filePath, diag.range.start.line)}
+                >
                   <i class="bi {severityIcon(diag.severity)} shrink-0 text-[10px] mt-0.5"></i>
-                  <span class="text-txt flex-1 min-w-0">{diag.message}</span>
+                  <span class="text-txt flex-1 min-w-0 text-xs">{diag.message}</span>
                   <span class="text-txt-dim shrink-0 text-[10px]">:{diag.range.start.line + 1}</span>
-                </div>
+                </button>
               {/each}
             </div>
           {/each}

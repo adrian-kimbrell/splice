@@ -468,7 +468,7 @@ pub fn get_debug_stats(
     serde_json::json!({
         "terminal_count": state.terminals.len(),
         "watcher_count":  state.watchers.len(),
-        "workspace_count": state.workspaces.len(),
+        "workspace_count": state.window_workspaces.len(),
         "lsp_session_count": state.lsp_sessions.len(),
     })
 }
