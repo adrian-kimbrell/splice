@@ -6,6 +6,12 @@ Splice is a code editor built around workspaces — fully isolated environments,
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+> **macOS note:** Because Splice is not yet notarized, macOS may show a "damaged" warning on first launch. To fix it, run:
+> ```bash
+> xattr -cr /Applications/Splice.app
+> ```
+> Then open the app again.
+
 ---
 
 ## The workspace
