@@ -2,85 +2,61 @@
 
 **All your work. One window.**
 
-Splice is a code editor built around workspaces — fully isolated environments, each with their own file tree, terminals, editor panes, and layout. Switch between projects in a keystroke. Run multiple agents in parallel. Keep everything in context without juggling windows.
+Splice is a code editor built for the way modern development actually works — multiple projects, multiple terminals, multiple agents running at once, without ever losing your place.
+
+[**Download for macOS (Apple Silicon) →**](https://github.com/adrian-kimbrell/splice/releases/latest)
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-> **macOS note:** Because Splice is not yet notarized, macOS may show a "damaged" warning on first launch. To fix it, run:
-> ```bash
-> xattr -cr /Applications/Splice.app
-> ```
-> Then open the app again.
+> **macOS:** Because Splice is not yet notarized, you may see a "damaged" warning on first launch. Run `xattr -cr /Applications/Splice.app` in Terminal to fix it, then open normally.
 
 ---
 
-## The workspace
+## The problem with other editors
 
-A workspace in Splice is a complete development context:
+Every project you work on deserves its own full context — its own file tree, its own terminal sessions, its own editor layout. But most editors give you one of everything and expect you to manage the rest yourself. You end up with a mess of terminal tabs, jumbled file trees, and constant context-switching overhead.
 
-- **Its own file tree** — open a different root folder per workspace
-- **Its own terminals** — sessions that keep running when you switch away
-- **Its own editor state** — open files, tabs, active file, scroll position
-- **Its own pane layout** — arrange terminals and editors per project, not globally
-
-Switch workspaces with `Cmd+Opt+Shift+Arrow`. Everything you left is exactly where you left it.
-
-Most editors give you one context and ask you to manage the rest yourself. Splice keeps multiple contexts alive simultaneously — organized, not crammed.
+Splice solves this with **workspaces**.
 
 ---
 
-## Features
+## Workspaces
 
-**Workspaces**
-- Multiple independent workspaces per window — create, rename, close
-- Each workspace has its own file tree, terminals, editor tabs, and pane layout
-- State is fully isolated: switching workspaces never disturbs the other
-- Session persistence — workspaces and terminal directories are restored on next launch
+A workspace in Splice is a complete, isolated development environment:
 
-**Multiple windows**
-- `Cmd+Shift+N` opens a new independent window with its own workspace state
-- Each window writes to its own config file (`workspaces-{label}.json`)
-- Window registry (`windows.json`) enables crash recovery — secondary windows reopen automatically on next launch
-- Graceful close removes the window from the registry; crash leaves it for recovery
+- Its own **file tree** — each workspace opens a different root folder
+- Its own **terminals** — sessions keep running when you switch away
+- Its own **editor state** — open files, tabs, scroll positions, all preserved
+- Its own **pane layout** — arrange your editors and terminals per project, not globally
 
-**Layout**
-- Binary tree split system — split any pane horizontally or vertically into a terminal or editor
-- Drag to resize from edges or intersection corners
-- Spatial pane navigation — move between panes by physical position (`Cmd+Opt+Arrow`)
-- Pane zoom — maximize any pane to full screen and back (`Cmd+Z`)
-- Tab drag & drop — move tabs between panes or split into a new pane by dragging to an edge zone
+Switch between workspaces instantly with `Cmd+Opt+Shift+Arrow`. Everything you left is exactly where it was. No reloading, no re-navigating, no losing your train of thought.
 
-**Editor**
-- CodeMirror 6 with syntax highlighting for TypeScript, Rust, Python, HTML, CSS, JSON, and Markdown
-- Minimap, indent guides, bracket matching, auto-close brackets, word wrap
-- Breadcrumb path bar with click-to-copy segments
-- Image preview (PNG, JPG, GIF, WebP, SVG) and rendered Markdown preview
-- Preview tabs — single-click opens a preview, double-click or edit promotes to permanent
-- Git branch indicator per workspace
-- Recent files
+---
 
-**Language servers (LSP)**
-- Automatic install and lifecycle management for language servers
-- Completions, hover docs, go-to-definition, diagnostics, code actions, rename
-- TypeScript (`typescript-language-server`), Rust (`rust-analyzer`), Python (`pylsp`) out of the box
-- Augmented PATH so language servers found in Homebrew/cargo/pyenv are discovered even when launched from Finder
+## Built for agents
 
-**Terminal**
-- Custom emulator built from scratch — no xterm.js
-- Full xterm-256color parity, 24-bit truecolor, One Dark palette
-- 10,000-line scrollback, ~120fps frame cap, Condvar-based emitter (no polling)
-- Click, double-click (word), triple-click (line), drag selection
-- In-terminal search (`Cmd+F`) with match count and prev/next navigation
+Splice was designed from the ground up for running AI coding agents alongside your work.
 
-**File explorer**
-- Per-workspace tree view with indent guides and folder open/collapse
-- File system watching — tree updates automatically when files change on disk
-- Inline create/rename/delete with context menu
+The **Claude attention system** surfaces permission requests and idle notifications inline — without interrupting your focus. You see exactly which terminal needs attention, dismiss it with a click, and get back to work. Multiple alerts stack cleanly in a dropdown.
 
-**Claude attention**
-- Surfaces Claude Code permission requests and idle states inline in the footer
-- Identifies the specific terminal and workspace that needs attention
-- Dismiss with a keypress or click; stacks multiple alerts with a dropdown
+---
+
+## What's inside
+
+**A terminal that's actually fast**
+Splice ships a custom terminal emulator built from scratch — no xterm.js. Full 256-color and truecolor support, 10,000-line scrollback, ~120fps rendering, and complete compatibility with modern CLI tools and TUI apps.
+
+**A real editor**
+CodeMirror 6 with syntax highlighting, LSP-powered completions, hover docs, go-to-definition, diagnostics, rename, and code actions. Works out of the box for TypeScript, Rust, and Python with automatic language server installation.
+
+**SSH remote workspaces**
+Connect to any remote server via SSH and work as if it were local. Browse the remote file tree, open and edit files over SFTP, and get a remote terminal — all inside the same workspace model.
+
+**Flexible layouts**
+Split any pane horizontally or vertically. Drag to resize. Zoom a pane to full screen and back. Drag tabs between panes or split them into new ones. Navigate panes spatially with `Cmd+Opt+Arrow`.
+
+**Multi-window**
+Open a second (or third) window with `Cmd+Shift+N`. Each window has its own workspace state and persists independently. Close a window and it's gone; crash and it comes back on next launch.
 
 ---
 
@@ -88,116 +64,35 @@ Most editors give you one context and ask you to manage the rest yourself. Splic
 
 | Shortcut | Action |
 |----------|--------|
-| `Cmd+Opt+Arrow` | Navigate to adjacent pane (spatial) |
-| `Cmd+Opt+Shift+Left/Right` | Switch workspace prev/next |
-| `Cmd+Shift+N` | New window |
-| `Cmd+Z` | Toggle pane zoom |
-| `Cmd+1–9` | Focus pane by index |
+| `Cmd+Opt+Shift+←/→` | Switch workspace |
+| `Cmd+Opt+Arrow` | Navigate between panes |
+| `Cmd+Z` | Zoom / unzoom pane |
 | `Cmd+K` | Command palette |
+| `Cmd+Shift+N` | New window |
 | `Cmd+N` | New file |
-| `Cmd+S` | Save file |
+| `Cmd+S` | Save |
 | `Cmd+B` | Toggle file explorer |
-| `Cmd+F` | Search in terminal |
-| `Cmd+=` / `Cmd+-` / `Cmd+0` | Zoom UI in / out / reset |
+| `Cmd+F` | Find (editor or terminal) |
+| `Cmd+=` / `Cmd+-` | Zoom UI in / out |
 | `Cmd+,` | Settings |
-| `Escape` | Close overlays / unzoom |
 
 ---
 
-## Terminal
-
-The terminal emulator is a complete ground-up implementation — not a wrapper around xterm.js. Built to be fast and reliable enough for the workspace model: multiple concurrent sessions, long-running agent processes, full compatibility with modern CLI tools.
-
-**Rendering pipeline:**
-```
-PTY reader → VTE parser → Grid mutations → binary serialization → Tauri event → Canvas 2D
-```
-
-**Binary frame protocol:** 12-byte header (cols, rows, cursor, flags) + 12 bytes per cell (codepoint, fg RGB, bg RGB, flags). Base64-encoded over Tauri events.
-
-**Frame scheduling:** Condvar-based wake with 8ms minimum frame interval (~120fps cap). No polling.
-
-**Compatibility:** xterm-256color, COLORTERM=truecolor. One Dark palette. Full modifier-aware keyboard encoding, bracketed paste, alt screen, REP, HTS/TBC/CBT, IND/NEL, DECKPAM/DECKPNM, SGR blink/hidden.
-
----
-
-## Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Svelte 5 (runes) + Tailwind CSS v3 |
-| Editor | CodeMirror 6 |
-| Language servers | LSP (stdio transport, managed lifecycle) |
-| Terminal renderer | Canvas 2D (custom) |
-| Backend | Tauri v2 + Rust |
-| Terminal | `vte` crate + custom Grid model + `portable-pty` |
-| File watching | `notify` crate |
-| IPC | Typed invoke wrappers + binary frame events |
-
----
-
-## Development
+## Build from source
 
 **Prerequisites:** Node.js 18+, Rust stable, [Tauri CLI](https://v2.tauri.app/start/prerequisites/)
 
 ```bash
 npm install
-cargo tauri dev                    # development with HMR
-cargo tauri build --debug          # debug bundle (Splice.app)
-cargo tauri build                  # release build
-```
-
-**E2E tests** (requires the `e2e` feature):
-```bash
-npm run build:e2e                  # builds with --features e2e
-npm run test:e2e                   # runs WebdriverIO suite
+cargo tauri dev          # dev mode with hot reload
+cargo tauri build        # release build
 ```
 
 ---
 
-## Project structure
+## Stack
 
-```
-src/                          # Svelte frontend
-  components/
-    panes/                    # PaneGrid, EditorPane, TerminalPane, TabBar
-    terminal/                 # CanvasTerminal, TerminalTitlebar, TerminalSearch
-    sidebar/                  # File explorer, workspace sidebar
-    topbar/                   # Footer bar, notifications
-    overlays/                 # Command palette, settings
-  lib/
-    ipc/                      # Tauri IPC command/event wrappers
-    lsp/                      # LSP client (completions, hover, diagnostics)
-    stores/                   # Svelte 5 reactive stores
-      workspace.svelte.ts     # Workspace manager
-      workspace-file-ops.ts   # File open/close/save operations
-      workspace-session.ts    # Persist & restore workspace state
-      workspace-tab-ops.ts    # Tab management helpers
-      workspace-types.ts      # Shared types and pure utilities
-    terminal/
-      keyboard.ts             # xterm keyboard encoder (pure, no DOM)
-    theme/
-      themes.ts               # Lazy-loading theme registry
-      themes/                 # builtin.ts · popular.ts · extended.ts
-    utils/                    # Keybindings, language detection, path utils
-
-src-tauri/                    # Rust backend
-  src/
-    terminal/
-      grid.rs                 # Grid model, ScreenBuffer, scroll regions, tab stops
-      term.rs                 # VTE Perform — CSI/ESC/SGR dispatch
-      emitter.rs              # Frame serialization, Condvar-based emitter thread
-      color.rs                # One Dark palette, ANSI 256-color table
-      pty.rs                  # PTY spawn, read/write threads
-      tests/                  # 199-test terminal emulator unit suite
-    lsp/                      # LSP server lifecycle, stdio transport, request routing
-    attention/                # Claude hook HTTP server, process tree matching
-    commands/                 # Tauri command handlers (fs, terminal, workspace, settings)
-    workspace/                # Workspace persistence and layout types
-
-tests/
-  e2e/                        # WebdriverIO E2E test suite (24 specs)
-```
+Tauri v2 + Rust · Svelte 5 · CodeMirror 6 · Canvas 2D terminal renderer · `vte` + `portable-pty`
 
 ---
 
