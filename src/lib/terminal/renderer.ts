@@ -372,7 +372,9 @@ export class TerminalRenderer {
     const canvasH = this.canvas.height / this.dpr;
 
     const prev = this.previousFrame;
-    const fullRedraw = this.forceFullRedraw || !prev || prev.length !== data.length;
+    // Always do a full repaint when unfocused — prevents dirty-region artifacts from
+    // accumulating when the GPU compositor invalidates the canvas backing store.
+    const fullRedraw = this.forceFullRedraw || !prev || prev.length !== data.length || !this._isFocused;
     this.forceFullRedraw = false;
 
     // Extract previous cursor position for redraw

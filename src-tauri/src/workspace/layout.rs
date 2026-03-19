@@ -1,6 +1,15 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SshConfig {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub key_path: String,
+    pub remote_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: String,
     pub name: String,
@@ -14,6 +23,8 @@ pub struct Workspace {
     pub active_pane_id: Option<String>,
     #[serde(default = "default_true")]
     pub explorer_visible: bool,
+    #[serde(default)]
+    pub ssh_config: Option<SshConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

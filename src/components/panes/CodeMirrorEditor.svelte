@@ -436,12 +436,12 @@
           { key: "Mod-m", run: cursorMatchingBracket },
           { key: "Shift-Alt-f", run: formatDocument },
           // LSP keybindings
-          { key: "F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoDefinition(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }); return true; } },
-          { key: "Ctrl-F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoDeclaration(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }); return true; } },
-          { key: "Mod-F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoTypeDefinition(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }); return true; } },
-          { key: "Shift-F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoImplementation(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }); return true; } },
-          { key: "F2", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) triggerRename(); }); return true; } },
-          { key: "Mod-.", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) triggerCodeActions(); }); return true; } },
+          { key: "F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoDefinition(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }).catch(() => {}); return true; } },
+          { key: "Ctrl-F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoDeclaration(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }).catch(() => {}); return true; } },
+          { key: "Mod-F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoTypeDefinition(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }).catch(() => {}); return true; } },
+          { key: "Shift-F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoImplementation(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }).catch(() => {}); return true; } },
+          { key: "F2", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) triggerRename(); }).catch(() => {}); return true; } },
+          { key: "Mod-.", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) triggerCodeActions(); }).catch(() => {}); return true; } },
           ...closeBracketsKeymap,
           ...searchKeymap,
           ...foldKeymap,
@@ -466,6 +466,7 @@
     viewReady = true;
 
     return () => {
+      stateCache.clear();
       view?.destroy();
       if (prevLspPath) lspClient.didClose(prevLspPath).catch(() => {});
     };
@@ -509,21 +510,32 @@
     if (view) view.requestMeasure();
   });
 
+  // Per-file EditorState cache: saves cursor, scroll, and undo history between tab switches.
+  const stateCache = new Map<string, EditorState>();
+
   // Sync content when it changes (suppress onContentChange to avoid promoting preview tabs)
   let lastSyncedPath = "";
   $effect(() => {
     if (!viewReady || !view) return;
     const doc = content;
     const path = filePath;
-    // On tab switch, always replace without string comparison
+    // On tab switch, save outgoing state and restore cached state if content unchanged
     if (path !== lastSyncedPath) {
+      if (lastSyncedPath) stateCache.set(lastSyncedPath, view.state);
       lastSyncedPath = path;
-      suppressContentChange = true;
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: doc },
-      });
-      suppressContentChange = false;
+      const cached = stateCache.get(path);
+      if (cached && cached.doc.length === doc.length) {
+        view.setState(cached);
+      } else {
+        stateCache.delete(path);
+        suppressContentChange = true;
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: doc },
+        });
+        suppressContentChange = false;
+      }
     } else if (doc !== view.state.doc.toString()) {
+      stateCache.delete(path);
       suppressContentChange = true;
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: doc },

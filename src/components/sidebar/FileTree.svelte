@@ -4,6 +4,7 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { fileClipboard } from "../../lib/stores/file-clipboard.svelte";
+  import { untrack } from "svelte";
 
   let {
     entries,
@@ -11,12 +12,14 @@
     onFileDoubleClick,
     selectedPath,
     rootPath = "",
+    sshWorkspaceId = null,
   }: {
     entries: FileEntry[];
     onFileClick: (entry: FileEntry) => void;
     onFileDoubleClick?: (entry: FileEntry) => void;
     selectedPath: string | null;
     rootPath?: string;
+    sshWorkspaceId?: string | null;
   } = $props();
 
   const rootName = $derived(rootPath ? rootPath.split("/").filter(Boolean).pop() ?? "" : "");
@@ -24,6 +27,15 @@
   let rootExpanded = $state(true);
   let collapseGeneration = $state(0);
   let refreshGeneration = $state(0);
+
+  // When the root file tree is reloaded (either from internal ops or the external
+  // FSEvents watcher), bump refreshGeneration so expanded subdirectory items
+  // re-read their children via readDirTree.
+  $effect(() => {
+    const _watch = entries;
+    untrack(() => { refreshGeneration++; });
+  });
+
   let treeEl = $state<HTMLDivElement>();
   let focusedPath = $state<string | null>(null);
 
@@ -639,6 +651,7 @@
         {refreshGeneration}
         {inlineCreateDir}
         {inlineCreateType}
+        {sshWorkspaceId}
         onInlineCreateSubmit={submitInlineCreate}
         onInlineCreateCancel={cancelInlineCreate}
       />

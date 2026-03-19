@@ -38,6 +38,7 @@ impl PtySession {
         cols: u16,
         rows: u16,
         scrollback: usize,
+        extra_args: &[String],
     ) -> Result<Self, String> {
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -50,13 +51,22 @@ impl PtySession {
             .map_err(|e| e.to_string())?;
 
         let mut cmd = CommandBuilder::new(shell);
-        cmd.arg("-l"); // login shell: sources ~/.zprofile / ~/.profile so PATH is fully set up
+        if extra_args.is_empty() {
+            cmd.arg("-l"); // login shell: sources ~/.zprofile / ~/.profile so PATH is fully set up
+        } else {
+            for arg in extra_args {
+                cmd.arg(arg);
+            }
+        }
         cmd.cwd(cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         // Don't inherit Claude Code's session marker — terminals spawned by Splice
         // are fresh shells and should be able to run `claude` freely.
         cmd.env_remove("CLAUDECODE");
+        // Expose the terminal ID so Claude hook scripts can identify which Splice
+        // terminal they're running in without process-tree walking.
+        cmd.env("SPLICE_TERMINAL_ID", id.to_string());
 
         let child = pair.slave
             .spawn_command(cmd)

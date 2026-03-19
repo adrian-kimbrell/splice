@@ -75,8 +75,10 @@ export async function waitForShellReady(
 
   hardTimer = setTimeout(done, opts.hardTimeout);
 
-  unsubscribeFn = await deps.subscribeToFrames(terminalId, (data: Uint8Array) => {
+  try {
+    unsubscribeFn = await deps.subscribeToFrames(terminalId, (data: Uint8Array) => {
     if (isDone || !minWaitDone) return;
+    if (data.byteLength < 8) return;
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const col = view.getUint16(4, true);
     const row = view.getUint16(6, true);
@@ -87,9 +89,12 @@ export async function waitForShellReady(
       stableTimer = setTimeout(done, opts.stableMs);
     }
   });
+  } catch {
+    // subscribeToFrames failed — hard timeout will resolve
+  }
 
   if (isDone) {
-    unsubscribeFn();
+    unsubscribeFn?.();
     unsubscribeFn = null;
     return promise;
   }
@@ -214,6 +219,15 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
       active_file_path: activeFilePath,
       active_pane_id: ws.activePaneId,
       explorer_visible: ws.explorerVisible,
+      ssh_config: ws.sshConfig
+        ? {
+            host: ws.sshConfig.host,
+            port: ws.sshConfig.port,
+            user: ws.sshConfig.user,
+            key_path: ws.sshConfig.keyPath,
+            remote_path: ws.sshConfig.remotePath,
+          }
+        : null,
     } as RustWorkspace);
   } catch (e) {
     console.error("Failed to persist workspace:", e);
@@ -248,9 +262,22 @@ export async function restoreWorkspaceImpl(
     activePaneId: null,
     gitBranch: "",
     explorerVisible: rws.explorer_visible ?? true,
+    sshConfig: rws.ssh_config
+      ? {
+          host: rws.ssh_config.host,
+          port: rws.ssh_config.port,
+          user: rws.ssh_config.user,
+          keyPath: rws.ssh_config.key_path,
+          remotePath: rws.ssh_config.remote_path,
+        }
+      : null,
   };
 
   for (const paneInfo of rws.panes) {
+    // SSH workspaces: skip pane restoration — terminals will be spawned as SSH
+    // terminals after sshConnect, and files need SFTP (unavailable yet).
+    if (rws.ssh_config) continue;
+
     const paneType = paneInfo.pane_type as Record<string, unknown> | null;
     const isTerminal = paneType != null && "Terminal" in paneType;
 
@@ -297,7 +324,12 @@ export async function restoreWorkspaceImpl(
           } else {
             const baseDelay = 500 + (resumeStartIndex + localClaudeResumeIndex) * 300;
             localClaudeResumeIndex++;
-            scheduleClaudeResume(terminalId, sessionId, savedPid, baseDelay, {
+            // Pass null for savedPid: on restore we always spawn a fresh PTY, so
+            // the old Claude is guaranteed dead regardless of what the saved PID
+            // value is. Passing savedPid here risks PID reuse (the OS recycled
+            // that PID for an unrelated process) causing the resume to be wrongly
+            // cancelled.
+            scheduleClaudeResume(terminalId, sessionId, null, baseDelay, {
               checkPidAlive,
               writeToTerminal,
               subscribeToFrames: onTerminalGrid,
@@ -352,8 +384,9 @@ export async function restoreWorkspaceImpl(
     }
   }
 
-  // Remap the saved layout using the new terminal IDs
-  if (rws.layout) {
+  // Remap the saved layout using the new terminal IDs (not needed for SSH workspaces
+  // since all panes were skipped; layout stays null and will be built post-connect).
+  if (rws.layout && !rws.ssh_config) {
     try {
       ws.layout = remapLayout(rws.layout, idMap);
     } catch (e) {

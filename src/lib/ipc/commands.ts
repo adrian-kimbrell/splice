@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { FileEntry } from "../stores/files.svelte";
 import type { Settings } from "../stores/settings.svelte";
+import type { SshConfig } from "../stores/workspace-types"; // used by sshConnect
 
 export async function readDirTree(path: string): Promise<FileEntry[]> {
   return invoke("read_dir_tree", { path });
@@ -19,8 +20,9 @@ export async function spawnTerminal(
   cwd: string,
   cols: number,
   rows: number,
+  extraArgs?: string[],
 ): Promise<number> {
-  return invoke("spawn_terminal", { shell, cwd, cols, rows });
+  return invoke("spawn_terminal", { shell, cwd, cols, rows, extraArgs: extraArgs ?? [] });
 }
 
 export async function writeToTerminal(
@@ -97,6 +99,14 @@ export interface RustPaneInfo {
   claude_pid: number | null;
 }
 
+export interface RustSshConfig {
+  host: string;
+  port: number;
+  user: string;
+  key_path: string;
+  remote_path: string;
+}
+
 export interface RustWorkspace {
   id: string;
   name: string;
@@ -108,6 +118,7 @@ export interface RustWorkspace {
   active_file_path: string | null;
   active_pane_id: string | null;
   explorer_visible: boolean;
+  ssh_config?: RustSshConfig | null;
 }
 
 export interface WorkspacesResponse {
@@ -291,4 +302,43 @@ export async function getSecondaryWindowLabels(): Promise<string[]> {
 
 export async function saveTempImage(data: Uint8Array, ext: string): Promise<string> {
   return invoke("save_temp_image", { data, ext });
+}
+
+export async function writeToClipboard(text: string): Promise<void> {
+  return invoke("write_to_clipboard", { text });
+}
+
+// --- SSH / SFTP commands ---
+
+export async function sshConnect(workspaceId: string, config: SshConfig): Promise<void> {
+  return invoke("ssh_connect", {
+    workspaceId,
+    config: {
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      key_path: config.keyPath,
+      remote_path: config.remotePath,
+    },
+  });
+}
+
+export async function sshDisconnect(workspaceId: string): Promise<void> {
+  return invoke("ssh_disconnect", { workspaceId });
+}
+
+export async function sftpListDir(workspaceId: string, path: string): Promise<FileEntry[]> {
+  return invoke("sftp_list_dir", { workspaceId, path });
+}
+
+export async function sftpReadFile(workspaceId: string, path: string): Promise<string> {
+  return invoke("sftp_read_file", { workspaceId, path });
+}
+
+export async function sftpWriteFile(workspaceId: string, path: string, content: string): Promise<void> {
+  return invoke("sftp_write_file", { workspaceId, path, content });
+}
+
+export async function sshPing(workspaceId: string): Promise<boolean> {
+  return invoke("ssh_ping", { workspaceId });
 }

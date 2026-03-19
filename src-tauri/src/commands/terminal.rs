@@ -14,6 +14,7 @@ const ALLOWED_SHELLS: &[&str] = &[
     "/usr/bin/fish",
     "/usr/local/bin/fish",
     "/opt/homebrew/bin/fish",
+    "/usr/bin/ssh",
 ];
 
 const MAX_TERMINAL_COLS: u16 = 350;
@@ -32,7 +33,9 @@ pub fn spawn_terminal(
     cwd: String,
     cols: u16,
     rows: u16,
+    extra_args: Option<Vec<String>>,
 ) -> Result<u32, String> {
+    let extra_args = extra_args.unwrap_or_default();
     // Validate shell
     if !ALLOWED_SHELLS.contains(&shell.as_str()) {
         warn!(shell = %shell, "Rejected disallowed shell");
@@ -80,7 +83,7 @@ pub fn spawn_terminal(
     let scrollback = state.settings.terminal.scrollback_lines as usize;
 
     let session =
-        crate::terminal::pty::PtySession::spawn(app, id, &shell, &canonical_cwd.to_string_lossy(), cols, rows, scrollback)?;
+        crate::terminal::pty::PtySession::spawn(app, id, &shell, &canonical_cwd.to_string_lossy(), cols, rows, scrollback, &extra_args)?;
     state.terminals.insert(id, session);
 
     info!(id, shell = %shell, cwd = %canonical_cwd.display(), "Spawned terminal");
@@ -191,7 +194,6 @@ pub fn kill_terminal(state: State<'_, Mutex<AppState>>, id: u32) -> Result<(), S
         .remove(&id)
         .ok_or_else(|| format!("Terminal {} not found", id))?;
     state.terminal_claude_sessions.remove(&id);
-    state.pid_to_terminal_cache.retain(|_, &mut tid| tid != id);
     Ok(())
 }
 
@@ -398,64 +400,33 @@ pub fn install_claude_hook(state: State<'_, Mutex<AppState>>) -> Result<(), Stri
 
 #[cfg(test)]
 mod tests {
-    /// Simulate the state mutations performed by `kill_terminal`:
-    ///   1. Remove from terminal_claude_sessions
-    ///   2. Evict pid_to_terminal_cache entries for that terminal
-    fn kill_terminal_state(
+    fn kill_terminal_sessions(
         sessions: &mut std::collections::HashMap<u32, (String, u32)>,
-        pid_cache: &mut std::collections::HashMap<u32, u32>,
         id: u32,
     ) {
         sessions.remove(&id);
-        pid_cache.retain(|_, &mut tid| tid != id);
     }
 
     #[test]
     fn session_removed_when_terminal_killed() {
         let mut sessions = std::collections::HashMap::new();
-        let mut pid_cache = std::collections::HashMap::new();
         sessions.insert(1u32, ("sess-abc".to_string(), 1234u32));
 
-        kill_terminal_state(&mut sessions, &mut pid_cache, 1);
+        kill_terminal_sessions(&mut sessions, 1);
 
         assert!(!sessions.contains_key(&1));
-    }
-
-    #[test]
-    fn pid_cache_evicted_for_killed_terminal() {
-        let mut sessions = std::collections::HashMap::new();
-        let mut pid_cache = std::collections::HashMap::new();
-        // terminal 1 has two claude PIDs in cache
-        pid_cache.insert(100u32, 1u32);
-        pid_cache.insert(101u32, 1u32);
-        // terminal 2 has one PID in cache
-        pid_cache.insert(200u32, 2u32);
-        sessions.insert(1u32, ("sess-1".to_string(), 100u32));
-        sessions.insert(2u32, ("sess-2".to_string(), 200u32));
-
-        kill_terminal_state(&mut sessions, &mut pid_cache, 1);
-
-        // terminal 1's PIDs are gone
-        assert!(!pid_cache.contains_key(&100));
-        assert!(!pid_cache.contains_key(&101));
-        // terminal 2's PID survives
-        assert_eq!(pid_cache.get(&200), Some(&2));
     }
 
     #[test]
     fn other_terminal_sessions_unaffected() {
         let mut sessions = std::collections::HashMap::new();
-        let mut pid_cache = std::collections::HashMap::new();
         sessions.insert(1u32, ("sess-1".to_string(), 100u32));
         sessions.insert(2u32, ("sess-2".to_string(), 200u32));
-        pid_cache.insert(100u32, 1u32);
-        pid_cache.insert(200u32, 2u32);
 
-        kill_terminal_state(&mut sessions, &mut pid_cache, 1);
+        kill_terminal_sessions(&mut sessions, 1);
 
         assert!(!sessions.contains_key(&1));
         assert_eq!(sessions.get(&2).map(|(s, _)| s.as_str()), Some("sess-2"));
-        assert_eq!(pid_cache.get(&200), Some(&2));
     }
 }
 

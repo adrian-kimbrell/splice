@@ -224,7 +224,7 @@ describe("scheduleClaudeResume", () => {
   afterEach(() => {
     vi.useRealTimers();
     // Clean up any lingering timers for test terminals
-    for (const tid of [10, 11, 12, 20, 21]) {
+    for (const tid of [10, 11, 12, 20, 21, 99]) {
       cancelPendingResume(tid);
     }
   });
@@ -305,6 +305,45 @@ describe("scheduleClaudeResume", () => {
     expect(writeToTerminal).toHaveBeenCalledTimes(1);
   });
 
+  it("writeToTerminal_rejects_does_not_throw", async () => {
+    // When writeToTerminal rejects, scheduleClaudeResume should warn but NOT rethrow.
+    // Subsequent retries must still be scheduled.
+    const deps = {
+      checkPidAlive: vi.fn().mockResolvedValue(false),
+      writeToTerminal: vi.fn().mockRejectedValue(new Error("write failed")),
+      subscribeToFrames: vi.fn().mockResolvedValue(() => {}),
+    };
+    scheduleClaudeResume(99, "sess-abc", null, 0, deps);
+    await vi.runAllTimersAsync();
+    // All 3 retries should fire despite each writeToTerminal rejecting
+    expect(deps.writeToTerminal).toHaveBeenCalledTimes(3);
+  });
+
+  it("checkPidAlive_rejects_treated_as_not_alive", async () => {
+    // If checkPidAlive throws, it should NOT cancel remaining retries.
+    const deps = {
+      checkPidAlive: vi.fn().mockRejectedValue(new Error("ps failed")),
+      writeToTerminal: vi.fn().mockResolvedValue(undefined),
+      subscribeToFrames: vi.fn().mockResolvedValue(() => {}),
+    };
+    scheduleClaudeResume(99, "sess-abc", 1234, 0, deps);
+    await vi.runAllTimersAsync();
+    // All 3 retries should still write (throwing checkPidAlive is treated as "not alive")
+    expect(deps.writeToTerminal).toHaveBeenCalledTimes(3);
+  });
+
+  it("null_savedPid_skips_pid_check_and_always_writes", async () => {
+    const deps = {
+      checkPidAlive: vi.fn(),
+      writeToTerminal: vi.fn().mockResolvedValue(undefined),
+      subscribeToFrames: vi.fn().mockResolvedValue(() => {}),
+    };
+    scheduleClaudeResume(99, "sess-abc", null, 0, deps);
+    await vi.runAllTimersAsync();
+    expect(deps.checkPidAlive).not.toHaveBeenCalled();
+    expect(deps.writeToTerminal).toHaveBeenCalledTimes(3);
+  });
+
   it("second_terminal_staggered_300ms_later", async () => {
     const writeToTerminal = vi.fn().mockResolvedValue(undefined);
     const checkPidAlive = vi.fn().mockResolvedValue(false);
@@ -321,5 +360,66 @@ describe("scheduleClaudeResume", () => {
     await vi.advanceTimersByTimeAsync(300); // now at 2701, past terminal 21's t=2700
     expect(writeToTerminal).toHaveBeenCalledTimes(2);
     expect(writeToTerminal.mock.calls[1][0]).toBe(21);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// waitForShellReady — edge cases (Group F)
+// ---------------------------------------------------------------------------
+describe("waitForShellReady — edge cases", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("frame_with_fewer_than_8_bytes_does_not_crash", async () => {
+    // Binary frame data shorter than 8 bytes — DataView.getUint16(4) would throw
+    // without a bounds guard. The minWaitDone check also protects this path.
+    let frameCb: ((d: Uint8Array) => void) | null = null;
+    const deps = {
+      subscribeToFrames: vi.fn().mockImplementation((_id: number, cb: (data: Uint8Array) => void) => {
+        frameCb = cb;
+        return Promise.resolve(() => {});
+      }),
+      signal: undefined as AbortSignal | undefined,
+    };
+    const p = waitForShellReady(1, { minWait: 0, stableMs: 50, hardTimeout: 200 }, deps);
+    await Promise.resolve(); // let subscribeToFrames resolve and set frameCb
+    // Send a 4-byte (truncated) frame — should not throw
+    expect(() => frameCb!(new Uint8Array([1, 2, 3, 4]))).not.toThrow();
+    await vi.runAllTimersAsync();
+    await p;
+  });
+
+  it("subscribeToFrames_rejects_still_resolves_at_hard_timeout", async () => {
+    // If subscribeToFrames rejects, waitForShellReady should fall back to hard timeout.
+    const deps = {
+      subscribeToFrames: vi.fn().mockRejectedValue(new Error("no sub")),
+      signal: undefined as AbortSignal | undefined,
+    };
+    const p = waitForShellReady(1, { minWait: 50, stableMs: 50, hardTimeout: 100 }, deps);
+    await vi.runAllTimersAsync();
+    // Should resolve (via hard timeout) without throwing
+    await expect(p).resolves.toBeUndefined();
+  });
+
+  it("already_aborted_signal_resolves_before_subscribe", async () => {
+    // An already-aborted signal must resolve immediately without calling subscribeToFrames.
+    const ac = new AbortController();
+    ac.abort();
+    let subscribeCallCount = 0;
+    const deps = {
+      subscribeToFrames: vi.fn().mockImplementation(() => {
+        subscribeCallCount++;
+        return Promise.resolve(() => {});
+      }),
+      signal: ac.signal,
+    };
+    const p = waitForShellReady(1, { minWait: 100, stableMs: 100, hardTimeout: 1000 }, deps);
+    await expect(p).resolves.toBeUndefined();
+    expect(subscribeCallCount).toBe(0);
   });
 });

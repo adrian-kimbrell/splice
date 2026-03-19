@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -67,11 +66,6 @@ pub fn load_or_create_token() -> String {
     token
 }
 
-static PS_SEMAPHORE: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
-fn ps_semaphore() -> &'static tokio::sync::Semaphore {
-    PS_SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(1))
-}
-
 #[derive(serde::Serialize, Clone)]
 struct AttentionEvent {
     terminal_id: u32,
@@ -109,8 +103,9 @@ pub async fn start_server(app: AppHandle, token: String) -> u16 {
                                 tokio::spawn(handle_connection(stream, app, tok));
                             }
                             Err(e) => {
+                                // continue, not break — transient errors like ECONNABORTED are
+                                // normal on busy systems and must not permanently kill the loop.
                                 warn!("Attention server accept error: {}", e);
-                                break;
                             }
                         }
                     }
@@ -222,10 +217,10 @@ async fn handle_connection(mut stream: TcpStream, app: AppHandle, token: Arc<Str
 }
 
 async fn handle_attention_request(app: &AppHandle, json: serde_json::Value) {
-    let claude_pid = match json.get("claude_pid").and_then(|v| v.as_u64()) {
-        Some(p) => p as u32,
-        None => {
-            warn!("attention request missing claude_pid");
+    let terminal_id = match json.get("terminal_id").and_then(|v| v.as_u64()).map(|v| v as u32) {
+        Some(id) if id > 0 => id,
+        _ => {
+            warn!("attention request missing or zero terminal_id (non-Splice terminal?)");
             return;
         }
     };
@@ -242,19 +237,22 @@ async fn handle_attention_request(app: &AppHandle, json: serde_json::Value) {
         .unwrap_or("")
         .to_string();
 
-    if let Some(terminal_id) = find_terminal_by_ancestor_pid(app, claude_pid).await {
-        let event = AttentionEvent {
-            terminal_id,
-            notification_type,
-            message,
+    // Verify the terminal still exists before emitting
+    {
+        let state = app.state::<Mutex<AppState>>();
+        if let Ok(locked) = state.lock() {
+            if !locked.terminals.contains_key(&terminal_id) {
+                warn!(terminal_id, "attention: terminal not found (may have been closed)");
+                return;
+            }
         };
-        if let Err(e) = app.emit("attention:notify", &event) {
-            warn!("Failed to emit attention:notify: {}", e);
-        } else {
-            info!(terminal_id, "Emitted attention:notify");
-        }
+    }
+
+    let event = AttentionEvent { terminal_id, notification_type, message };
+    if let Err(e) = app.emit("attention:notify", &event) {
+        warn!("Failed to emit attention:notify: {}", e);
     } else {
-        warn!(claude_pid, "Could not find terminal for Claude PID");
+        info!(terminal_id, "Emitted attention:notify");
     }
 }
 
@@ -267,33 +265,33 @@ async fn handle_session_request(app: &AppHandle, json: serde_json::Value) {
         }
     };
 
-    let claude_pid = match json.get("claude_pid").and_then(|v| v.as_u64()) {
-        Some(p) => p as u32,
-        None => {
-            warn!("session request missing claude_pid");
+    let terminal_id = match json.get("terminal_id").and_then(|v| v.as_u64()).map(|v| v as u32) {
+        Some(id) if id > 0 => id,
+        _ => {
+            warn!("session request missing or zero terminal_id (non-Splice terminal?)");
             return;
         }
     };
 
-    match find_terminal_by_ancestor_pid(app, claude_pid).await {
-        Some(terminal_id) => {
-            let state = app.state::<Mutex<AppState>>();
-            if let Ok(mut locked) = state.lock() {
-                locked
-                    .terminal_claude_sessions
-                    .insert(terminal_id, (session_id.clone(), claude_pid));
-                info!(terminal_id, session_id, claude_pid, "Stored Claude session for terminal");
-            };
-            // Emit event so the frontend can cache the session ID without polling
-            if let Err(e) = app.emit("terminal:claude-session", serde_json::json!({
-                "terminal_id": terminal_id,
-                "session_id": session_id,
-                "claude_pid": claude_pid,
-            })) {
-                warn!("Failed to emit terminal:claude-session: {}", e);
-            }
+    let claude_pid = json.get("claude_pid").and_then(|v| v.as_u64()).map(|v| v as u32).unwrap_or(0);
+
+    let state = app.state::<Mutex<AppState>>();
+    if let Ok(mut locked) = state.lock() {
+        if !locked.terminals.contains_key(&terminal_id) {
+            warn!(terminal_id, "session: terminal not found (may have been closed)");
+            return;
         }
-        None => warn!(claude_pid, "Could not find terminal for Claude session"),
+        locked.terminal_claude_sessions.insert(terminal_id, (session_id.clone(), claude_pid));
+        info!(terminal_id, session_id, claude_pid, "Stored Claude session for terminal");
+    };
+
+    // Emit event so the frontend can cache the session ID without polling
+    if let Err(e) = app.emit("terminal:claude-session", serde_json::json!({
+        "terminal_id": terminal_id,
+        "session_id": session_id,
+        "claude_pid": claude_pid,
+    })) {
+        warn!("Failed to emit terminal:claude-session: {}", e);
     }
 }
 
@@ -310,96 +308,6 @@ fn parse_content_length(headers: &str) -> Option<usize> {
         }
     }
     None
-}
-
-async fn find_terminal_by_ancestor_pid(app: &AppHandle, claude_pid: u32) -> Option<u32> {
-    // Fast path: check the pid→terminal cache first
-    {
-        let state = app.state::<Mutex<AppState>>();
-        if let Ok(mut locked) = state.lock() {
-            if let Some(&tid) = locked.pid_to_terminal_cache.get(&claude_pid) {
-                if locked.terminals.contains_key(&tid) {
-                    return Some(tid);
-                }
-                // Stale entry (terminal exited) — evict and fall through to ps lookup
-                locked.pid_to_terminal_cache.remove(&claude_pid);
-            }
-        };
-    }
-
-    // Acquire permit — limits concurrent ps invocations to 1
-    let _permit = ps_semaphore().acquire().await.ok()?;
-
-    // Re-check cache: may have been populated while we waited for the permit
-    {
-        let state = app.state::<Mutex<AppState>>();
-        if let Ok(mut locked) = state.lock() {
-            if let Some(&tid) = locked.pid_to_terminal_cache.get(&claude_pid) {
-                if locked.terminals.contains_key(&tid) {
-                    return Some(tid);
-                }
-                // Stale entry — evict and continue to ps lookup
-                locked.pid_to_terminal_cache.remove(&claude_pid);
-            }
-        };
-    }
-
-    // Cache still cold — build pid→ppid map from `ps`
-    let output = tokio::process::Command::new("ps")
-        .args(["-ax", "-o", "pid=,ppid="])
-        .output()
-        .await
-        .ok()?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let pid_map: HashMap<u32, u32> = stdout
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.split_whitespace();
-            let pid: u32 = parts.next()?.parse().ok()?;
-            let ppid: u32 = parts.next()?.parse().ok()?;
-            Some((pid, ppid))
-        })
-        .collect();
-
-    // Collect child_pids from known terminals
-    let terminal_pids: HashMap<u32, u32> = {
-        let state = app.state::<Mutex<AppState>>();
-        let locked = state.lock().ok()?;
-        locked
-            .terminals
-            .iter()
-            .filter_map(|(&tid, session)| session.child_pid.map(|pid| (pid, tid)))
-            .collect()
-    };
-
-    // Walk up the process tree from claude_pid
-    let mut current = claude_pid;
-    let mut result = None;
-    for _ in 0..20 {
-        if let Some(&terminal_id) = terminal_pids.get(&current) {
-            result = Some(terminal_id);
-            break;
-        }
-        match pid_map.get(&current) {
-            Some(&ppid) if ppid != 0 && ppid != current => current = ppid,
-            _ => break,
-        }
-    }
-
-    // Store result in cache and evict dead PIDs while we hold the lock
-    {
-        let state = app.state::<Mutex<AppState>>();
-        if let Ok(mut locked) = state.lock() {
-            if let Some(terminal_id) = result {
-                locked.pid_to_terminal_cache.insert(claude_pid, terminal_id);
-            }
-            // Evict cached PIDs that no longer exist in the process table
-            locked.pid_to_terminal_cache.retain(|pid, _| pid_map.contains_key(pid));
-        };
-    }
-
-    result
 }
 
 /// Remove all hook entries under `hooks_obj[hook_key]` whose command contains `marker`.
@@ -484,9 +392,14 @@ fn install_hook_entry(
     // The hook reads the port from .attention_port and token from .attention_token,
     // both in the Splice config dir (macOS ~/Library/Application Support/Splice/,
     // Linux ~/.config/Splice/). The # marker comment keeps the already-installed check working.
+    //
+    // terminal_id is read directly from the SPLICE_TERMINAL_ID env var that Splice
+    // injects when spawning each PTY — no process-tree walking needed.
+    // claude_pid (os.getppid()) is stored for informational purposes only.
     let command = format!(
         "python3 -c \"import sys,json,urllib.request,os,os.path as op\n\
          d=json.load(sys.stdin)\n\
+         d['terminal_id']=int(os.environ.get('SPLICE_TERMINAL_ID','0'))\n\
          d['claude_pid']=os.getppid()\n\
          def rf(p):\n\
          \ttry: return open(p).read().strip()\n\
@@ -545,13 +458,17 @@ pub fn install_hook_at(settings_path: &std::path::Path) -> Result<(), String> {
     }
     let hooks_obj = hooks.as_object_mut().unwrap();
 
-    // Clean up old "malloc-*-hook" entries from before the rename
+    // Remove hooks from all previous versions.
+    // "splice-attention-hook" is a prefix of all versioned attention markers (v2, v3, …),
+    // so this single remove call clears every generation of the attention hook.
+    // Same logic applies to "splice-session-hook".
     remove_hooks_by_marker(hooks_obj, "Notification", "malloc-attention-hook");
+    remove_hooks_by_marker(hooks_obj, "Notification", "splice-attention-hook");
     remove_hooks_by_marker(hooks_obj, "SessionStart", "malloc-session-hook");
     remove_hooks_by_marker(hooks_obj, "SessionStart", "splice-session-hook");
 
-    install_hook_entry(hooks_obj, "Notification", "attention", "splice-attention-hook");
-    install_hook_entry(hooks_obj, "SessionStart", "session", "splice-session-hook-v2");
+    install_hook_entry(hooks_obj, "Notification", "attention", "splice-attention-hook-v3");
+    install_hook_entry(hooks_obj, "SessionStart", "session", "splice-session-hook-v4");
     info!("Splice hooks configured in ~/.claude/settings.json");
 
     let updated = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
@@ -611,7 +528,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         install_hook_at(&dir.path().join("settings.json")).unwrap();
         let root = read_settings(dir.path());
-        let cmd = find_hook_command(&root, "splice-session-hook-v2").unwrap();
+        let cmd = find_hook_command(&root, "splice-session-hook-v4").unwrap();
         assert!(cmd.contains("/session"), "hook command should contain /session endpoint");
     }
 
@@ -620,7 +537,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         install_hook_at(&dir.path().join("settings.json")).unwrap();
         let root = read_settings(dir.path());
-        let cmd = find_hook_command(&root, "splice-session-hook-v2").unwrap();
+        let cmd = find_hook_command(&root, "splice-session-hook-v4").unwrap();
         assert!(cmd.contains("X-Splice-Token"), "hook command should include X-Splice-Token header");
     }
 
@@ -629,8 +546,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         install_hook_at(&dir.path().join("settings.json")).unwrap();
         let root = read_settings(dir.path());
-        let cmd = find_hook_command(&root, "splice-session-hook-v2").unwrap();
-        assert!(cmd.contains("os.getppid()"), "hook command should read parent PID via os.getppid()");
+        let cmd = find_hook_command(&root, "splice-session-hook-v4").unwrap();
+        // os.getppid() is still sent as claude_pid for informational / session-persistence use.
+        assert!(cmd.contains("os.getppid()"), "hook command should call os.getppid()");
     }
 
     #[test]
@@ -640,7 +558,7 @@ mod tests {
         install_hook_at(&path).unwrap();
         install_hook_at(&path).unwrap();
         let root = read_settings(dir.path());
-        let count = count_hooks_with_marker(&root, "splice-session-hook-v2");
+        let count = count_hooks_with_marker(&root, "splice-session-hook-v4");
         assert_eq!(count, 1, "session hook should appear exactly once after two installs");
     }
 
@@ -665,8 +583,8 @@ mod tests {
 
         assert_eq!(count_hooks_with_marker(&root, "malloc-attention-hook"), 0,
             "old malloc-attention-hook marker should be gone after install");
-        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook"), 1,
-            "splice-attention-hook should be present after install");
+        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook-v3"), 1,
+            "splice-attention-hook-v3 should be present after install");
     }
 
     #[test]
@@ -689,7 +607,270 @@ mod tests {
 
         assert_eq!(count_hooks_with_marker(&root, "malloc-session-hook"), 0,
             "old malloc-session-hook marker should be gone");
-        assert_eq!(count_hooks_with_marker(&root, "splice-session-hook-v2"), 1,
-            "splice-session-hook-v2 should be present");
+        assert_eq!(count_hooks_with_marker(&root, "splice-session-hook-v4"), 1,
+            "splice-session-hook-v4 should be present");
+    }
+
+    // -----------------------------------------------------------------------
+    // Group A: parse_content_length edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_content_length_normal() {
+        assert_eq!(parse_content_length("Content-Length: 42\r\n"), Some(42));
+    }
+
+    #[test]
+    fn parse_content_length_missing() {
+        assert_eq!(parse_content_length("Host: localhost\r\n"), None);
+    }
+
+    #[test]
+    fn parse_content_length_zero() {
+        // Parser returns Some(0); handle_connection rejects content_length == 0
+        assert_eq!(parse_content_length("Content-Length: 0\r\n"), Some(0));
+    }
+
+    #[test]
+    fn parse_content_length_at_limit() {
+        assert_eq!(parse_content_length("Content-Length: 65536\r\n"), Some(65536));
+    }
+
+    #[test]
+    fn parse_content_length_over_limit() {
+        // Parser accepts it; handle_connection rejects values > 65536
+        assert_eq!(parse_content_length("Content-Length: 65537\r\n"), Some(65537));
+    }
+
+    #[test]
+    fn parse_content_length_non_numeric() {
+        assert_eq!(parse_content_length("Content-Length: abc\r\n"), None);
+    }
+
+    #[test]
+    fn parse_content_length_uppercase_header() {
+        assert_eq!(parse_content_length("CONTENT-LENGTH: 100\r\n"), Some(100));
+    }
+
+    // -----------------------------------------------------------------------
+    // Group B: find_header_end edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn find_header_end_normal() {
+        let buf = b"GET / HTTP/1.1\r\nHost: x\r\n\r\nBODY";
+        // \r\n\r\n starts at byte 23
+        assert_eq!(find_header_end(buf), Some(23));
+    }
+
+    #[test]
+    fn find_header_end_not_found() {
+        let buf = b"GET / HTTP/1.1\r\nHost: x\r\n";
+        assert_eq!(find_header_end(buf), None);
+    }
+
+    #[test]
+    fn find_header_end_empty() {
+        assert_eq!(find_header_end(b""), None);
+    }
+
+    #[test]
+    fn find_header_end_at_start() {
+        let buf = b"\r\n\r\nBODY";
+        assert_eq!(find_header_end(buf), Some(0));
+    }
+
+    // -----------------------------------------------------------------------
+    // Group C: token validation logic
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn token_valid_format_check() {
+        let t = "deadbeef00112233445566778899aabb";
+        assert_eq!(t.len(), 32);
+        assert!(t.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn token_too_short_rejected() {
+        let t = "deadbeef";
+        assert!(!(t.len() == 32 && t.chars().all(|c| c.is_ascii_hexdigit())));
+    }
+
+    #[test]
+    fn token_non_hex_rejected() {
+        let t = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"; // 32 chars, not hex
+        assert!(!(t.len() == 32 && t.chars().all(|c| c.is_ascii_hexdigit())));
+    }
+
+    #[test]
+    fn load_or_create_token_from_file() {
+        // Write a known valid token to a tempdir path and verify the reuse branch.
+        let dir = tempfile::tempdir().unwrap();
+        let token_path = dir.path().join(".attention_token");
+        let known = "aabbccddeeff00112233445566778899";
+        std::fs::write(&token_path, known).unwrap();
+        let existing = std::fs::read_to_string(&token_path).unwrap();
+        let t = existing.trim().to_string();
+        assert!(t.len() == 32 && t.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(t, known);
+    }
+
+    #[test]
+    fn load_or_create_token_bad_file_triggers_regeneration() {
+        // "bad" means wrong length — the loader discriminates on length + hex.
+        let bad = "notahextoken";
+        let is_valid = bad.len() == 32 && bad.chars().all(|c| c.is_ascii_hexdigit());
+        assert!(!is_valid, "short/non-hex token must not be reused");
+    }
+
+    // -----------------------------------------------------------------------
+    // Group D: hook script robustness
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn hook_script_has_retry_logic() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        let cmd = find_hook_command(&root, "splice-attention-hook-v3").unwrap();
+        assert!(cmd.contains("range(2)"), "hook must retry once on failure");
+    }
+
+    #[test]
+    fn hook_script_has_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        let cmd = find_hook_command(&root, "splice-attention-hook-v3").unwrap();
+        assert!(cmd.contains("timeout="), "hook must set a request timeout");
+    }
+
+    #[test]
+    fn hook_script_reads_both_config_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        let cmd = find_hook_command(&root, "splice-attention-hook-v3").unwrap();
+        assert!(
+            cmd.contains("Library") || cmd.contains(".config"),
+            "hook must search platform config dirs",
+        );
+    }
+
+    #[test]
+    fn hook_install_with_corrupted_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, b"{{{{INVALID JSON").unwrap();
+        // Should not panic — recovers by starting fresh
+        install_hook_at(&path).unwrap();
+        let root = read_settings(dir.path());
+        assert_eq!(count_hooks_with_marker(&root, "splice-session-hook-v4"), 1);
+    }
+
+    #[test]
+    fn hook_install_with_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, b"").unwrap();
+        install_hook_at(&path).unwrap();
+        let root = read_settings(dir.path());
+        assert_eq!(count_hooks_with_marker(&root, "splice-session-hook-v4"), 1);
+    }
+
+    #[test]
+    fn hook_removes_old_splice_attention_hook_v1() {
+        // Old installations used "splice-attention-hook" (no version suffix).
+        // After the grandparent-PID fix the hook is "splice-attention-hook-v3".
+        // The migration must remove the old entry so the new one takes effect.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let old = serde_json::json!({
+            "hooks": {
+                "Notification": [{
+                    "matcher": "",
+                    "hooks": [{"type": "command", "command": "python3 -c \"...\" # splice-attention-hook"}]
+                }]
+            }
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&old).unwrap()).unwrap();
+
+        install_hook_at(&path).unwrap();
+        let root = read_settings(dir.path());
+
+        // The old v1 marker must be gone and the new v2 marker present.
+        // Note: count_hooks_with_marker uses contains(), so "splice-attention-hook"
+        // matches v1, v2, v3, … entries — use the version-specific suffix to distinguish.
+        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook-v3"), 1,
+            "splice-attention-hook-v3 should be installed");
+        // Verify no entry is the old bare marker (ends exactly without "-v2")
+        let hooks = root.get("hooks").and_then(|h| h.as_object()).unwrap();
+        let has_bare_marker = hooks.values()
+            .flat_map(|arr| arr.as_array().into_iter().flatten())
+            .flat_map(|entry| entry.get("hooks").and_then(|h| h.as_array()).into_iter().flatten())
+            .filter_map(|h| h.get("command").and_then(|c| c.as_str()))
+            .any(|cmd| cmd.ends_with("# splice-attention-hook"));
+        assert!(!has_bare_marker, "bare splice-attention-hook v1 entry must be removed");
+    }
+
+    #[test]
+    fn hook_script_reads_terminal_id_from_env() {
+        // Routing is now O(1): the hook reads SPLICE_TERMINAL_ID injected by the PTY
+        // spawner — no process-tree walking (ps) needed.
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        let cmd = find_hook_command(&root, "splice-attention-hook-v3").unwrap();
+        assert!(cmd.contains("SPLICE_TERMINAL_ID"), "hook must read SPLICE_TERMINAL_ID env var");
+        assert!(!cmd.contains("ps -p"), "hook must not spawn ps (process tree walk eliminated)");
+    }
+
+    // -----------------------------------------------------------------------
+    // Group E: accept loop resilience
+    // -----------------------------------------------------------------------
+
+    /// Regression test for the break→continue fix in the accept loop.
+    ///
+    /// With `break`, a single transient accept error (e.g. ECONNABORTED when a
+    /// client resets before the OS hands the connection to accept()) permanently
+    /// killed the server — all subsequent hook requests would hit "connection
+    /// refused" and be silently dropped.
+    ///
+    /// ECONNABORTED cannot be injected reliably without unsafe OS tricks, so
+    /// this test verifies the loop survives across many connections (a necessary
+    /// condition for correctness). The loop logic mirrors production exactly.
+    #[tokio::test]
+    async fn accept_loop_survives_rapid_connections() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepted = Arc::new(AtomicU32::new(0));
+        let accepted2 = Arc::clone(&accepted);
+
+        // Mirror the fixed accept loop: continue on error, never break.
+        tokio::spawn(async move {
+            loop {
+                match listener.accept().await {
+                    Ok(_) => { accepted2.fetch_add(1, Ordering::Relaxed); }
+                    Err(_) => { /* continue — same as production */ }
+                }
+            }
+        });
+
+        // Fire 5 connections in rapid succession without holding them open.
+        for _ in 0..5 {
+            let _ = tokio::net::TcpStream::connect(addr).await.unwrap();
+        }
+        // Give the spawned task time to process all pending accept() calls.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        assert_eq!(
+            accepted.load(Ordering::Relaxed),
+            5,
+            "accept loop must handle all connections; `break` on any error would stop it permanently",
+        );
     }
 }

@@ -1,4 +1,5 @@
 import { lspStart, lspNotify, lspRequest, lspCheck, lspInstall } from "../ipc/commands";
+import { pushToast } from "../stores/toasts.svelte";
 
 export interface LspCompletionItem {
   label: string;
@@ -38,12 +39,13 @@ export interface CodeAction {
   command?: { command: string; arguments?: unknown[] };
 }
 
-class LspClient {
+export class LspClient {
   private docVersions = new Map<string, number>();
   private startPromises = new Map<string, Promise<void>>();
   private openPromises = new Map<string, Promise<void>>();
   private runningLanguages = new Set<string>();
   private checkedLanguages = new Set<string>();
+  private failedLanguages = new Set<string>();
 
   getLanguageId(filePath: string): string | null {
     const dot = filePath.lastIndexOf(".");
@@ -81,6 +83,7 @@ class LspClient {
 
   async ensureStarted(languageId: string, workspaceRoot: string): Promise<void> {
     if (this.runningLanguages.has(languageId)) return;
+    if (this.failedLanguages.has(languageId)) throw new Error(`${languageId} LSP unavailable`);
     // If a start is in flight, wait for it instead of issuing a second one
     const existing = this.startPromises.get(languageId);
     if (existing) {
@@ -94,8 +97,16 @@ class LspClient {
       })
       .catch((err) => {
         this.startPromises.delete(languageId);
+        this.failedLanguages.add(languageId);
+        const msg = String(err);
+        // Extract executable name from "Failed to spawn /path/to/exe: reason"
+        const exeMatch = msg.match(/spawn\s+\S+\/(\S+?):/);
+        const reason = msg.includes("No such file") ? "not found" :
+                       msg.includes("Permission denied") ? "permission denied" :
+                       "failed to start";
+        const hint = exeMatch ? `${exeMatch[1]}: ${reason}` : reason;
+        pushToast(`${languageId} LSP: ${hint}`, "warning", 8000);
         console.error(`[LSP] ${languageId} failed to start:`, err);
-        // Re-throw so callers can surface the message
         throw err;
       });
     this.startPromises.set(languageId, p);
@@ -194,6 +205,7 @@ class LspClient {
   async didChange(filePath: string, content: string): Promise<void> {
     const languageId = this.getLanguageId(filePath);
     if (!languageId) return;
+    if (!this.docVersions.has(filePath)) return;
     const version = (this.docVersions.get(filePath) ?? 1) + 1;
     this.docVersions.set(filePath, version);
     await lspNotify(languageId, "textDocument/didChange", {

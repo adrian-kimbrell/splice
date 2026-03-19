@@ -24,7 +24,7 @@
     activePaneId = null,
     onPaneClick,
   }: {
-    node: LayoutNode;
+    node: LayoutNode | null | undefined;
     panes: Record<string, PaneConfig>;
     paneSnippet: Snippet<[PaneConfig]>;
     isRoot?: boolean;
@@ -37,14 +37,14 @@
   let leafEl = $state<HTMLDivElement>();
 
   const myDropZone = $derived.by(() => {
-    if (node.type !== "leaf") return null;
+    if (!node || node.type !== "leaf") return null;
     const hoverId = getHoverPaneId();
     if (hoverId !== node.paneId) return null;
     return getHoverZone();
   });
 
   $effect(() => {
-    if (node.type !== "leaf" || !leafEl) return;
+    if (!node || node.type !== "leaf" || !leafEl) return;
     const paneId = node.paneId;
     const el = leafEl;
     registerPane(paneId, el);
@@ -53,7 +53,7 @@
 
 
   function handleMouseDown(e: MouseEvent) {
-    if (node.type !== "split") return;
+    if (!node || node.type !== "split") return;
     if (isCornerDragActive()) return;
     e.preventDefault();
     dragging = true;
@@ -62,7 +62,7 @@
     if (!rect) return;
 
     function handleMouseMove(e: MouseEvent) {
-      if (!rect || node.type !== "split") return;
+      if (!rect || !node || node.type !== "split") return;
       let ratio: number;
       if (node.direction === "horizontal") {
         ratio = (e.clientX - rect.left) / rect.width;
@@ -102,6 +102,7 @@
   const gy = $derived(getGhostY());
 </script>
 
+{#if node}
 {#if node.type === "leaf"}
   {@const config = panes[node.paneId]}
   {#if config}
@@ -178,6 +179,7 @@
       <PaneGrid node={node.children[1]} {panes} {paneSnippet} {activePaneId} {onPaneClick} />
     </div>
   </div>
+{/if}
 {/if}
 
 {#if showGhost}

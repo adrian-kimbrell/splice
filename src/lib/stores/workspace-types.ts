@@ -2,6 +2,14 @@ import type { FileEntry, OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
 import { MAX_SPLIT_DEPTH } from "./layout.svelte";
 
+export interface SshConfig {
+  host: string;
+  port: number;
+  user: string;
+  keyPath: string;
+  remotePath: string;
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -27,6 +35,9 @@ export interface Workspace {
   // UI state per workspace
   explorerVisible: boolean;
   nameManuallySet?: boolean;
+
+  // SSH remote workspace config (null = local workspace)
+  sshConfig?: SshConfig | null;
 }
 
 export function generateId(): string {
@@ -130,8 +141,13 @@ export async function fetchGitBranchImpl(ws: Workspace): Promise<void> {
 export async function loadFileTreeImpl(ws: Workspace): Promise<void> {
   if (!ws.rootPath) return;
   try {
-    const { readDirTree } = await import("../ipc/commands");
-    ws.fileTree = await readDirTree(ws.rootPath);
+    if (ws.sshConfig) {
+      const { sftpListDir } = await import("../ipc/commands");
+      ws.fileTree = await sftpListDir(ws.id, ws.rootPath);
+    } else {
+      const { readDirTree } = await import("../ipc/commands");
+      ws.fileTree = await readDirTree(ws.rootPath);
+    }
   } catch (e) {
     console.error("Failed to load file tree:", e);
   }

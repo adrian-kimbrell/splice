@@ -6,9 +6,13 @@ use tauri::State;
 extern crate libc;
 
 fn config_dir() -> std::path::PathBuf {
+    #[cfg(debug_assertions)]
+    let name = "Splice-dev";
+    #[cfg(not(debug_assertions))]
+    let name = "Splice";
     let dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("Splice");
+        .join(name);
     std::fs::create_dir_all(&dir).ok();
     dir
 }
@@ -253,8 +257,6 @@ pub fn close_workspace(
             state.terminals.remove(tid);
             state.terminal_claude_sessions.remove(tid);
         }
-        state.pid_to_terminal_cache.retain(|_, cached_tid| !terminal_ids.contains(cached_tid));
-
         // Modify workspace list and compute active_roots in inner block
         // so that the mutable borrow of window_workspaces is released
         // before we mutably borrow allowed_roots.

@@ -449,8 +449,14 @@ body.corner-dragging * { cursor: move !important; }
 }
 
 /* Welcome screen */
+@keyframes welcome-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .welcome-container {
   width: 380px;
+  animation: welcome-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .welcome-header {
   display: flex;

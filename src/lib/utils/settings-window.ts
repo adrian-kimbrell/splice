@@ -23,6 +23,7 @@ export async function openSettingsWindow(): Promise<void> {
       minHeight: 360,
       resizable: true,
       center: true,
+      backgroundColor: { red: 30, green: 30, blue: 30, alpha: 255 },
     });
   } catch (e) {
     console.error("Failed to open settings window:", e);

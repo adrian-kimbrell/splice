@@ -3,6 +3,7 @@ use crate::workspace::layout::{Settings, Workspace};
 use notify::RecommendedWatcher;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub struct AppState {
     pub terminals: HashMap<u32, PtySession>,
@@ -17,10 +18,10 @@ pub struct AppState {
     /// terminal_id → (session_id, claude_pid)
     /// claude_pid lets us verify Claude is still running at persist time.
     pub terminal_claude_sessions: HashMap<u32, (String, u32)>,
-    /// claude_pid → terminal_id cache to avoid spawning `ps` on every notification
-    pub pid_to_terminal_cache: HashMap<u32, u32>,
     /// language_id → active LSP session
     pub lsp_sessions: HashMap<String, crate::lsp::LspSession>,
+    /// workspace_id → established SSH ControlMaster session
+    pub ssh_sessions: HashMap<String, Arc<openssh::Session>>,
 }
 
 impl AppState {
@@ -39,8 +40,8 @@ impl AppState {
             attention_port: None,
             watchers: HashMap::new(),
             terminal_claude_sessions: HashMap::new(),
-            pid_to_terminal_cache: HashMap::new(),
             lsp_sessions: HashMap::new(),
+            ssh_sessions: HashMap::new(),
         }
     }
 }

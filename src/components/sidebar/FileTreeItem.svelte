@@ -15,6 +15,7 @@
     refreshGeneration = 0,
     inlineCreateDir = null,
     inlineCreateType = null,
+    sshWorkspaceId = null,
     onInlineCreateSubmit,
     onInlineCreateCancel,
   }: {
@@ -29,6 +30,7 @@
     refreshGeneration?: number;
     inlineCreateDir?: string | null;
     inlineCreateType?: "file" | "folder" | null;
+    sshWorkspaceId?: string | null;
     onInlineCreateSubmit?: (value: string) => void;
     onInlineCreateCancel?: () => void;
   } = $props();
@@ -86,8 +88,14 @@
   async function reloadChildren() {
     loading = true;
     try {
-      const { readDirTree } = await import("../../lib/ipc/commands");
-      const result = await readDirTree(entry.path);
+      let result: FileEntry[];
+      if (sshWorkspaceId) {
+        const { sftpListDir } = await import("../../lib/ipc/commands");
+        result = await sftpListDir(sshWorkspaceId, entry.path);
+      } else {
+        const { readDirTree } = await import("../../lib/ipc/commands");
+        result = await readDirTree(entry.path);
+      }
       entry.children = result;
       children = result;
     } catch (e) {
@@ -102,8 +110,14 @@
     if (expanded && !children) {
       loading = true;
       try {
-        const { readDirTree } = await import("../../lib/ipc/commands");
-        const result = await readDirTree(entry.path);
+        let result: FileEntry[];
+        if (sshWorkspaceId) {
+          const { sftpListDir } = await import("../../lib/ipc/commands");
+          result = await sftpListDir(sshWorkspaceId, entry.path);
+        } else {
+          const { readDirTree } = await import("../../lib/ipc/commands");
+          result = await readDirTree(entry.path);
+        }
         entry.children = result;
         children = result;
       } catch (e) {
@@ -207,6 +221,7 @@
       {refreshGeneration}
       {inlineCreateDir}
       {inlineCreateType}
+      {sshWorkspaceId}
       {onInlineCreateSubmit}
       {onInlineCreateCancel}
     />

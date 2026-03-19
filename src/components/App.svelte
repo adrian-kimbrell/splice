@@ -7,6 +7,7 @@
   import PaneGrid from "./panes/PaneGrid.svelte";
   import TopBar from "./topbar/TopBar.svelte";
   import CommandPalette from "./overlays/CommandPalette.svelte";
+  import SshConnectForm from "./overlays/SshConnectForm.svelte";
   import Toasts from "./overlays/Toasts.svelte";
   import { openSettingsWindow } from "../lib/utils/settings-window";
   import { openNewWindow } from "../lib/utils/new-window";
@@ -310,6 +311,34 @@
     return workspace.openFileIndex[activePath]?.content ?? "";
   }
 
+  function toastFileReadError(path: string, e: unknown): void {
+    const name = path.split("/").pop() ?? path;
+    const msg = String(e);
+    let detail: string;
+    if (msg.includes("not valid UTF-8") || msg.includes("not a text file")) {
+      detail = "not a text file";
+    } else if (msg.includes("Permission denied") || msg.includes("permission denied")) {
+      detail = "permission denied";
+    } else if (msg.includes("No such file") || msg.includes("not found")) {
+      detail = "file not found";
+    } else {
+      // Include the raw message for unknown errors (trimmed to keep toast short)
+      const raw = msg.replace(/^Error:\s*/, "").slice(0, 120);
+      detail = raw || "read failed";
+    }
+    pushToast(`Cannot open "${name}": ${detail}`, "error", 6000);
+    console.error("Failed to read file:", e);
+  }
+
+  async function readFileForWs(path: string): Promise<string> {
+    if (ws?.sshConfig) {
+      const { sftpReadFile } = await import("../lib/ipc/commands");
+      return sftpReadFile(ws.id, path);
+    }
+    const { readFile } = await getCommands();
+    return readFile(path);
+  }
+
   async function handleFileClick(entry: FileEntry) {
     selectedFilePath = entry.path;
     if (entry.is_dir) return;
@@ -317,7 +346,7 @@
     try {
       // Use cached content if file is already open
       const existing = ws?.openFileIndex[entry.path];
-      const content = existing ? existing.content : await getCommands().then(c => c.readFile(entry.path));
+      const content = existing ? existing.content : await readFileForWs(entry.path);
       workspaceManager.openFileInWorkspace({
         name: entry.name,
         path: entry.path,
@@ -326,7 +355,7 @@
       });
       addRecentFile(entry.path);
     } catch (e) {
-      console.error("Failed to read file:", e);
+      toastFileReadError(entry.path, e);
     }
   }
 
@@ -337,7 +366,7 @@
     try {
       // Use cached content if file is already open
       const existing = ws?.openFileIndex[entry.path];
-      const content = existing ? existing.content : await getCommands().then(c => c.readFile(entry.path));
+      const content = existing ? existing.content : await readFileForWs(entry.path);
       workspaceManager.openFileInWorkspace({
         name: entry.name,
         path: entry.path,
@@ -346,7 +375,7 @@
       });
       addRecentFile(entry.path);
     } catch (e) {
-      console.error("Failed to read file:", e);
+      toastFileReadError(entry.path, e);
     }
   }
 
@@ -388,6 +417,8 @@
   }
 
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+  let showSshForm = $state(false);
 
   const taglines = [
     "A modern code editor",
@@ -627,13 +658,12 @@
       if (filePath.endsWith("/")) continue;
 
       try {
-        const { readFile } = await getCommands();
-        const content = await readFile(filePath);
+        const content = await readFileForWs(filePath);
         const name = filePath.split("/").pop() ?? "untitled";
         workspaceManager.openFileInWorkspace({ name, path: filePath, content });
         addRecentFile(filePath);
       } catch (e) {
-        console.error("Failed to open dropped file:", e);
+        toastFileReadError(filePath, e);
       }
     }
   }
@@ -671,15 +701,15 @@
         if (!workspaceManager.activeWorkspace) {
           workspaceManager.createEmptyWorkspace();
         }
-        const { readFile } = await getCommands();
         const filePath = selected as string;
-        const content = await readFile(filePath);
+        const content = await readFileForWs(filePath);
         const name = filePath.split("/").pop() ?? "untitled";
         workspaceManager.openFileInWorkspace({ name, path: filePath, content });
         addRecentFile(filePath);
       }
     } catch (e) {
-      console.error("Failed to open file:", e);
+      if (e && typeof e === "object" && "message" in e && String((e as {message:unknown}).message).includes("cancelled")) return;
+      toastFileReadError("", e);
     }
   }
 
@@ -691,15 +721,6 @@
     }
   });
 
-  // Sync sidebar visibility to the active workspace whenever it changes
-  $effect(() => {
-    const wsId = workspaceManager.activeWorkspaceId;
-    const visible = ui.explorerVisible;
-    if (wsId) {
-      const w = workspaceManager.workspaces[wsId];
-      if (w && w.explorerVisible !== visible) w.explorerVisible = visible;
-    }
-  });
 
   // Apply theme and UI scale when appearance settings change
   $effect(() => {
@@ -807,7 +828,7 @@
         const existing = workspaceManager.activeWorkspace?.openFileIndex[filePath];
         const content = existing
           ? existing.content
-          : await getCommands().then((c) => c.readFile(filePath));
+          : await readFileForWs(filePath);
         workspaceManager.openFileInWorkspace({ name, path: filePath, content, preview: false });
       },
       /** Directly mark the active file in the active pane as dirty (for E2E tests). */
@@ -851,6 +872,38 @@
         } catch {
           return null;
         }
+      },
+      /** Benchmark tab switching FPS over N rAF-timed iterations across open files. */
+      benchmarkTabSwitching: async (iterations = 200) => {
+        const ws = workspaceManager.activeWorkspace;
+        if (!ws || !ws.activePaneId) return "No active workspace/pane";
+        const pane = ws.panes[ws.activePaneId];
+        if (!pane || pane.kind !== "editor") return "Active pane is not an editor";
+        const paths = Object.keys(ws.openFileIndex);
+        if (paths.length < 2) return "Open at least 2 files first";
+
+        let i = 0;
+        let frames = 0;
+        const start = performance.now();
+
+        await new Promise<void>((resolve) => {
+          function step() {
+            workspaceManager.setActiveFileInWorkspace(paths[i % paths.length], ws!.activePaneId!);
+            i++;
+            frames++;
+            if (frames < iterations) {
+              requestAnimationFrame(step);
+            } else {
+              resolve();
+            }
+          }
+          requestAnimationFrame(step);
+        });
+
+        const elapsed = performance.now() - start;
+        const fps = (frames / (elapsed / 1000)).toFixed(1);
+        console.log(`Tab switching: ${fps} FPS over ${frames} switches across ${paths.length} files (${elapsed.toFixed(0)}ms total)`);
+        return `${fps} FPS`;
       },
     };
     const stopGitPolling = workspaceManager.startGitBranchPolling();
@@ -997,6 +1050,7 @@
       listen<string>("file:changed", async (event) => {
         const changedPath = event.payload;
         for (const ws of Object.values(workspaceManager.workspaces)) {
+          if (ws.sshConfig) continue; // remote paths won't fire local watcher events
           const file = ws.openFileIndex[changedPath];
           if (!file) continue;
           if (file.dirty) {
@@ -1027,7 +1081,7 @@
               workspaceManager.loadFileTree(wsId);
             }
           }
-        }, 300);
+        }, 50);
       }).then((fn) => { unlistenTreeChanged = fn; });
 
       // Listen for native file drag-and-drop
@@ -1133,9 +1187,10 @@
         onFileClick={handleFileClick}
         onFileDoubleClick={handleFileDoubleClick}
         selectedPath={selectedFilePath}
-        hasFolder={!!ws?.rootPath}
+        hasFolder={!!ws?.rootPath || !!ws?.sshConfig}
         hasWorkspace={!!ws}
         rootPath={ws?.rootPath ?? ""}
+        sshWorkspaceId={ws?.sshConfig ? ws.id : null}
         side="left"
       />
     {:else}
@@ -1161,7 +1216,7 @@
   <div class="flex flex-col overflow-hidden min-w-0" style="grid-column: 3; grid-row: 1">
     {#each Object.entries(workspaceManager.workspaces) as [wsId, workspace] (wsId)}
       {@const isActive = wsId === workspaceManager.activeWorkspaceId}
-      {@const hasContent = workspace.rootPath || workspace.layout !== null}
+      {@const hasContent = workspace.rootPath || workspace.layout !== null || workspace.sshConfig}
       <div
         class="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0"
         style:display={isActive ? "flex" : "none"}
@@ -1234,6 +1289,7 @@
           </div>
           {/if}
         {:else}
+          {#if !showSshForm}
           <div class="flex-1 flex items-center justify-center">
             <div class="text-center">
               <i class="bi bi-file-earmark-plus text-3xl text-txt-dim mb-3 block"></i>
@@ -1253,9 +1309,16 @@
                   <i class="bi bi-terminal"></i>
                   <span style="flex: none;">Terminal</span>
                 </button>
+                {#if isTauri}
+                  <button class="welcome-item welcome-item-compact" onclick={() => showSshForm = true}>
+                    <i class="bi bi-hdd-network"></i>
+                    <span style="flex: none;">Connect to Remote</span>
+                  </button>
+                {/if}
               </div>
             </div>
           </div>
+        {/if}
         {/if}
       </div>
     {:else}
@@ -1340,9 +1403,10 @@
         onFileClick={handleFileClick}
         onFileDoubleClick={handleFileDoubleClick}
         selectedPath={selectedFilePath}
-        hasFolder={!!ws?.rootPath}
+        hasFolder={!!ws?.rootPath || !!ws?.sshConfig}
         hasWorkspace={!!ws}
         rootPath={ws?.rootPath ?? ""}
+        sshWorkspaceId={ws?.sshConfig ? ws.id : null}
         side="right"
       />
     {:else}
@@ -1356,6 +1420,9 @@
   <!-- OVERLAYS -->
   <CommandPalette />
   <Toasts />
+  {#if showSshForm && workspaceManager.activeWorkspace}
+    <SshConnectForm workspace={workspaceManager.activeWorkspace} onclose={() => showSshForm = false} />
+  {/if}
 </div>
 
 <!-- Left edge drawer trigger -->

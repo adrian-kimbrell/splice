@@ -81,15 +81,15 @@ export function openFileInWorkspace(ws: Workspace, file: OpenFile, targetPaneId?
       // Handle preview→pin promotion if needed
       if (existing.preview && !file.preview) existing.preview = false;
       // Re-register watcher in case it was dropped (e.g. after an unwatch/reconnect)
-      if (!file.path.startsWith("untitled-")) {
+      if (!file.path.startsWith("untitled-") && !ws.sshConfig) {
         import("../ipc/commands").then(({ watchPath }) => watchPath(file.path)).catch(() => {});
       }
       return;
     }
   }
 
-  // Watch file for external changes
-  if (!file.path.startsWith("untitled-")) {
+  // Watch file for external changes (local workspaces only)
+  if (!file.path.startsWith("untitled-") && !ws.sshConfig) {
     import("../ipc/commands").then(({ watchPath }) => watchPath(file.path)).catch(() => {});
   }
 
@@ -126,7 +126,7 @@ export function openFileInWorkspace(ws: Workspace, file: OpenFile, targetPaneId?
           const fileIdx = ws.openFiles.findIndex((f) => f.path === oldPreviewPath);
           if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
           delete ws.openFileIndex[oldPreviewPath];
-          if (!oldPreviewPath.startsWith("untitled-")) {
+          if (!oldPreviewPath.startsWith("untitled-") && !ws.sshConfig) {
             import("../ipc/commands").then(({ unwatchPath }) => unwatchPath(oldPreviewPath)).catch(() => {});
           }
         }
@@ -189,8 +189,8 @@ export function closeFileInWorkspace(ws: Workspace, path: string, paneId?: strin
     const fileIdx = ws.openFiles.findIndex((f) => f.path === path);
     if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
     delete ws.openFileIndex[path];
-    // Unwatch file
-    if (!path.startsWith("untitled-")) {
+    // Unwatch file (local workspaces only)
+    if (!path.startsWith("untitled-") && !ws.sshConfig) {
       import("../ipc/commands").then(({ unwatchPath }) => unwatchPath(path)).catch(() => {});
     }
   }
@@ -245,8 +245,13 @@ export async function saveActiveFile(ws: Workspace): Promise<void> {
   }
 
   try {
-    const { writeFile } = await import("../ipc/commands");
-    await writeFile(savePath, file.content);
+    if (ws.sshConfig) {
+      const { sftpWriteFile } = await import("../ipc/commands");
+      await sftpWriteFile(ws.id, savePath, file.content);
+    } else {
+      const { writeFile } = await import("../ipc/commands");
+      await writeFile(savePath, file.content);
+    }
     // If path changed (Save As from untitled), update index + all pane references
     if (savePath !== oldPath) {
       applyFileRename(ws, file, oldPath, savePath);
@@ -302,8 +307,13 @@ export async function saveFile(ws: Workspace, path: string): Promise<boolean> {
   }
 
   try {
-    const { writeFile } = await import("../ipc/commands");
-    await writeFile(savePath, file.content);
+    if (ws.sshConfig) {
+      const { sftpWriteFile } = await import("../ipc/commands");
+      await sftpWriteFile(ws.id, savePath, file.content);
+    } else {
+      const { writeFile } = await import("../ipc/commands");
+      await writeFile(savePath, file.content);
+    }
     if (savePath !== path) {
       applyFileRename(ws, file, path, savePath);
     }
@@ -321,8 +331,13 @@ export async function saveFileQuiet(ws: Workspace, path: string): Promise<void> 
   const file = ws.openFileIndex[path];
   if (!file || !file.dirty) return;
   try {
-    const { writeFile } = await import("../ipc/commands");
-    await writeFile(path, file.content);
+    if (ws.sshConfig) {
+      const { sftpWriteFile } = await import("../ipc/commands");
+      await sftpWriteFile(ws.id, path, file.content);
+    } else {
+      const { writeFile } = await import("../ipc/commands");
+      await writeFile(path, file.content);
+    }
     markFileSaved(file); // fixes Critical Issue 3: also clears file.preview
   } catch (e) {
     console.error("Auto-save failed:", e);

@@ -18,7 +18,8 @@
         "minHeight": 600,
         "decorations": true,
         "resizable": true,
-        "acceptFirstMouse": true
+        "acceptFirstMouse": true,
+        "backgroundColor": { "red": 30, "green": 30, "blue": 30, "alpha": 255 }
       }
     ],
     "security": {

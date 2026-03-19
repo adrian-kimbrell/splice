@@ -8,7 +8,7 @@ import { settings } from "./settings.svelte";
 import type { RustWorkspace } from "../ipc/commands";
 import { addRecentProject } from "./recent-projects.svelte";
 import { attentionStore } from "./attention.svelte";
-import type { Workspace } from "./workspace-types";
+import type { Workspace, SshConfig } from "./workspace-types";
 import {
   generateId,
   findFirstLeaf,
@@ -50,6 +50,19 @@ import {
 } from "./workspace-file-ops";
 
 export type { Workspace } from "./workspace-types";
+
+function buildSshExtraArgs(sshConfig: SshConfig): string[] {
+  const target = sshConfig.user ? `${sshConfig.user}@${sshConfig.host}` : sshConfig.host;
+  const escapedPath = sshConfig.remotePath.replace(/'/g, "'\\''");
+  return [
+    ...(sshConfig.keyPath ? ["-i", sshConfig.keyPath] : []),
+    "-p", String(sshConfig.port),
+    "-t",
+    "-o", "StrictHostKeyChecking=accept-new",
+    target,
+    `cd '${escapedPath}' && exec $SHELL -l`,
+  ];
+}
 
 class WorkspaceManager {
   workspaces = $state<Record<string, Workspace>>({});
@@ -254,18 +267,26 @@ class WorkspaceManager {
 
     try {
       const { spawnTerminal } = await import("../ipc/commands");
-      const cwd = overrideCwd || this.workspaces[wsId]!.rootPath || "/";
-      const terminalId = await spawnTerminal(settings.terminal.default_shell, cwd, 80, 24);
+      const ws = this.workspaces[wsId]!;
+
+      let terminalId: number;
+      if (ws.sshConfig) {
+        // Remote workspace: spawn ssh with extra args; local cwd is irrelevant
+        terminalId = await spawnTerminal("/usr/bin/ssh", "/", 80, 24, buildSshExtraArgs(ws.sshConfig));
+      } else {
+        const cwd = overrideCwd || ws.rootPath || "/";
+        terminalId = await spawnTerminal(settings.terminal.default_shell, cwd, 80, 24);
+      }
 
       // Re-validate workspace still exists after await
       if (!this.workspaces[wsId]) return null;
-      const ws = this.workspaces[wsId]!;
+      const ws2 = this.workspaces[wsId]!;
 
-      ws.terminalIds.push(terminalId);
-      ws.activeTerminalId = terminalId;
+      ws2.terminalIds.push(terminalId);
+      ws2.activeTerminalId = terminalId;
 
       const paneId = `term-${terminalId}`;
-      ws.panes[paneId] = {
+      ws2.panes[paneId] = {
         id: paneId,
         kind: "terminal",
         title: `Terminal ${this.nextTermNum++}`,
@@ -273,32 +294,32 @@ class WorkspaceManager {
       };
 
       // Add to layout tree
-      const isEmptyLayout = ws.layout === null;
+      const isEmptyLayout = ws2.layout === null;
 
-      if (!isEmptyLayout && treeDepth(ws.layout) >= MAX_SPLIT_DEPTH) {
+      if (!isEmptyLayout && treeDepth(ws2.layout!) >= MAX_SPLIT_DEPTH) {
         console.warn("Split depth limit reached, cannot add more panes");
         // Still register the terminal, just don't split
-        ws.activePaneId = paneId;
+        ws2.activePaneId = paneId;
         return terminalId;
       }
 
       if (isEmptyLayout) {
-        ws.layout = { type: "leaf", paneId };
+        ws2.layout = { type: "leaf", paneId };
       } else {
         // Find a valid split target: use activePaneId if it still exists, otherwise first leaf
-        const targetId = (ws.activePaneId && ws.panes[ws.activePaneId])
-          ? ws.activePaneId
-          : findFirstLeaf(ws.layout);
+        const targetId = (ws2.activePaneId && ws2.panes[ws2.activePaneId])
+          ? ws2.activePaneId
+          : findFirstLeaf(ws2.layout);
         if (!targetId) {
-          ws.layout = { type: "leaf", paneId };
+          ws2.layout = { type: "leaf", paneId };
         } else {
-          const splitResult = splitNodeInTree(ws.layout!, targetId, paneId, "vertical");
+          const splitResult = splitNodeInTree(ws2.layout!, targetId, paneId, "vertical");
           if (!splitResult.found) console.warn(`splitNodeInTree: target "${targetId}" not found in layout`);
-          ws.layout = splitResult.tree;
+          ws2.layout = splitResult.tree;
         }
       }
 
-      ws.activePaneId = paneId;
+      ws2.activePaneId = paneId;
       return terminalId;
     } catch (e) {
       console.error("Failed to spawn terminal:", e);
@@ -314,8 +335,15 @@ class WorkspaceManager {
     }
     const ws = this.workspaces[id];
     if (ws) {
-      // Unwatch the workspace directory and all open file watchers
-      if (ws.rootPath || ws.openFiles.length > 0) {
+      // Disconnect SSH session if remote
+      if (ws.sshConfig) {
+        import("../ipc/commands").then(({ sshDisconnect }) => {
+          sshDisconnect(id).catch(() => {});
+        });
+      }
+
+      // Unwatch the workspace directory and all open file watchers (local only)
+      if (!ws.sshConfig && (ws.rootPath || ws.openFiles.length > 0)) {
         import("../ipc/commands").then(({ unwatchPath }) => {
           if (ws.rootPath) unwatchPath(ws.rootPath!).catch(() => {});
           for (const file of ws.openFiles) {
@@ -623,8 +651,13 @@ class WorkspaceManager {
       if (sourcePane.kind === "terminal") {
         // Spawn a new terminal for the split
         const { spawnTerminal } = await import("../ipc/commands");
-        const cwd = ws.rootPath || "/";
-        const terminalId = await spawnTerminal(settings.terminal.default_shell, cwd, 80, 24);
+        let terminalId: number;
+        if (ws.sshConfig) {
+          terminalId = await spawnTerminal("/usr/bin/ssh", "/", 80, 24, buildSshExtraArgs(ws.sshConfig));
+        } else {
+          const cwd = ws.rootPath || "/";
+          terminalId = await spawnTerminal(settings.terminal.default_shell, cwd, 80, 24);
+        }
 
         // Re-validate workspace still exists after await
         if (!this.workspaces[wsId]) return;
@@ -783,6 +816,11 @@ class WorkspaceManager {
   async persistWorkspace(wsId: string): Promise<void> {
     const ws = this.workspaces[wsId];
     if (!ws) return;
+    // Snapshot current explorer visibility for the active workspace so toggling
+    // the sidebar is persisted even without switching workspaces first.
+    if (wsId === this.activeWorkspaceId) {
+      ws.explorerVisible = ui.explorerVisible;
+    }
     await persistWorkspaceImpl(ws, this.getActiveFilePath(wsId));
   }
 
@@ -825,10 +863,26 @@ class WorkspaceManager {
   async restoreWorkspace(rws: RustWorkspace, resumeStartIndex = 0): Promise<number> {
     const result = await restoreWorkspaceImpl(rws, resumeStartIndex, () => this.nextTermNum++);
     this.workspaces[result.ws.id] = result.ws;
-    this.loadFileTree(result.ws.id);
-    this.fetchGitBranch(result.ws.id);
-    if (result.ws.rootPath) {
-      import("../ipc/commands").then(({ watchPath }) => watchPath(result.ws.rootPath!).catch(() => {}));
+    const ws = result.ws;
+
+    if (ws.sshConfig) {
+      // Reconnect SSH session on restore, then load the remote file tree and spawn
+      // a fresh SSH terminal (panes were not restored for SSH workspaces).
+      import("../ipc/commands").then(async ({ sshConnect }) => {
+        try {
+          await sshConnect(ws.id, ws.sshConfig!);
+          this.loadFileTree(ws.id);
+          await this.spawnTerminalInWorkspace(ws.id);
+        } catch (e) {
+          console.error("Failed to reconnect SSH session:", e);
+        }
+      });
+    } else {
+      this.loadFileTree(ws.id);
+      this.fetchGitBranch(ws.id);
+      if (ws.rootPath) {
+        import("../ipc/commands").then(({ watchPath }) => watchPath(ws.rootPath!).catch(() => {}));
+      }
     }
     return result.resumeCount;
   }

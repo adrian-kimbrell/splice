@@ -17,6 +17,7 @@
     hasWorkspace = true,
     side = "left",
     rootPath = "",
+    sshWorkspaceId = null,
   }: {
     entries: FileEntry[];
     onFileClick: (entry: FileEntry) => void;
@@ -26,6 +27,7 @@
     hasWorkspace?: boolean;
     side?: "left" | "right";
     rootPath?: string;
+    sshWorkspaceId?: string | null;
   } = $props();
 
   const counts = $derived(getDiagnosticCounts());
@@ -157,7 +159,7 @@
         {/if}
       </div>
     {:else if hasFolder}
-      <FileTree {entries} {onFileClick} {onFileDoubleClick} {selectedPath} {rootPath} />
+      <FileTree {entries} {onFileClick} {onFileDoubleClick} {selectedPath} {rootPath} {sshWorkspaceId} />
     {:else if hasWorkspace}
       <div class="flex flex-col items-center justify-center px-4 h-full text-center">
         <i class="bi bi-folder-plus text-2xl text-txt-dim mb-3 block"></i>

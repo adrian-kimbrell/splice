@@ -98,7 +98,19 @@
           onclick={(e) => e.stopPropagation()}
         />
       {:else}
-        <div class="workspace-title flex-1 min-w-0 truncate" class:text-txt-bright={isActive}>{workspace.name}</div>
+        <div class="flex-1 min-w-0 flex flex-col truncate">
+          <div class="workspace-title truncate" class:text-txt-bright={isActive}>
+            {#if workspace.sshConfig}
+              <i class="bi bi-hdd-network" style="font-size: var(--ui-xs); opacity: 0.7; margin-right: 4px;"></i>
+            {/if}
+            {workspace.name}
+          </div>
+          {#if workspace.sshConfig}
+            <div class="text-txt-dim truncate" style="font-size: var(--ui-xs);">
+              {workspace.sshConfig.user}@{workspace.sshConfig.host}
+            </div>
+          {/if}
+        </div>
         {#if onClose}
           <button
             class="pane-action-btn close shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-75"
@@ -121,7 +133,7 @@
       onmousedown={onHeaderMousedown}
       title={workspace.name}
     >
-      <i class="bi bi-diagram-2"></i>
+      <i class="bi {workspace.sshConfig ? 'bi-hdd-network' : 'bi-diagram-2'}"></i>
     </div>
   {/if}
   <div class="session-list">

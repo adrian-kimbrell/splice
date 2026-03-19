@@ -82,37 +82,7 @@
   class="col-span-full flex items-center px-2 gap-0 border-t border-border"
   style="grid-row: 2; height: var(--topbar-height); background: var(--bg-topbar);"
 >
-  <!-- Left: sidebar mode + workspace name -->
-  <button
-    class="topbar-btn"
-    class:active={ui.sidebarMode === "files" && ui.explorerVisible}
-    title="Explorer"
-    onclick={() => {
-      if (ui.sidebarMode === "files" && ui.explorerVisible) {
-        ui.explorerVisible = false;
-      } else {
-        ui.sidebarMode = "files";
-        ui.explorerVisible = true;
-      }
-    }}
-  >
-    <i class="bi bi-files"></i>
-  </button>
-  <button
-    class="topbar-btn"
-    class:active={ui.sidebarMode === "search" && ui.explorerVisible}
-    title="Search"
-    onclick={() => {
-      if (ui.sidebarMode === "search" && ui.explorerVisible) {
-        ui.explorerVisible = false;
-      } else {
-        ui.sidebarMode = "search";
-        ui.explorerVisible = true;
-      }
-    }}
-  >
-    <i class="bi bi-search"></i>
-  </button>
+  <!-- Left: workspace name -->
   <span class="text-xs text-txt-dim ml-1 select-none shrink-0">{workspaceName}</span>
 
   <!-- Notification inline area -->

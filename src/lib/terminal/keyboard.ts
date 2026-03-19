@@ -103,6 +103,12 @@ export function keyToBytes(e: KeyboardEvent, appCursorKeys: boolean): Uint8Array
 
   // 6. Arrow keys — modified arrows always use CSI; unmodified uses appCursor
   if (e.key in ARROW_LETTERS) {
+    // Alt+Left/Right → readline word navigation (ESC b / ESC f).
+    // The generic CSI form \e[1;3D is not bound in most default bash/zsh configs.
+    if (e.altKey && !e.ctrlKey && !e.shiftKey) {
+      if (e.key === "ArrowLeft")  return new Uint8Array([0x1b, 0x62]); // ESC b = backward-word
+      if (e.key === "ArrowRight") return new Uint8Array([0x1b, 0x66]); // ESC f = forward-word
+    }
     return csiLetterKey(ARROW_LETTERS[e.key], mod, appCursorKeys);
   }
 

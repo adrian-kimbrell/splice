@@ -31,6 +31,7 @@ notify = "6"
 libc = "0.2"
 unicode-width = "0.1"
 tauri-plugin-webdriver = { version = "0.2", optional = true }
+openssh = { version = "0.11", features = ["native-mux"] }
 
 [features]
 e2e = ["tauri-plugin-webdriver"]

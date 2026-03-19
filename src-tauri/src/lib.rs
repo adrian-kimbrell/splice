@@ -143,6 +143,12 @@ pub fn run() {
         .invoke_handler({
             #[cfg(not(feature = "e2e"))]
             { tauri::generate_handler![
+                commands::ssh::ssh_connect,
+                commands::ssh::ssh_disconnect,
+                commands::ssh::sftp_list_dir,
+                commands::ssh::sftp_read_file,
+                commands::ssh::sftp_write_file,
+                commands::ssh::ssh_ping,
                 commands::fs::read_dir_tree,
                 commands::fs::read_file,
                 commands::fs::write_file,
@@ -163,6 +169,7 @@ pub fn run() {
                 commands::fs::copy_path,
                 commands::fs::reveal_in_file_manager,
                 commands::fs::save_temp_image,
+                commands::fs::write_to_clipboard,
                 commands::terminal::spawn_terminal,
                 commands::terminal::write_to_terminal,
                 commands::terminal::resize_terminal,
@@ -194,6 +201,12 @@ pub fn run() {
             ] }
             #[cfg(feature = "e2e")]
             { tauri::generate_handler![
+                commands::ssh::ssh_connect,
+                commands::ssh::ssh_disconnect,
+                commands::ssh::sftp_list_dir,
+                commands::ssh::sftp_read_file,
+                commands::ssh::sftp_write_file,
+                commands::ssh::ssh_ping,
                 commands::fs::read_dir_tree,
                 commands::fs::read_file,
                 commands::fs::write_file,
@@ -214,6 +227,7 @@ pub fn run() {
                 commands::fs::copy_path,
                 commands::fs::reveal_in_file_manager,
                 commands::fs::save_temp_image,
+                commands::fs::write_to_clipboard,
                 commands::terminal::spawn_terminal,
                 commands::terminal::write_to_terminal,
                 commands::terminal::resize_terminal,

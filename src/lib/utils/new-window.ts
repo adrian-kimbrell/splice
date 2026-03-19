@@ -15,6 +15,7 @@ export async function openNewWindow(): Promise<void> {
       minHeight: 600,
       decorations: true,
       resizable: true,
+      backgroundColor: { red: 30, green: 30, blue: 30, alpha: 255 },
     });
   } catch (e) {
     console.error("Failed to open new window:", e);

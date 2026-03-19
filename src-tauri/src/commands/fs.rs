@@ -695,6 +695,25 @@ pub fn save_temp_image(data: Vec<u8>, ext: String) -> Result<String, String> {
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// Write text to the system clipboard via `pbcopy`.
+/// Using the OS-level tool bypasses WKWebView's user-gesture requirement that
+/// prevents `navigator.clipboard.writeText` from working after an async IPC call.
+#[tauri::command]
+pub fn write_to_clipboard(text: String) -> Result<(), String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("pbcopy")
+        .env("LANG", "en_US.UTF-8")
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("pbcopy spawn failed: {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(text.as_bytes()).map_err(|e| format!("pbcopy write failed: {e}"))?;
+    }
+    child.wait().map_err(|e| format!("pbcopy wait failed: {e}"))?;
+    Ok(())
+}
+
 // ─── Unit tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]

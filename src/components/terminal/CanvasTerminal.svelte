@@ -102,6 +102,16 @@
     renderer.rerender();
   });
 
+  // Re-fit terminal when UI zoom changes.
+  // ResizeObserver uses CSS content-box coordinates which don't change when only
+  // document.documentElement.style.zoom changes, so it won't fire on zoom.
+  // We have to re-measure explicitly.
+  $effect(() => {
+    const _scale = settings.appearance.ui_scale; // subscribe
+    if (!renderer || !containerEl) return;
+    requestAnimationFrame(() => handleResize());
+  });
+
   // Toggle cursor blink based on settings
   $effect(() => {
     if (!renderer) return;
@@ -162,7 +172,7 @@
   onMount(async () => {
     if (!containerEl || !canvasEl || !isTauri || terminalId === 0) return;
 
-    const { writeToTerminal, scrollTerminal, resizeTerminal, saveTempImage } = await import(
+    const { writeToTerminal, scrollTerminal, resizeTerminal, saveTempImage, writeToClipboard } = await import(
       "../../lib/ipc/commands"
     );
     const { onTerminalGrid, onTerminalExit, onTerminalClipboard } = await import(
@@ -190,6 +200,12 @@
     };
     window.addEventListener('splice:theme-applied', onThemeApplied);
     cleanupFns.push(() => window.removeEventListener('splice:theme-applied', onThemeApplied));
+
+    // Force full repaint when the app window regains OS focus — the GPU compositor
+    // may have cleared the canvas backing store while the window was backgrounded.
+    const onWindowFocus = () => { if (renderer) renderer.rerender(); };
+    window.addEventListener('focus', onWindowFocus);
+    cleanupFns.push(() => window.removeEventListener('focus', onWindowFocus));
 
     // Listen for grid updates, throttle rendering to RAF
     let pendingFrame: Uint8Array | null = null;
@@ -248,10 +264,21 @@
         const maxCol = Math.max(lo.col, hi.col);
         return lines[0].substring(minCol, maxCol + 1).trimEnd();
       }
-      const firstLine = lines[0].substring(lo.col).trimEnd();                          // top row: from lo.col
-      const lastLine = lines[lines.length - 1].substring(0, hi.col + 1).trimEnd();    // bottom row: to hi.col
-      const middleLines = lines.slice(1, -1).map(l => l.trimEnd());
-      return [firstLine, ...middleLines, lastLine].join("\n").replace(/\n+$/, "");
+      const segments = [
+        lines[0].substring(lo.col).trimEnd(),
+        ...lines.slice(1, -1).map(l => l.trimEnd()),
+        lines[lines.length - 1].substring(0, hi.col + 1).trimEnd(),
+      ];
+      let result = "";
+      for (let i = 0; i < segments.length; i++) {
+        result += segments[i];
+        if (i < segments.length - 1) {
+          // Soft-wrap: raw line's last char is non-space → join without newline
+          const rawLastChar = lines[i][lines[i].length - 1];
+          result += (rawLastChar !== ' ' && rawLastChar !== '\0') ? "" : "\n";
+        }
+      }
+      return result.replace(/\n+$/, "");
     }
 
     /** Encode and send a mouse event to the terminal PTY. */
@@ -274,11 +301,11 @@
     // Keyboard handler
     const onKeyDown = async (e: KeyboardEvent) => {
       // Cmd+C with selection → copy
-      if (e.metaKey && e.key === "c" && renderer?.selectionStart) {
+      if (e.metaKey && e.key.toLowerCase() === "c" && renderer?.selectionStart) {
         e.preventDefault();
         const text = await extractSelectionText();
         if (text) {
-          await navigator.clipboard.writeText(text);
+          writeToClipboard(text).catch(console.error);
         }
         return;
       }
@@ -362,6 +389,9 @@
     // Mouse selection and protocol forwarding
     const onMouseDown = (e: MouseEvent) => {
       if (!renderer) return;
+      // Explicitly focus the canvas so Cmd+C keydown fires here (WKWebView doesn't
+      // always auto-focus non-input elements on click even with tabindex="0").
+      canvasEl!.focus();
 
       const mouseMode = (modeFlags >> 3) & 0x3;
 
@@ -402,28 +432,64 @@
       }
 
       if (e.detail === 2) {
-        // Double-click: word select using improved word boundaries
+        // Double-click: word select across soft-wrapped rows
         const data = renderer.currentFrame;
         if (data) {
           const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
           const cols = view.getUint16(0, true);
+          const rows = view.getUint16(2, true);
+
+          function cpAt(r: number, c: number): number | null {
+            if (r < 0 || r >= rows || c < 0 || c >= cols) return null;
+            const off = HEADER_SIZE + (r * cols + c) * CELL_SIZE;
+            if (off + CELL_SIZE > data!.length) return null;
+            return view.getUint32(off, true);
+          }
+
+          let startRow = cell.row;
           let startCol = cell.col;
+          let endRow = cell.row;
           let endCol = cell.col;
-          while (startCol > 0) {
-            const off = HEADER_SIZE + (cell.row * cols + startCol - 1) * CELL_SIZE;
-            if (off + CELL_SIZE > data.length) break;
-            const cp = view.getUint32(off, true);
-            if (isWordBreak(cp)) break;
-            startCol--;
+
+          // Scan left; wrap to previous row when at left edge and that row's
+          // last char is non-break (indicates the row was soft-wrapped).
+          outer_left: while (true) {
+            while (startCol > 0) {
+              const cp = cpAt(startRow, startCol - 1);
+              if (cp === null || isWordBreak(cp)) break outer_left;
+              startCol--;
+            }
+            if (startRow === 0) break;
+            const prevLast = cpAt(startRow - 1, cols - 1);
+            if (prevLast === null || isWordBreak(prevLast)) break;
+            startRow--;
+            startCol = cols - 1;
           }
-          while (endCol < cols - 1) {
-            const off = HEADER_SIZE + (cell.row * cols + endCol + 1) * CELL_SIZE;
-            if (off + CELL_SIZE > data.length) break;
-            const cp = view.getUint32(off, true);
-            if (isWordBreak(cp)) break;
-            endCol++;
+
+          // Scan right; wrap to next row when at right edge and the next
+          // row's first char is non-break.
+          outer_right: while (true) {
+            while (endCol < cols - 1) {
+              const cp = cpAt(endRow, endCol + 1);
+              if (cp === null || isWordBreak(cp)) break outer_right;
+              endCol++;
+            }
+            if (endRow >= rows - 1) break;
+            const nextFirst = cpAt(endRow + 1, 0);
+            if (nextFirst === null || isWordBreak(nextFirst)) break;
+            endRow++;
+            endCol = 0;
           }
-          renderer.setSelection({ historyRow, col: startCol }, { historyRow, col: endCol });
+
+          const selStart = {
+            historyRow: renderer.displayToHistoryRow(startRow, frameFirstDisplayHistoryRow),
+            col: startCol,
+          };
+          const selEnd = {
+            historyRow: renderer.displayToHistoryRow(endRow, frameFirstDisplayHistoryRow),
+            col: endCol,
+          };
+          renderer.setSelection(selStart, selEnd);
           renderer.rerender();
         }
         return;
@@ -509,7 +575,7 @@
         }
       } else if (settings.terminal.copy_on_select && renderer?.selectionStart && renderer?.selectionEnd) {
         const text = await extractSelectionText();
-        if (text) navigator.clipboard.writeText(text).catch(console.error);
+        if (text) writeToClipboard(text).catch(console.error);
       }
     };
 
@@ -647,7 +713,7 @@
         "sep",
         { label: "Copy",       shortcut: "⌘C", disabled: !hasSelection, action: async () => {
             const text = await extractSelectionText();
-            if (text) navigator.clipboard.writeText(text).catch(() => {});
+            if (text) writeToClipboard(text).catch(console.error);
         }},
         { label: "Paste",      shortcut: "⌘V", action: async () => {
             const text = await navigator.clipboard.readText().catch(() => "");
