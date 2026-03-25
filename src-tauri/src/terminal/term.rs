@@ -61,23 +61,36 @@ impl<'a> GridPerformer<'a> {
     }
 
     fn handle_sgr(&mut self, params: &vte::Params) {
-        // Flatten all params into a small inline vec for indexed iteration
-        let flat: SmallVec<[u16; 16]> = params.iter().flat_map(|p| p.iter().copied()).collect();
+        // Collect param groups. Each group is a slice where [0] is the main code
+        // and [1..] are colon-separated sub-parameters (e.g. `4:3` for curly underline).
+        // We must NOT flatten sub-params into the main sequence — doing so causes
+        // `4:3m` to be misread as SGR 4 (underline) + SGR 3 (italic), and `4:0m`
+        // (Kitty "no underline") to be misread as SGR 4 + SGR 0 (reset-all).
+        let groups: SmallVec<[&[u16]; 16]> = params.iter().collect();
 
-        if flat.is_empty() {
+        if groups.is_empty() {
             self.grid.active_mut().pen = Default::default();
             return;
         }
 
         let pen = &mut self.grid.active_mut().pen;
         let mut i = 0;
-        while i < flat.len() {
-            match flat[i] {
+        while i < groups.len() {
+            let group = groups[i];
+            let main = group.first().copied().unwrap_or(0);
+            match main {
                 0 => *pen = Default::default(),
                 1 => pen.flags |= flags::BOLD,
                 2 => pen.flags |= flags::DIM,
                 3 => pen.flags |= flags::ITALIC,
-                4 => pen.flags |= flags::UNDERLINE,
+                4 => {
+                    // Kitty underline sub-params: 4:0=off, 4:1..4:5=on (various styles).
+                    // Plain `4` (no sub-param) defaults to style 1 (straight underline).
+                    match group.get(1).copied().unwrap_or(1) {
+                        0 => pen.flags &= !flags::UNDERLINE,
+                        _ => pen.flags |= flags::UNDERLINE,
+                    }
+                }
                 5 => pen.flags |= flags::BLINK,
                 7 => pen.flags |= flags::INVERSE,
                 8 => pen.flags |= flags::HIDDEN,
@@ -90,20 +103,33 @@ impl<'a> GridPerformer<'a> {
                 28 => pen.flags &= !flags::HIDDEN,
                 29 => pen.flags &= !flags::STRIKETHROUGH,
                 // Standard foreground colors
-                30..=37 => pen.fg = ANSI_COLORS[(flat[i] - 30) as usize],
+                30..=37 => pen.fg = ANSI_COLORS[(main - 30) as usize],
                 38 => {
-                    // Extended foreground
-                    if i + 1 < flat.len() {
-                        match flat[i + 1] {
-                            5 if i + 2 < flat.len() => {
-                                pen.fg = ansi_256_color(flat[i + 2] as u8);
+                    // Extended foreground: colon sub-params (`38:2:r:g:b`) or
+                    // semicolon-separated next groups (`38;2;r;g;b`).
+                    if group.len() >= 3 && group[1] == 2 {
+                        // Colon truecolor: 38:2:r:g:b
+                        pen.fg = Rgb {
+                            r: group.get(2).copied().unwrap_or(0) as u8,
+                            g: group.get(3).copied().unwrap_or(0) as u8,
+                            b: group.get(4).copied().unwrap_or(0) as u8,
+                        };
+                    } else if group.len() >= 2 && group[1] == 5 {
+                        // Colon 256-color: 38:5:n
+                        pen.fg = ansi_256_color(group.get(2).copied().unwrap_or(0) as u8);
+                    } else if i + 1 < groups.len() {
+                        // Semicolon-separated
+                        let mode = groups[i + 1].first().copied().unwrap_or(0);
+                        match mode {
+                            5 if i + 2 < groups.len() => {
+                                pen.fg = ansi_256_color(groups[i + 2].first().copied().unwrap_or(0) as u8);
                                 i += 2;
                             }
-                            2 if i + 4 < flat.len() => {
+                            2 if i + 4 < groups.len() => {
                                 pen.fg = Rgb {
-                                    r: flat[i + 2] as u8,
-                                    g: flat[i + 3] as u8,
-                                    b: flat[i + 4] as u8,
+                                    r: groups[i + 2].first().copied().unwrap_or(0) as u8,
+                                    g: groups[i + 3].first().copied().unwrap_or(0) as u8,
+                                    b: groups[i + 4].first().copied().unwrap_or(0) as u8,
                                 };
                                 i += 4;
                             }
@@ -113,20 +139,29 @@ impl<'a> GridPerformer<'a> {
                 }
                 39 => pen.fg = DEFAULT_FG,
                 // Standard background colors
-                40..=47 => pen.bg = ANSI_COLORS[(flat[i] - 40) as usize],
+                40..=47 => pen.bg = ANSI_COLORS[(main - 40) as usize],
                 48 => {
-                    // Extended background
-                    if i + 1 < flat.len() {
-                        match flat[i + 1] {
-                            5 if i + 2 < flat.len() => {
-                                pen.bg = ansi_256_color(flat[i + 2] as u8);
+                    // Extended background: same two-form logic as 38.
+                    if group.len() >= 3 && group[1] == 2 {
+                        pen.bg = Rgb {
+                            r: group.get(2).copied().unwrap_or(0) as u8,
+                            g: group.get(3).copied().unwrap_or(0) as u8,
+                            b: group.get(4).copied().unwrap_or(0) as u8,
+                        };
+                    } else if group.len() >= 2 && group[1] == 5 {
+                        pen.bg = ansi_256_color(group.get(2).copied().unwrap_or(0) as u8);
+                    } else if i + 1 < groups.len() {
+                        let mode = groups[i + 1].first().copied().unwrap_or(0);
+                        match mode {
+                            5 if i + 2 < groups.len() => {
+                                pen.bg = ansi_256_color(groups[i + 2].first().copied().unwrap_or(0) as u8);
                                 i += 2;
                             }
-                            2 if i + 4 < flat.len() => {
+                            2 if i + 4 < groups.len() => {
                                 pen.bg = Rgb {
-                                    r: flat[i + 2] as u8,
-                                    g: flat[i + 3] as u8,
-                                    b: flat[i + 4] as u8,
+                                    r: groups[i + 2].first().copied().unwrap_or(0) as u8,
+                                    g: groups[i + 3].first().copied().unwrap_or(0) as u8,
+                                    b: groups[i + 4].first().copied().unwrap_or(0) as u8,
                                 };
                                 i += 4;
                             }
@@ -136,10 +171,10 @@ impl<'a> GridPerformer<'a> {
                 }
                 49 => pen.bg = DEFAULT_BG,
                 // Bright foreground colors
-                90..=97 => pen.fg = ANSI_COLORS[(flat[i] - 90 + 8) as usize],
+                90..=97 => pen.fg = ANSI_COLORS[(main - 90 + 8) as usize],
                 // Bright background colors
-                100..=107 => pen.bg = ANSI_COLORS[(flat[i] - 100 + 8) as usize],
-                _ => {}
+                100..=107 => pen.bg = ANSI_COLORS[(main - 100 + 8) as usize],
+                _ => {} // unknown/unimplemented codes (e.g. 58=underline color) are ignored
             }
             i += 1;
         }
@@ -398,9 +433,28 @@ impl<'a> vte::Perform for GridPerformer<'a> {
                 let mode = Self::get_param(&params_vec, 0, 0);
                 self.grid.clear_tab_stop(mode);
             }
-            's' => self.grid.save_cursor(),
-            'u' => self.grid.restore_cursor(),
-            'm' => self.handle_sgr(params),
+            's' => {
+                if intermediates.is_empty() {
+                    self.grid.save_cursor();
+                }
+            }
+            'u' => {
+                // CSI u = DECRC (restore cursor) — only when no intermediates.
+                // CSI = Pu / CSI < Nu are Kitty keyboard protocol sequences;
+                // treating them as restore_cursor() would jump the cursor to (0,0).
+                if intermediates.is_empty() {
+                    self.grid.restore_cursor();
+                }
+            }
+            'm' => {
+                // Only process as SGR when there are no intermediates.
+                // CSI > Ps m (xterm Modify Other Keys) and similar private sequences
+                // must not be routed to handle_sgr — `\x1b[>4;2m` would otherwise
+                // set UNDERLINE + DIM on the entire screen.
+                if intermediates.is_empty() {
+                    self.handle_sgr(params);
+                }
+            }
             _ => {}
         }
     }

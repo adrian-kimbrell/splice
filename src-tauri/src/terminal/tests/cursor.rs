@@ -253,3 +253,23 @@ fn hide_and_show_cursor() {
     h.feed_str("\x1b[?25h"); // show
     assert!(h.cursor_visible());
 }
+
+// ── Kitty keyboard protocol must not move cursor ──────────────────────────────
+
+#[test]
+fn kitty_keyboard_enable_does_not_restore_cursor() {
+    // \x1b[=1u = Kitty keyboard protocol enable — must NOT be treated as DECRC
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[10;20H"); // CUP row=10,col=20 (1-based) → col=19,row=9 (0-based)
+    h.feed_str("\x1b[=1u");    // Kitty keyboard enable — must be a no-op
+    assert_eq!(h.cursor(), (19, 9), "cursor must not move on Kitty CSI = u");
+}
+
+#[test]
+fn kitty_keyboard_pop_does_not_restore_cursor() {
+    // \x1b[<1u = Kitty keyboard protocol pop — must NOT be treated as DECRC
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[15;5H"); // CUP row=15,col=5 (1-based) → col=4,row=14 (0-based)
+    h.feed_str("\x1b[<1u");   // Kitty pop — must be a no-op
+    assert_eq!(h.cursor(), (4, 14), "cursor must not move on Kitty CSI < u");
+}

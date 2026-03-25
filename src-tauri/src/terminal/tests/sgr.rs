@@ -248,3 +248,80 @@ fn sgr_color_persists_across_writes() {
     assert_eq!(h.fg_at(0, 1), expected);
     assert_eq!(h.fg_at(0, 2), expected);
 }
+
+// ── Kitty underline sub-params (4:X) ─────────────────────────────────────────
+
+#[test]
+fn sgr_4_colon_1_sets_underline() {
+    // 4:1 = straight underline — should set UNDERLINE, NOT BOLD
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[4:1m");
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::UNDERLINE, 0, "UNDERLINE should be set");
+    assert_eq!(h.emu.grid.primary.pen.flags & flags::BOLD, 0, "BOLD should NOT be set");
+}
+
+#[test]
+fn sgr_4_colon_3_sets_underline_not_italic() {
+    // 4:3 = curly underline — maps UNDERLINE on; must NOT set ITALIC
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[4:3m");
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::UNDERLINE, 0, "UNDERLINE should be set");
+    assert_eq!(h.emu.grid.primary.pen.flags & flags::ITALIC, 0, "ITALIC should NOT be set");
+}
+
+#[test]
+fn sgr_4_colon_0_clears_underline() {
+    // 4:0 = no underline — should clear UNDERLINE and NOT reset colors
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[4m");   // set underline
+    h.feed_str("\x1b[31m");  // set red fg
+    h.feed_str("\x1b[4:0m"); // clear underline via sub-param
+    assert_eq!(h.emu.grid.primary.pen.flags & flags::UNDERLINE, 0, "UNDERLINE should be cleared");
+    // Color should be preserved — 4:0 must NOT trigger a full reset
+    assert_eq!(h.emu.grid.primary.pen.fg, crate::terminal::color::ANSI_COLORS[1], "fg color should survive 4:0");
+}
+
+#[test]
+fn sgr_38_colon_truecolor_fg() {
+    // 38:2:r:g:b — truecolor as colon sub-params
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[38:2:10:20:30m");
+    assert_eq!(h.emu.grid.primary.pen.fg, Rgb { r: 10, g: 20, b: 30 });
+}
+
+#[test]
+fn sgr_48_colon_truecolor_bg() {
+    // 48:2:r:g:b — truecolor bg as colon sub-params
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[48:2:50:100:150m");
+    assert_eq!(h.emu.grid.primary.pen.bg, Rgb { r: 50, g: 100, b: 150 });
+}
+
+#[test]
+fn sgr_38_colon_256_fg() {
+    // 38:5:n — 256-color fg as colon sub-params
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[38:5:200m");
+    assert_eq!(h.emu.grid.primary.pen.fg, ansi_256_color(200));
+}
+
+// ── Private-intermediate CSI m must NOT be treated as SGR ────────────────────
+
+#[test]
+fn csi_gt_m_modify_other_keys_does_not_set_sgr() {
+    // \x1b[>4;2m = xterm Modify Other Keys level 2 — must NOT set UNDERLINE or DIM
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[>4;2m");
+    assert_eq!(h.emu.grid.primary.pen.flags & flags::UNDERLINE, 0, "UNDERLINE must not be set by CSI > m");
+    assert_eq!(h.emu.grid.primary.pen.flags & flags::DIM, 0, "DIM must not be set by CSI > m");
+}
+
+#[test]
+fn csi_gt_m_does_not_clobber_existing_sgr() {
+    // Existing attributes should survive a CSI > m sequence
+    let mut h = TerminalHarness::new(80, 24);
+    h.feed_str("\x1b[1;32m");  // bold + green
+    h.feed_str("\x1b[>4;2m"); // Modify Other Keys — should be a no-op for SGR
+    assert_ne!(h.emu.grid.primary.pen.flags & flags::BOLD, 0, "BOLD should survive CSI > m");
+    assert_eq!(h.emu.grid.primary.pen.fg, crate::terminal::color::ANSI_COLORS[2], "green fg should survive");
+}

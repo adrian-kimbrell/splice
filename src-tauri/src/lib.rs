@@ -1,5 +1,7 @@
 mod attention;
 mod commands;
+#[cfg(target_os = "macos")]
+mod dock;
 pub mod lsp;
 mod state;
 pub mod terminal;
@@ -120,6 +122,10 @@ pub fn run() {
             let menu = build_menu(app)?;
             app.set_menu(menu)?;
 
+            // macOS dock right-click menu ("New Window")
+            #[cfg(target_os = "macos")]
+            dock::setup(app.handle());
+
             let token = attention::load_or_create_token();
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -128,12 +134,42 @@ pub fn run() {
                     if let Ok(mut s) = handle.state::<Mutex<AppState>>().lock() {
                         s.attention_port = Some(port);
                     }
+                    // Install/update Claude hooks now that the server is running.
+                    // Do this here (not from the frontend) to avoid a race where
+                    // installClaudeHook() fires before attention_port is set.
+                    if let Err(e) = attention::install_hook() {
+                        tracing::warn!("Failed to install Claude hook: {}", e);
+                    }
                 }
             });
             Ok(())
         })
         .on_menu_event(|app, event| {
-            let _ = app.emit("menu-event", event.id().0.as_str());
+            if event.id().0 == "new-window" {
+                // Handle in Rust so exactly one window opens regardless of how many
+                // windows are currently listening (dock click, menu bar, or keyboard shortcut).
+                let label = format!(
+                    "main-{:x}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0)
+                );
+                let _ = commands::workspace::register_window(label.clone());
+                let _ = tauri::WebviewWindowBuilder::new(
+                    app,
+                    &label,
+                    tauri::WebviewUrl::App("/".into()),
+                )
+                .title("Splice")
+                .inner_size(1280.0, 800.0)
+                .min_inner_size(800.0, 600.0)
+                .decorations(true)
+                .resizable(true)
+                .build();
+            } else {
+                let _ = app.emit("menu-event", event.id().0.as_str());
+            }
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

@@ -1,6 +1,6 @@
 [package]
 name = "splice"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "A modern code editor and terminal workspace manager"
 
@@ -32,6 +32,11 @@ libc = "0.2"
 unicode-width = "0.1"
 tauri-plugin-webdriver = { version = "0.2", optional = true }
 openssh = { version = "0.11", features = ["native-mux"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSMenu", "NSMenuItem", "NSApplication", "NSResponder"] }
+objc2-foundation = { version = "0.3", features = ["NSString"] }
 
 [features]
 e2e = ["tauri-plugin-webdriver"]
