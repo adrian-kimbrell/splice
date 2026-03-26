@@ -1,6 +1,6 @@
 {
   "productName": "Splice",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "com.splice.editor",
   "build": {
     "frontendDist": "../dist",
@@ -23,7 +23,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://cdn.jsdelivr.net; script-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: https://asset.localhost"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://cdn.jsdelivr.net; script-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: https://asset.localhost",
+      "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
   "bundle": {
