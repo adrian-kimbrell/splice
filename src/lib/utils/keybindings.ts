@@ -9,6 +9,10 @@ function isInsideCodeMirror(el: Element | null): boolean {
   return !!el?.closest(".cm-editor");
 }
 
+function isInsideTerminal(el: Element | null): boolean {
+  return el?.tagName === "CANVAS";
+}
+
 function firstLeaf(node: LayoutNode): string {
   if (node.type === "leaf") return node.paneId;
   return firstLeaf(node.children[0]);
@@ -201,7 +205,10 @@ export function initKeybindings(): () => void {
       return;
     }
 
-    const mod = e.metaKey || e.ctrlKey;
+    // When focus is inside a terminal canvas, only Cmd (metaKey) triggers Splice shortcuts.
+    // Ctrl+key must pass through to the terminal for Claude Code / readline / shell use.
+    const inTerminal = isInsideTerminal(document.activeElement);
+    const mod = inTerminal ? e.metaKey : (e.metaKey || e.ctrlKey);
 
     // Block reload (Cmd+R, Cmd+Shift+R) and devtools (Cmd+Option+I, F12)
     if (mod && (e.key === "r" || e.key === "R")) { e.preventDefault(); return; }
@@ -266,16 +273,16 @@ export function initKeybindings(): () => void {
       }
     }
 
+    // Cmd + B: Toggle explorer
+    if (e.metaKey && e.key === "b") {
+      e.preventDefault();
+      ui.explorerVisible = !ui.explorerVisible;
+    }
+
     // Cmd/Ctrl + ,: Settings
     if (mod && e.key === ",") {
       e.preventDefault();
       openSettingsWindow();
-    }
-
-    // Cmd/Ctrl + B: Toggle explorer
-    if (mod && e.key === "b") {
-      e.preventDefault();
-      ui.explorerVisible = !ui.explorerVisible;
     }
 
     // Cmd/Ctrl + Z: Toggle pane zoom (only when NOT inside a CodeMirror editor, where it means Undo)

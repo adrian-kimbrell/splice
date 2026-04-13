@@ -183,11 +183,16 @@
   }
 
   function handleWindowFocus() {
-    const paneId = ui.zoomedPaneId ?? workspaceManager.activeWorkspace?.activePaneId;
-    if (!paneId) return;
-    const paneEl = document.querySelector(`[data-pane-id="${paneId}"]`);
-    const target = paneEl?.querySelector<HTMLElement>('canvas[tabindex], .cm-content');
-    target?.focus();
+    // Delay so any mousedown/click from the activating click processes first.
+    // If the user clicked a specific pane, activePaneId will already be updated
+    // by the time this runs, so we focus the right pane rather than the old one.
+    setTimeout(() => {
+      const paneId = ui.zoomedPaneId ?? workspaceManager.activeWorkspace?.activePaneId;
+      if (!paneId) return;
+      const paneEl = document.querySelector(`[data-pane-id="${paneId}"]`);
+      const target = paneEl?.querySelector<HTMLElement>('canvas[tabindex], .cm-content');
+      target?.focus();
+    }, 0);
   }
 
   function handleTabDrop(
