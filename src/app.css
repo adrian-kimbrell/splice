@@ -70,7 +70,7 @@ body {
   font-family: var(--ui-font);
   font-size: var(--font-size);
   color: var(--text);
-  background: var(--bg-editor);
+  background: var(--bg-sidebar);
   user-select: none;
   -webkit-user-select: none;
 }

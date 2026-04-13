@@ -215,6 +215,60 @@ export function initKeybindings(): () => void {
     if (mod && e.altKey && (e.key === "i" || e.key === "I")) { e.preventDefault(); return; }
     if (e.key === "F12") { e.preventDefault(); return; }
 
+    // Numpad 2 — take a screenshot and copy to clipboard (dev only)
+    if (import.meta.env.DEV && e.code === "Numpad2") {
+      e.preventDefault();
+      e.stopPropagation();
+      (async () => {
+        try {
+          const { toPng } = await import("html-to-image");
+          await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+          const dataUrl = await toPng(document.documentElement, {
+            pixelRatio: window.devicePixelRatio || 1,
+            skipFonts: true,
+          });
+          const res = await fetch(dataUrl);
+          const blob = await res.blob();
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          console.log("[dev] screenshot copied to clipboard");
+        } catch (err) {
+          console.error("[dev] clipboard screenshot failed:", err);
+        }
+      })();
+      return;
+    }
+
+    // Numpad 3 — take a screenshot and save to docs/screenshots/ (dev only)
+    if (import.meta.env.DEV && e.code === "Numpad3") {
+      e.preventDefault();
+      e.stopPropagation();
+      (async () => {
+        try {
+          const { toPng } = await import("html-to-image");
+          const { invoke } = await import("@tauri-apps/api/core");
+          const name = `manual-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
+          await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+          const dataUrl = await toPng(document.documentElement, {
+            pixelRatio: window.devicePixelRatio || 1,
+            skipFonts: true,
+          });
+          const base64 = dataUrl.split(",")[1];
+          const binary = atob(base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          const path = await invoke<string>("save_screenshot_bytes", {
+            name,
+            requestId: "",
+            bytes: Array.from(bytes),
+          });
+          console.log("[dev] screenshot →", path);
+        } catch (err) {
+          console.error("[dev] screenshot failed:", err);
+        }
+      })();
+      return;
+    }
+
     // Cmd/Ctrl + S: Save Active File
     if (mod && e.key === "s") {
       e.preventDefault();
@@ -294,7 +348,7 @@ export function initKeybindings(): () => void {
         const wsId = workspaceManager.activeWorkspaceId;
         if (wsId) {
           const ws = workspaceManager.workspaces[wsId];
-          const paneId = ws?.activePaneId ?? (ws ? firstLeaf(ws.layout) : null);
+          const paneId = ws?.activePaneId ?? (ws?.layout ? firstLeaf(ws.layout) : null);
           if (paneId) {
             ui.zoomedPaneId = paneId;
           }
@@ -418,6 +472,111 @@ export function initKeybindings(): () => void {
         workspaceManager.switchWorkspace(list[nextIdx].id);
         ui.zoomedPaneId = null;
       }
+    }
+
+    // Dev only — Cmd+Shift+3: take a screenshot via the internal capture API
+    if (import.meta.env.DEV && e.metaKey && e.shiftKey && e.code === "Digit3") {
+      e.preventDefault();
+      (async () => {
+        try {
+          const { toPng } = await import("html-to-image");
+          const { invoke } = await import("@tauri-apps/api/core");
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          const dataUrl = await toPng(document.documentElement, {
+            pixelRatio: window.devicePixelRatio || 1,
+            skipFonts: true,
+          });
+          const base64 = dataUrl.split(",")[1];
+          const binary = atob(base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          const savedPath = await invoke<string>("save_screenshot_bytes", {
+            name: "manual",
+            requestId: "",
+            bytes: Array.from(bytes),
+          });
+          console.log("[dev] screenshot saved →", savedPath);
+        } catch (err: unknown) {
+          console.error("[dev] screenshot failed:", err);
+        }
+      })();
+    }
+
+    // Dev only — Cmd+Shift+P: toggle PR mode (hides recent files for clean screenshots)
+    if (import.meta.env.DEV && e.metaKey && e.shiftKey && e.code === "KeyP") {
+      e.preventDefault();
+      ui.prMode = !ui.prMode;
+      console.log("[dev] PR mode:", ui.prMode);
+    }
+
+    // Dev only — Cmd+Shift+4: automated demo screenshots
+    if (import.meta.env.DEV && e.metaKey && e.shiftKey && e.code === "Digit4") {
+      e.preventDefault();
+      (async () => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const { readFile } = await import("../ipc/commands");
+
+          ui.prMode = true;
+          console.log("[dev] creating demo projects…");
+          const paths = await invoke<Record<string, string>>("create_demo_project");
+          console.log("[dev] demo paths:", paths);
+
+          // Helper: open a file with content loaded from disk
+          async function openDemoFile(filePath: string) {
+            let content = "";
+            try { content = await readFile(filePath); } catch { /* ignore */ }
+            const name = filePath.split("/").pop() ?? filePath;
+            workspaceManager.openFileInWorkspace({ name, path: filePath, content }, undefined);
+          }
+
+          // --- Screenshot 1: API project (Rust) ---
+          const apiWs = await workspaceManager.createWorkspaceFromDirectory(paths.api);
+          if (apiWs) {
+            await new Promise(r => setTimeout(r, 800));
+            await openDemoFile(`${paths.api}/src/main.rs`);
+            await new Promise(r => setTimeout(r, 1200));
+            const savedPath1 = await invoke<string>("take_screenshot", { name: "api" });
+            console.log("[dev] screenshot 1 →", savedPath1);
+          }
+
+          // --- Screenshot 2: Web project (TypeScript) ---
+          const webWs = await workspaceManager.createWorkspaceFromDirectory(paths.web);
+          if (webWs) {
+            await new Promise(r => setTimeout(r, 800));
+            await openDemoFile(`${paths.web}/src/client.ts`);
+            await new Promise(r => setTimeout(r, 1200));
+            const savedPath2 = await invoke<string>("take_screenshot", { name: "web" });
+            console.log("[dev] screenshot 2 →", savedPath2);
+          }
+
+          // --- Screenshot 3: Split panes — open second file alongside first ---
+          if (webWs) {
+            const ws = workspaceManager.workspaces[webWs.id];
+            const editorPaneId = ws?.activePaneId;
+            if (editorPaneId && ws?.panes[editorPaneId]?.kind === "editor") {
+              await workspaceManager.splitPane(editorPaneId, "vertical", "after", webWs.id);
+              const wsUpdated = workspaceManager.workspaces[webWs.id];
+              const newPaneId = wsUpdated?.activePaneId;
+              if (newPaneId) {
+                let content = "";
+                try { content = await readFile(`${paths.web}/src/components.ts`); } catch { /* ignore */ }
+                workspaceManager.openFileInWorkspace(
+                  { name: "components.ts", path: `${paths.web}/src/components.ts`, content },
+                  newPaneId
+                );
+              }
+            }
+            await new Promise(r => setTimeout(r, 1200));
+            const savedPath3 = await invoke<string>("take_screenshot", { name: "split" });
+            console.log("[dev] screenshot 3 →", savedPath3);
+          }
+
+          console.log("[dev] all demo screenshots complete");
+        } catch (err: unknown) {
+          console.error("[dev] demo automation failed:", err);
+        }
+      })();
     }
   };
   document.addEventListener("keydown", handler);

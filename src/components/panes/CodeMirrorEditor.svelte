@@ -19,6 +19,7 @@
   import type { LspLocation, LspPos, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
   import { getDiagnosticsForUri } from "../../lib/stores/diagnostics.svelte";
   import { pushToast } from "../../lib/stores/toasts.svelte";
+  import { ui } from "../../lib/stores/ui.svelte";
 
   let {
     content,
@@ -865,6 +866,13 @@
           const text = await navigator.clipboard.readText().catch(() => "");
           if (text && view) view.dispatch(view.state.replaceSelection(text));
       }},
+      "sep",
+      { label: "Send to Claude…", shortcut: "⌘⇧U", disabled: !hasSelection,
+        action: () => {
+          const lineStart = view!.state.doc.lineAt(sel.from).number;
+          const lineEnd   = view!.state.doc.lineAt(sel.to === sel.from ? sel.to : sel.to - 1).number;
+          ui.sendToClaudeModal = { selectedText, filePath, lineStart, lineEnd };
+        }},
       "sep",
       { label: "Reveal in Finder", shortcut: "⌘K R", disabled: !filePath || filePath.startsWith("untitled-"),
         action: async () => {

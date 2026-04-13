@@ -3,3 +3,5 @@ pub mod settings;
 pub mod ssh;
 pub mod terminal;
 pub mod workspace;
+#[cfg(debug_assertions)]
+pub mod dev;

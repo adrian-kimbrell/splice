@@ -54,6 +54,18 @@
       }
     }
   });
+
+  // Sync from external expandedPaths changes (e.g. from the dev API or session restore
+  // after mount). Reads the reactive Set so this re-runs whenever it changes.
+  $effect(() => {
+    if (entry.is_dir) {
+      const shouldExpand = expandedCtx?.has(entry.path) ?? false;
+      if (shouldExpand && !expanded) {
+        expanded = true;
+        if (!children && !loading) reloadChildren();
+      }
+    }
+  });
   const indent = $derived(8 + depth * 16);
   const icon = $derived(entry.is_dir ? null : getFileIcon(entry.name));
   const isSelected = $derived(selectedPath === entry.path);

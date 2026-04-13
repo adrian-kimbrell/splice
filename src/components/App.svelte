@@ -9,7 +9,9 @@
   import CommandPalette from "./overlays/CommandPalette.svelte";
   import SshConnectForm from "./overlays/SshConnectForm.svelte";
   import Toasts from "./overlays/Toasts.svelte";
+  import SendToClaudeModal from "./overlays/SendToClaudeModal.svelte";
   import { openSettingsWindow } from "../lib/utils/settings-window";
+  import { showContextMenu } from "../lib/utils/context-menu";
   import { openNewWindow } from "../lib/utils/new-window";
   import { ui } from "../lib/stores/ui.svelte";
   import { initKeybindings, enterZenMode, exitZenMode } from "../lib/utils/keybindings";
@@ -1215,9 +1217,21 @@
 
 <svelte:window onfocus={handleWindowFocus} />
 
+<!-- Drag region covering the overlay title bar strip (traffic lights area) -->
 <div
-  class="grid h-screen"
-  style="grid-template-columns: {leftVisible && !ui.zenMode
+  style="height: var(--titlebar-height); background: var(--bg-sidebar); border-bottom: 1px solid var(--border);"
+  onmousedown={(e) => {
+    if (e.button === 0) {
+      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+        getCurrentWindow().startDragging();
+      });
+    }
+  }}
+></div>
+
+<div
+  class="grid"
+  style="height: calc(100vh - var(--titlebar-height)); grid-template-columns: {leftVisible && !ui.zenMode
     ? `${leftWidth}px 4px`
     : '0px 0px'} minmax(0,1fr) {rightVisible && !ui.zenMode
     ? `4px ${rightWidth}px`
@@ -1330,7 +1344,18 @@
             {/if}
           </div>
           {:else}
-          <div class="flex-1 flex items-center justify-center">
+          <div
+            class="flex-1 flex items-center justify-center"
+            role="region"
+            aria-label="Empty workspace"
+            oncontextmenu={(e) => {
+              e.preventDefault();
+              showContextMenu([
+                { label: "New File",     action: handleNewFile },
+                { label: "New Terminal", action: () => workspaceManager.spawnTerminalInWorkspace() },
+              ], e.clientX, e.clientY);
+            }}
+          >
             <div style="width: 96px; height: 96px; opacity: 0.35; background-color: var(--accent); -webkit-mask-image: url('/logo.png'); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; mask-image: url('/logo.png'); mask-size: contain; mask-repeat: no-repeat; mask-position: center;" aria-hidden="true"></div>
           </div>
           {/if}
@@ -1467,6 +1492,7 @@
   <!-- OVERLAYS -->
   <CommandPalette />
   <Toasts />
+  <SendToClaudeModal />
   {#if showSshForm && workspaceManager.activeWorkspace}
     <SshConnectForm workspace={workspaceManager.activeWorkspace} onclose={() => showSshForm = false} />
   {/if}

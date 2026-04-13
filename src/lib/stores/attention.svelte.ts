@@ -34,6 +34,9 @@ function createAttentionStore() {
       const { [terminalId]: _, ...rest } = notifications;
       notifications = rest;
     },
+    clearAll() {
+      notifications = {};
+    },
   };
 }
 

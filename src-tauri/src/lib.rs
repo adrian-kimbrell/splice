@@ -15,6 +15,8 @@
 
 mod attention;
 mod commands;
+#[cfg(debug_assertions)]
+mod dev_server;
 #[cfg(target_os = "macos")]
 mod dock;
 pub mod lsp;
@@ -157,6 +159,16 @@ pub fn run() {
                     }
                 }
             });
+
+            // Dev-only: start the local HTTP API so Claude can drive the UI programmatically.
+            #[cfg(debug_assertions)]
+            {
+                let dev_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    dev_server::start_dev_server(dev_handle).await;
+                });
+            }
+
             Ok(())
         })
         .on_menu_event(|app, event| {
@@ -192,7 +204,7 @@ pub fn run() {
             }
         })
         .invoke_handler({
-            #[cfg(not(feature = "e2e"))]
+            #[cfg(all(not(feature = "e2e"), not(debug_assertions)))]
             { tauri::generate_handler![
                 commands::ssh::ssh_connect,
                 commands::ssh::ssh_disconnect,
@@ -249,6 +261,66 @@ pub fn run() {
                 lsp::lsp_start,
                 lsp::lsp_notify,
                 lsp::lsp_request,
+            ] }
+            #[cfg(all(debug_assertions, not(feature = "e2e")))]
+            { tauri::generate_handler![
+                commands::ssh::ssh_connect,
+                commands::ssh::ssh_disconnect,
+                commands::ssh::sftp_list_dir,
+                commands::ssh::sftp_read_file,
+                commands::ssh::sftp_write_file,
+                commands::ssh::ssh_ping,
+                commands::fs::read_dir_tree,
+                commands::fs::read_file,
+                commands::fs::write_file,
+                commands::fs::read_file_base64,
+                commands::fs::search_files,
+                commands::fs::get_git_branch,
+                commands::fs::get_recent_files,
+                commands::fs::add_recent_file,
+                commands::fs::get_recent_projects,
+                commands::fs::add_recent_project,
+                commands::fs::watch_path,
+                commands::fs::unwatch_path,
+                commands::fs::create_file_at,
+                commands::fs::create_directory_at,
+                commands::fs::rename_path,
+                commands::fs::delete_path,
+                commands::fs::duplicate_path,
+                commands::fs::copy_path,
+                commands::fs::reveal_in_file_manager,
+                commands::fs::save_temp_image,
+                commands::fs::write_to_clipboard,
+                commands::terminal::spawn_terminal,
+                commands::terminal::write_to_terminal,
+                commands::terminal::resize_terminal,
+                commands::terminal::scroll_terminal,
+                commands::terminal::set_terminal_scroll_offset,
+                commands::terminal::kill_terminal,
+                commands::terminal::search_terminal,
+                commands::terminal::get_terminal_cwd,
+                commands::terminal::get_terminal_text_range,
+                commands::terminal::install_claude_hook,
+                commands::workspace::get_workspaces,
+                commands::workspace::save_workspace,
+                commands::workspace::delete_workspace,
+                commands::workspace::close_workspace,
+                commands::workspace::set_active_workspace_id,
+                commands::workspace::reorder_workspaces,
+                commands::workspace::add_allowed_root,
+                commands::workspace::check_pid_alive,
+                commands::workspace::register_window,
+                commands::workspace::unregister_window,
+                commands::workspace::get_secondary_window_labels,
+                commands::settings::get_settings,
+                commands::settings::update_settings,
+                lsp::lsp_check,
+                lsp::lsp_install,
+                lsp::lsp_start,
+                lsp::lsp_notify,
+                lsp::lsp_request,
+                commands::dev::save_screenshot_bytes,
+                commands::dev::create_demo_project,
             ] }
             #[cfg(feature = "e2e")]
             { tauri::generate_handler![

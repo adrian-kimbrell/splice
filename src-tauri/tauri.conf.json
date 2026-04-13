@@ -17,9 +17,10 @@
         "minWidth": 800,
         "minHeight": 600,
         "decorations": true,
+        "titleBarStyle": "Overlay",
         "resizable": true,
         "acceptFirstMouse": true,
-        "backgroundColor": { "red": 30, "green": 30, "blue": 30, "alpha": 255 }
+        "backgroundColor": { "red": 37, "green": 37, "blue": 38, "alpha": 255 }
       }
     ],
     "security": {

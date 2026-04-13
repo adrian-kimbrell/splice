@@ -33,3 +33,9 @@ src-tauri/target/criterion/
 # Chaos test artefacts
 .chaos-tmp/
 chaos-logs/
+
+# Dev tooling (screenshot automation, demo API drivers — not for production)
+src/lib/dev/
+src-tauri/src/dev_server.rs
+src-tauri/src/commands/dev.rs
+docs/screenshots/
