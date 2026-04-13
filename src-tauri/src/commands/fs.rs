@@ -1,7 +1,7 @@
 use base64::Engine;
 use crate::state::{validate_path, AppState};
 use ignore::WalkBuilder;
-use notify::{EventKind, RecursiveMode, Watcher};
+use notify::{EventKind, RecursiveMode, Watcher, RecommendedWatcher};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -429,21 +429,29 @@ pub fn watch_path(
     let emit_path = canonical_str.clone();
     let last_emit = std::sync::Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
 
-    let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-        if let Ok(event) = res {
-            match event.kind {
-                EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => {
-                    let mut last = last_emit.lock().unwrap_or_else(|e| e.into_inner());
-                    if last.elapsed() < std::time::Duration::from_millis(200) {
-                        return;
+    // Use a 100ms FSEvents latency (macOS) so external changes appear quickly.
+    // On Linux/Windows the Config has no effect — inotify/ReadDirectoryChanges
+    // are already near-instant.
+    let config = notify::Config::default()
+        .with_poll_interval(std::time::Duration::from_millis(100));
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<notify::Event, notify::Error>| {
+            if let Ok(event) = res {
+                match event.kind {
+                    EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => {
+                        let mut last = last_emit.lock().unwrap_or_else(|e| e.into_inner());
+                        if last.elapsed() < std::time::Duration::from_millis(200) {
+                            return;
+                        }
+                        *last = std::time::Instant::now();
+                        let _ = app.emit(event_name, emit_path.clone());
                     }
-                    *last = std::time::Instant::now();
-                    let _ = app.emit(event_name, emit_path.clone());
+                    _ => {}
                 }
-                _ => {}
             }
-        }
-    })
+        },
+        config,
+    )
     .map_err(|e| format!("Failed to create watcher: {}", e))?;
 
     watcher
