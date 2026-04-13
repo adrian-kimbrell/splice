@@ -15,8 +15,6 @@
 
 mod attention;
 mod commands;
-#[cfg(debug_assertions)]
-mod dev_server;
 #[cfg(target_os = "macos")]
 mod dock;
 pub mod lsp;
@@ -159,15 +157,6 @@ pub fn run() {
                     }
                 }
             });
-
-            // Dev-only: start the local HTTP API so Claude can drive the UI programmatically.
-            #[cfg(debug_assertions)]
-            {
-                let dev_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    dev_server::start_dev_server(dev_handle).await;
-                });
-            }
 
             Ok(())
         })
@@ -319,8 +308,6 @@ pub fn run() {
                 lsp::lsp_start,
                 lsp::lsp_notify,
                 lsp::lsp_request,
-                commands::dev::save_screenshot_bytes,
-                commands::dev::create_demo_project,
             ] }
             #[cfg(feature = "e2e")]
             { tauri::generate_handler![
