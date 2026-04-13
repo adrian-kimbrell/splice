@@ -158,6 +158,7 @@ class WorkspaceManager {
       activePaneId: null,
       gitBranch: "",
       explorerVisible: false,
+      expandedPaths: new Set(),
     };
 
     this.workspaces[id] = ws;
@@ -235,6 +236,7 @@ class WorkspaceManager {
       activePaneId: paneId,
       gitBranch: "",
       explorerVisible: true,
+      expandedPaths: new Set(),
     };
 
     this.workspaces[id] = ws;

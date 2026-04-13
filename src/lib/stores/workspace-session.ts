@@ -218,6 +218,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
       active_file_path: activeFilePath,
       active_pane_id: ws.activePaneId,
       explorer_visible: ws.explorerVisible,
+      expanded_paths: ws.expandedPaths ? [...ws.expandedPaths] : [],
       ssh_config: ws.sshConfig
         ? {
             host: ws.sshConfig.host,
@@ -261,6 +262,7 @@ export async function restoreWorkspaceImpl(
     activePaneId: null,
     gitBranch: "",
     explorerVisible: rws.explorer_visible ?? true,
+    expandedPaths: new Set(rws.expanded_paths ?? []),
     sshConfig: rws.ssh_config
       ? {
           host: rws.ssh_config.host,

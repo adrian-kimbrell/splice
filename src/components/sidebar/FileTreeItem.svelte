@@ -2,6 +2,10 @@
   import type { FileEntry } from "../../lib/stores/files.svelte";
   import { getFileIcon } from "../../lib/utils/file-icons";
   import FileTreeItem from "./FileTreeItem.svelte";
+  import { getContext } from "svelte";
+
+  interface ExpandedCtx { has(p: string): boolean; add(p: string): void; delete(p: string): void; }
+  const expandedCtx = getContext<ExpandedCtx | undefined>("expandedPaths");
 
   let {
     entry,
@@ -35,9 +39,21 @@
     onInlineCreateCancel?: () => void;
   } = $props();
 
-  let expanded = $state(false);
+  // Restore expanded state from the per-workspace context (survives workspace switches).
+  let expanded = $state(entry.is_dir && (expandedCtx?.has(entry.path) ?? false));
   let loading = $state(false);
   let children = $state<FileEntry[] | undefined>(undefined);
+
+  // When mounting in a restored-expanded state, load children immediately.
+  let didRestoreLoad = false;
+  $effect(() => {
+    if (!didRestoreLoad) {
+      didRestoreLoad = true;
+      if (expanded && entry.is_dir && !children && !loading) {
+        reloadChildren();
+      }
+    }
+  });
   const indent = $derived(8 + depth * 16);
   const icon = $derived(entry.is_dir ? null : getFileIcon(entry.name));
   const isSelected = $derived(selectedPath === entry.path);
@@ -50,6 +66,7 @@
       if (!hasAutoExpanded) {
         hasAutoExpanded = true;
         expanded = true;
+        expandedCtx?.add(entry.path);
       }
     }
   });
@@ -60,6 +77,7 @@
     if (collapseGeneration > lastCollapseGen) {
       lastCollapseGen = collapseGeneration;
       expanded = false;
+      expandedCtx?.delete(entry.path);
     }
   });
 
@@ -107,6 +125,8 @@
 
   async function toggleDir() {
     expanded = !expanded;
+    if (expanded) expandedCtx?.add(entry.path);
+    else expandedCtx?.delete(entry.path);
     if (expanded && !children) {
       loading = true;
       try {
@@ -159,6 +179,7 @@
       e.preventDefault();
       e.stopPropagation();
       expanded = false;
+      expandedCtx?.delete(entry.path);
     }
   }
 </script>

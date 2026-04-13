@@ -4,7 +4,15 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { fileClipboard } from "../../lib/stores/file-clipboard.svelte";
-  import { untrack } from "svelte";
+  import { untrack, setContext } from "svelte";
+
+  // Provide per-workspace expanded-path tracking via context so that FileTreeItem
+  // components at any depth can read/write the set without prop-drilling.
+  setContext("expandedPaths", {
+    has: (path: string) => workspaceManager.activeWorkspace?.expandedPaths?.has(path) ?? false,
+    add: (path: string) => { workspaceManager.activeWorkspace?.expandedPaths?.add(path); },
+    delete: (path: string) => { workspaceManager.activeWorkspace?.expandedPaths?.delete(path); },
+  });
 
   let {
     entries,

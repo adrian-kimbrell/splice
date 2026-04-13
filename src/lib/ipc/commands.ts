@@ -118,6 +118,7 @@ export interface RustWorkspace {
   active_file_path: string | null;
   active_pane_id: string | null;
   explorer_visible: boolean;
+  expanded_paths?: string[];
   ssh_config?: RustSshConfig | null;
 }
 

@@ -36,6 +36,10 @@ export interface Workspace {
   explorerVisible: boolean;
   nameManuallySet?: boolean;
 
+  // Persists which folder paths the user has expanded in the file tree so the
+  // state survives workspace switches within a session.
+  expandedPaths: Set<string>;
+
   // SSH remote workspace config (null = local workspace)
   sshConfig?: SshConfig | null;
 }
