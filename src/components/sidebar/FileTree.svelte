@@ -21,6 +21,7 @@
     selectedPath,
     rootPath = "",
     sshWorkspaceId = null,
+    revealPath = null,
   }: {
     entries: FileEntry[];
     onFileClick: (entry: FileEntry) => void;
@@ -28,6 +29,7 @@
     selectedPath: string | null;
     rootPath?: string;
     sshWorkspaceId?: string | null;
+    revealPath?: string | null;
   } = $props();
 
   const rootName = $derived(rootPath ? rootPath.split("/").filter(Boolean).pop() ?? "" : "");
@@ -582,6 +584,40 @@
     collapseGeneration++;
     rootExpanded = true;
   }
+
+  // Reveal a file in the tree: expand all ancestor directories then scroll to the item.
+  // Directory children load asynchronously, so we poll for the DOM node with retries.
+  $effect(() => {
+    const target = revealPath;
+    if (!target || !treeEl) return;
+
+    rootExpanded = true;
+
+    // Expand every ancestor directory between rootPath and the target file
+    if (rootPath && target.startsWith(rootPath + "/")) {
+      const parts = target.slice(rootPath.length + 1).split("/");
+      parts.pop(); // drop the filename — only directories need expanding
+      let accumulated = rootPath;
+      for (const part of parts) {
+        accumulated += "/" + part;
+        workspaceManager.activeWorkspace?.expandedPaths?.add(accumulated);
+      }
+    }
+
+    // Poll until the node is in the DOM (children may still be loading)
+    let attempts = 0;
+    function tryScroll() {
+      if (!treeEl) return;
+      const el = Array.from(treeEl.querySelectorAll<HTMLElement>("[data-path]"))
+        .find((n) => n.dataset.path === target);
+      if (el) {
+        el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      } else if (++attempts < 8) {
+        setTimeout(tryScroll, 100);
+      }
+    }
+    requestAnimationFrame(tryScroll);
+  });
 </script>
 
 <svelte:document onclick={handleDocClick} />

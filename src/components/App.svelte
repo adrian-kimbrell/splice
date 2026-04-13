@@ -218,6 +218,14 @@
 
   let selectedFilePath = $state<string | null>(null);
 
+  // Active file path in the focused pane — used to reveal the file in the tree
+  const activeRevealPath = $derived.by(() => {
+    const ws = workspaceManager.activeWorkspace;
+    if (!ws?.activePaneId) return null;
+    const pane = ws.panes[ws.activePaneId];
+    return pane?.kind === "editor" ? (pane.activeFilePath ?? null) : null;
+  });
+
   // --- Physical sidebar layout derived from logical panel state ---
   const explorerOnLeft = $derived(settings.appearance.explorer_side === "left");
 
@@ -1122,107 +1130,11 @@
         }
       });
 
-      // Dev API event listeners — only active in development builds
-      const devUnlisteners: Array<() => void> = [];
+      // Dev API event listeners — loaded once as a standalone module so they
+      // survive App.svelte HMR updates. Vite tree-shakes this import entirely
+      // in production builds (import.meta.env.DEV is statically false).
       if (import.meta.env.DEV) {
-        devUnlisteners.push(await listen<boolean>("dev:pr-mode", ({ payload }) => {
-          ui.prMode = payload;
-        }));
-
-        devUnlisteners.push(await listen<string>("dev:open-folder", async ({ payload }) => {
-          await workspaceManager.createWorkspaceFromDirectory(payload);
-        }));
-
-        devUnlisteners.push(await listen<string>("dev:open-file", async ({ payload }) => {
-          let content = "";
-          try {
-            const { readFile } = await getCommands();
-            content = await readFile(payload);
-          } catch { /* ignore */ }
-          const name = payload.split("/").pop() ?? payload;
-          workspaceManager.openFileInWorkspace({ name, path: payload, content });
-        }));
-
-        devUnlisteners.push(await listen<{ name: string; requestId: string }>("dev:capture-screenshot", async ({ payload }) => {
-          const { invoke } = await import("@tauri-apps/api/core");
-
-          // Always call save_screenshot_bytes so the HTTP waiter is never left hanging.
-          // On failure, save a tiny 1×1 transparent PNG so the file write succeeds.
-          const FALLBACK_PNG = new Uint8Array([
-            137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,
-            8,6,0,0,0,31,21,196,137,0,0,0,10,73,68,65,84,120,156,98,0,1,0,0,
-            5,0,1,13,10,45,180,0,0,0,0,73,69,78,68,174,66,96,130
-          ]);
-
-          try {
-            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-            const { toPng } = await import("html-to-image");
-            const dataUrl = await toPng(document.documentElement, {
-              pixelRatio: window.devicePixelRatio || 1,
-            });
-
-            const base64 = dataUrl.split(",")[1];
-            const binary = atob(base64);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-            await invoke("save_screenshot_bytes", {
-              name: payload.name,
-              requestId: payload.requestId,
-              bytes: Array.from(bytes),
-            });
-          } catch (e) {
-            console.error("[dev] screenshot capture failed:", e);
-            try {
-              await invoke("save_screenshot_bytes", {
-                name: payload.name + "-error",
-                requestId: payload.requestId,
-                bytes: Array.from(FALLBACK_PNG),
-              });
-            } catch (e2) {
-              console.error("[dev] screenshot error fallback also failed:", e2);
-            }
-          }
-        }));
-
-        devUnlisteners.push(await listen<string>("dev:run-terminal", async ({ payload }) => {
-          const { writeToTerminal } = await getCommands();
-          // Write to every active terminal so the command definitely reaches the visible one
-          const allWs = Object.values(workspaceManager.workspaces);
-          const termIds = allWs
-            .map(w => w.activeTerminalId)
-            .filter((id): id is number => id != null);
-          if (termIds.length === 0) {
-            console.warn("[dev] run-terminal: no active terminal found");
-            return;
-          }
-          for (const termId of termIds) {
-            await writeToTerminal(termId, payload);
-          }
-        }));
-
-        devUnlisteners.push(await listen<Record<string, unknown>>("dev:ui", ({ payload }) => {
-          if (typeof payload.workspacesVisible === "boolean") ui.workspacesVisible = payload.workspacesVisible;
-          if (typeof payload.explorerVisible === "boolean") ui.explorerVisible = payload.explorerVisible;
-          if (typeof payload.prMode === "boolean") ui.prMode = payload.prMode;
-          if (typeof payload.workspacesWidth === "number") ui.workspacesWidth = payload.workspacesWidth;
-          if (typeof payload.explorerWidth === "number") ui.explorerWidth = payload.explorerWidth;
-        }));
-
-        devUnlisteners.push(await listen<{ width: number; height: number }>("dev:resize", async ({ payload }) => {
-          const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          const { LogicalSize } = await import("@tauri-apps/api/dpi");
-          await getCurrentWindow().setSize(new LogicalSize(payload.width, payload.height));
-        }));
-
-        devUnlisteners.push(await listen<null>("dev:reset", () => {
-          for (const id of Object.keys(workspaceManager.workspaces)) {
-            workspaceManager.closeWorkspace(id);
-          }
-          ui.prMode = false;
-          ui.workspacesVisible = true;
-        }));
+        await import("../lib/dev/index");
       }
     }
 
@@ -1297,7 +1209,6 @@
       unlistenTreeChanged?.();
       unlistenClosing?.();
       unlistenSession?.();
-      devUnlisteners.forEach(fn => fn());
     };
   });
 </script>
@@ -1321,6 +1232,7 @@
         onFileClick={handleFileClick}
         onFileDoubleClick={handleFileDoubleClick}
         selectedPath={selectedFilePath}
+        revealPath={activeRevealPath}
         hasFolder={!!ws?.rootPath || !!ws?.sshConfig}
         hasWorkspace={!!ws}
         rootPath={ws?.rootPath ?? ""}
@@ -1537,6 +1449,7 @@
         onFileClick={handleFileClick}
         onFileDoubleClick={handleFileDoubleClick}
         selectedPath={selectedFilePath}
+        revealPath={activeRevealPath}
         hasFolder={!!ws?.rootPath || !!ws?.sshConfig}
         hasWorkspace={!!ws}
         rootPath={ws?.rootPath ?? ""}

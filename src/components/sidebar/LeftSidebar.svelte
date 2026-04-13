@@ -13,6 +13,7 @@
     onFileClick,
     onFileDoubleClick,
     selectedPath,
+    revealPath = null,
     hasFolder = true,
     hasWorkspace = true,
     side = "left",
@@ -23,6 +24,7 @@
     onFileClick: (entry: FileEntry) => void;
     onFileDoubleClick?: (entry: FileEntry) => void;
     selectedPath: string | null;
+    revealPath?: string | null;
     hasFolder?: boolean;
     hasWorkspace?: boolean;
     side?: "left" | "right";
@@ -159,7 +161,7 @@
         {/if}
       </div>
     {:else if hasFolder}
-      <FileTree {entries} {onFileClick} {onFileDoubleClick} {selectedPath} {rootPath} {sshWorkspaceId} />
+      <FileTree {entries} {onFileClick} {onFileDoubleClick} {selectedPath} {revealPath} {rootPath} {sshWorkspaceId} />
     {:else if hasWorkspace}
       <div class="flex flex-col items-center justify-center px-4 h-full text-center">
         <i class="bi bi-folder-plus text-2xl text-txt-dim mb-3 block"></i>
