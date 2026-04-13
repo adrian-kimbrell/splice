@@ -187,7 +187,7 @@ async fn lsp_reader(
                 Ok(0) | Err(_) => return,
                 Ok(_) => {}
             }
-            let trimmed = line.trim_end_matches(|c| c == '\r' || c == '\n');
+            let trimmed = line.trim_end_matches(['\r', '\n']);
             if trimmed.is_empty() {
                 break;
             }

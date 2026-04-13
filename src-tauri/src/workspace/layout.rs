@@ -85,7 +85,7 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
     pub general: GeneralSettings,
@@ -94,16 +94,6 @@ pub struct Settings {
     pub terminal: TerminalSettings,
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            general: GeneralSettings::default(),
-            editor: EditorSettings::default(),
-            appearance: AppearanceSettings::default(),
-            terminal: TerminalSettings::default(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeneralSettings {

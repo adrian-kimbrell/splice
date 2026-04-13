@@ -5,8 +5,9 @@
 //! register_window, unregister_window, get_secondary_window_labels.
 //!
 //! Persistence model: each Tauri window has its own config file on disk.
-//! - main window  → `~/.config/Splice/workspaces.json`
-//! - other windows → `~/.config/Splice/workspaces-{label}.json`
+//!   - main window  → `~/.config/Splice/workspaces.json`
+//!   - other windows → `~/.config/Splice/workspaces-{label}.json`
+//!
 //! Active window labels are tracked in `windows.json` for session restore on next launch.
 //!
 //! `close_workspace` kills all terminals owned by the workspace and removes their state

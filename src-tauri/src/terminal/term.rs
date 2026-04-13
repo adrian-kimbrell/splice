@@ -240,7 +240,7 @@ impl<'a> vte::Perform for GridPerformer<'a> {
             0x07 => *self.pending_bell = true,
             0x08 => self.grid.backspace(),                // BS
             0x09 => self.grid.tab(),                      // HT
-            0x0A | 0x0B | 0x0C => self.grid.linefeed(),  // LF, VT, FF
+            0x0A..=0x0C => self.grid.linefeed(),          // LF, VT, FF
             0x0D => self.grid.carriage_return(),          // CR
             0x0E => self.grid.active_mut().active_charset = 1, // SO: shift to G1
             0x0F => self.grid.active_mut().active_charset = 0, // SI: shift to G0

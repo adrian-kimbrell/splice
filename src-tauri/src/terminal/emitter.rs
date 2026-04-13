@@ -36,6 +36,12 @@ pub struct EmitterNotify {
     condvar: Condvar,
 }
 
+impl Default for EmitterNotify {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EmitterNotify {
     pub fn new() -> Self {
         Self {
@@ -235,6 +241,64 @@ pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
     buf
 }
 
+const MIN_FRAME_MS: u64 = 8;      // ~120 fps cap
+const IDLE_TIMEOUT_MS: u64 = 100;
+
+pub fn spawn_emitter(
+    app: AppHandle,
+    id: u32,
+    emulator: Arc<RwLock<Emulator>>,
+    version: Arc<AtomicU32>,
+    running: Arc<AtomicBool>,
+    scroll_offset: Arc<AtomicI32>,
+    notify: Arc<EmitterNotify>,
+) -> JoinHandle<()> {
+    let event_name = format!("terminal:grid:{}", id);
+    let min_frame = Duration::from_millis(MIN_FRAME_MS);
+
+    thread::spawn(move || {
+        let mut last_version = 0u32;
+        let mut last_emit = Instant::now();
+        loop {
+            if !running.load(Ordering::Relaxed) {
+                break;
+            }
+
+            // Wait for notification or timeout (for idle refresh like cursor blink)
+            let since_last = last_emit.elapsed();
+            let wait = if since_last < min_frame {
+                min_frame - since_last
+            } else {
+                Duration::from_millis(IDLE_TIMEOUT_MS)
+            };
+            notify.wait_timeout(wait);
+
+            let current = version.load(Ordering::Relaxed);
+            if current != last_version {
+                // Rate-limit: ensure minimum frame interval.
+                // Wait only the remaining budget (not the full IDLE_TIMEOUT_MS).
+                // Do not `continue` after the sleep — fall through to emit so we avoid
+                // a redundant Condvar acquire at the top of the loop.
+                if last_emit.elapsed() < min_frame {
+                    let remaining = min_frame.saturating_sub(last_emit.elapsed());
+                    notify.wait_timeout(remaining);
+                }
+                last_version = current;
+                let offset = scroll_offset.load(Ordering::Relaxed);
+                let b64 = match emulator.read() {
+                    Ok(emu) => {
+                        let data = serialize_grid(&emu.grid, offset);
+                        base64::engine::general_purpose::STANDARD.encode(&data)
+                    }
+                    Err(_) => continue, // skip frame on poisoned lock
+                };
+                let _ = app.emit(&event_name, b64);
+                last_emit = Instant::now();
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,62 +478,4 @@ mod tests {
         let cp = u32::from_le_bytes([data[20], data[21], data[22], data[23]]);
         assert_eq!(cp, 'A' as u32);
     }
-}
-
-const MIN_FRAME_MS: u64 = 8;      // ~120 fps cap
-const IDLE_TIMEOUT_MS: u64 = 100;
-
-pub fn spawn_emitter(
-    app: AppHandle,
-    id: u32,
-    emulator: Arc<RwLock<Emulator>>,
-    version: Arc<AtomicU32>,
-    running: Arc<AtomicBool>,
-    scroll_offset: Arc<AtomicI32>,
-    notify: Arc<EmitterNotify>,
-) -> JoinHandle<()> {
-    let event_name = format!("terminal:grid:{}", id);
-    let min_frame = Duration::from_millis(MIN_FRAME_MS);
-
-    thread::spawn(move || {
-        let mut last_version = 0u32;
-        let mut last_emit = Instant::now();
-        loop {
-            if !running.load(Ordering::Relaxed) {
-                break;
-            }
-
-            // Wait for notification or timeout (for idle refresh like cursor blink)
-            let since_last = last_emit.elapsed();
-            let wait = if since_last < min_frame {
-                min_frame - since_last
-            } else {
-                Duration::from_millis(IDLE_TIMEOUT_MS)
-            };
-            notify.wait_timeout(wait);
-
-            let current = version.load(Ordering::Relaxed);
-            if current != last_version {
-                // Rate-limit: ensure minimum frame interval.
-                // Wait only the remaining budget (not the full IDLE_TIMEOUT_MS).
-                // Do not `continue` after the sleep — fall through to emit so we avoid
-                // a redundant Condvar acquire at the top of the loop.
-                if last_emit.elapsed() < min_frame {
-                    let remaining = min_frame.saturating_sub(last_emit.elapsed());
-                    notify.wait_timeout(remaining);
-                }
-                last_version = current;
-                let offset = scroll_offset.load(Ordering::Relaxed);
-                let b64 = match emulator.read() {
-                    Ok(emu) => {
-                        let data = serialize_grid(&emu.grid, offset);
-                        base64::engine::general_purpose::STANDARD.encode(&data)
-                    }
-                    Err(_) => continue, // skip frame on poisoned lock
-                };
-                let _ = app.emit(&event_name, b64);
-                last_emit = Instant::now();
-            }
-        }
-    })
 }

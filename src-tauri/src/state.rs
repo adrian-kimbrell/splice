@@ -38,6 +38,12 @@ pub struct AppState {
     pub ssh_sessions: HashMap<String, Arc<openssh::Session>>,
 }
 
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppState {
     pub fn new() -> Self {
         let mut allowed_roots = Vec::new();

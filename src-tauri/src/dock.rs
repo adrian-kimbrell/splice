@@ -17,13 +17,13 @@ pub fn setup(app: &AppHandle) {
 }
 
 unsafe fn inject_dock_menu() {
-    use objc2::ffi::{class_addMethod, objc_getClass, objc_registerClassPair, objc_allocateClassPair};
+    use objc2::ffi::{class_addMethod, objc_registerClassPair, objc_allocateClassPair};
     use objc2::runtime::{AnyClass, AnyObject, Sel};
     use objc2::sel;
     use objc2_app_kit::{NSMenu, NSMenuItem};
     use objc2_foundation::NSString;
     use objc2::MainThreadMarker;
-    use std::ffi::CStr;
+
 
     // ── 1. Create the helper target class ────────────────────────────────────
     // (only register it once even if called multiple times, though in practice

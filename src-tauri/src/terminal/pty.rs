@@ -47,6 +47,7 @@ impl Drop for PtySession {
 }
 
 impl PtySession {
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         app: AppHandle,
         id: u32,

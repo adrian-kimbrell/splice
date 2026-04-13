@@ -77,8 +77,8 @@ fn resize_1x1_terminal_no_panic() {
     h.emu.resize(1, 1); // extreme shrink
     // Should not panic; cursor at (0, 0)
     let (col, row) = h.cursor();
-    assert!(col <= 0);
-    assert!(row <= 0);
+    assert_eq!(col, 0);
+    assert_eq!(row, 0);
 }
 
 #[test]

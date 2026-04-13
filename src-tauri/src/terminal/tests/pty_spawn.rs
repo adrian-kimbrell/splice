@@ -76,6 +76,7 @@ fn make_cmd(shell: &str, home: &std::path::Path, login: bool) -> CommandBuilder 
 ///   1. Start the reader thread before spawning the child (no data written yet).
 ///   2. Spawn the child.
 ///   3. Wait for the child to fully exit via `child.wait()`, THEN drop the slave.
+///
 /// This enforces the ordering: child writes → child exits → slave drops → EIO.
 fn run_in_pty(cmd: CommandBuilder) -> Option<String> {
     let pty = native_pty_system();

@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, State};
 use tracing::{info, warn};
 
 const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
-const MAX_RECENT_LIST_SIZE: u64 = 1 * 1024 * 1024; // 1 MB
+const MAX_RECENT_LIST_SIZE: u64 = 1024 * 1024; // 1 MB
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FileEntry {
@@ -790,7 +790,7 @@ mod tests {
     fn validate_home_dir_is_allowed_by_default() {
         // AppState::new() always seeds $HOME into allowed_roots
         let state = AppState::new();
-        if let Some(home) = dirs::home_dir() {
+        if let Some(_home) = dirs::home_dir() {
             // Use the config dir, which is always under $HOME on macOS/Linux
             if let Some(cfg) = dirs::config_dir() {
                 if cfg.exists() {
@@ -819,7 +819,7 @@ mod tests {
             .to_string_lossy().to_string();
 
         let state_mutex = state_for(&tmp);
-        let mut state = state_mutex.lock().unwrap();
+        let state = state_mutex.lock().unwrap();
 
         // First call: not present → should proceed
         assert!(!state.watchers.contains_key(&key), "should be absent initially");

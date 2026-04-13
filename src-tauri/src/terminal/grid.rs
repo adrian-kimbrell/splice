@@ -554,8 +554,8 @@ impl Grid {
         for i in (col + n..cols).rev() {
             line[i] = line[i - n];
         }
-        for i in col..(col + n).min(cols) {
-            line[i] = blank;
+        for cell in &mut line[col..(col + n).min(cols)] {
+            *cell = blank;
         }
     }
 
@@ -573,8 +573,8 @@ impl Grid {
         for i in col..(cols - n) {
             line[i] = line[i + n];
         }
-        for i in (cols - n)..cols {
-            line[i] = blank;
+        for cell in &mut line[(cols - n)..cols] {
+            *cell = blank;
         }
     }
 

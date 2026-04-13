@@ -173,7 +173,7 @@ async fn handle_connection(mut stream: TcpStream, app: AppHandle, token: Arc<Str
     // Validate X-Splice-Token header to reject requests from other local processes
     let provided_token = header_str.lines()
         .find(|l| l.to_ascii_lowercase().starts_with("x-splice-token:"))
-        .and_then(|l| l.splitn(2, ':').nth(1))
+        .and_then(|l| l.split_once(':').map(|x| x.1))
         .map(|v| v.trim())
         .unwrap_or("");
     if provided_token != token.as_str() {
@@ -326,7 +326,7 @@ fn parse_content_length(headers: &str) -> Option<usize> {
     for line in headers.lines() {
         let lower = line.to_ascii_lowercase();
         if lower.starts_with("content-length:") {
-            let val = lower["content-length:".len()..].trim();
+            let val = lower.split_once(':').map(|x| x.1).unwrap_or("").trim();
             return val.parse().ok();
         }
     }
@@ -530,7 +530,7 @@ mod tests {
     }
 
     /// Return the command string for the first hook entry containing `marker`, if any.
-    fn find_hook_command<'a>(root: &'a serde_json::Value, marker: &str) -> Option<String> {
+    fn find_hook_command(root: &serde_json::Value, marker: &str) -> Option<String> {
         let hooks = root.get("hooks")?.as_object()?;
         for arr in hooks.values() {
             for entry in arr.as_array()?.iter() {
