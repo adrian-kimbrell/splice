@@ -3,6 +3,7 @@
   import { TerminalRenderer, HEADER_SIZE, CELL_SIZE } from "../../lib/terminal/renderer";
   import type { TerminalSearchMatch } from "../../lib/ipc/commands";
   import { settings } from "../../lib/stores/settings.svelte";
+  import { ui } from "../../lib/stores/ui.svelte";
   import { attentionStore } from "../../lib/stores/attention.svelte";
   import { keyToBytes } from "../../lib/terminal/keyboard";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
@@ -108,6 +109,17 @@
   // We have to re-measure explicitly.
   $effect(() => {
     const _scale = settings.appearance.ui_scale; // subscribe
+    if (!renderer || !containerEl) return;
+    requestAnimationFrame(() => handleResize());
+  });
+
+  // Re-fit when pane zoom is toggled.
+  // When a pane is zoomed, a second CanvasTerminal instance is mounted in the overlay
+  // at full-screen size and resizes the PTY to match. When zoom is dismissed that instance
+  // is destroyed, but the original instance (hidden in the PaneGrid via visibility:hidden)
+  // never saw its container resize — so ResizeObserver won't fire. Force a remeasure here.
+  $effect(() => {
+    const _zoomed = ui.zoomedPaneId; // subscribe
     if (!renderer || !containerEl) return;
     requestAnimationFrame(() => handleResize());
   });
