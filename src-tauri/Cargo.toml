@@ -12,7 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
@@ -39,6 +39,7 @@ objc2-app-kit = { version = "0.3", features = ["NSMenu", "NSMenuItem", "NSApplic
 objc2-foundation = { version = "0.3", features = ["NSString"] }
 
 [features]
+devtools = ["tauri/devtools"]
 e2e = ["tauri-plugin-webdriver"]
 
 [dev-dependencies]

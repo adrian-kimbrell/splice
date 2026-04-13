@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev --features devtools",
+    "tauri:build": "tauri build",
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "vitest bench --run",

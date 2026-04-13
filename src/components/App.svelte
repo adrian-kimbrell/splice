@@ -873,6 +873,26 @@
           return null;
         }
       },
+      /** Attempt ssh_connect and return { ok, err }. Used by E2E SSH error-path tests. */
+      sshConnectTest: async (workspaceId: string, config: Record<string, unknown>): Promise<{ ok: boolean; err?: string }> => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("ssh_connect", { workspaceId, config });
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, err: String(e) };
+        }
+      },
+      /** Attempt ssh_ping and return { ok, value, err }. Used by E2E SSH error-path tests. */
+      sshPingTest: async (workspaceId: string): Promise<{ ok: boolean; value?: boolean; err?: string }> => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const value = await invoke<boolean>("ssh_ping", { workspaceId });
+          return { ok: true, value };
+        } catch (e) {
+          return { ok: false, err: String(e) };
+        }
+      },
       /** Benchmark tab switching FPS over N rAF-timed iterations across open files. */
       benchmarkTabSwitching: async (iterations = 200) => {
         const ws = workspaceManager.activeWorkspace;
@@ -902,7 +922,6 @@
 
         const elapsed = performance.now() - start;
         const fps = (frames / (elapsed / 1000)).toFixed(1);
-        console.log(`Tab switching: ${fps} FPS over ${frames} switches across ${paths.length} files (${elapsed.toFixed(0)}ms total)`);
         return `${fps} FPS`;
       },
     };

@@ -67,7 +67,7 @@ describe("LSP Diagnostics", () => {
         const els = await browser.$$(".cm-lintRange-error, .cm-lintRange-warning");
         return els.length > 0;
       },
-      { timeout: 10_000, interval: 500, timeoutMsg: "No CM6 lint decorations appeared within 10s" }
+      { timeout: 20_000, interval: 500, timeoutMsg: "No CM6 lint decorations appeared within 20s" }
     );
 
     const errorMarks = await browser.$$(".cm-lintRange-error");

@@ -146,7 +146,6 @@ export function scheduleClaudeResume(
           try {
             const alive = await deps.checkPidAlive(savedPid);
             if (alive) {
-              console.info(`Claude PID ${savedPid} still alive; cancelling --resume for terminal ${terminalId}`);
               cancelPendingResume(terminalId);
               return;
             }
@@ -317,7 +316,6 @@ export async function restoreWorkspaceImpl(
         // shell initialization + command injection.
         if (paneInfo.claude_session_id) {
           const sessionId = paneInfo.claude_session_id;
-          const savedPid = paneInfo.claude_pid ?? null;
 
           if (!isValidSessionId(sessionId)) {
             console.warn("Refusing to inject suspicious session ID:", sessionId);

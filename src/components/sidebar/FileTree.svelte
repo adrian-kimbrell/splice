@@ -251,6 +251,7 @@
       }
       const btn = document.createElement("button");
       btn.className = "split-dropdown-item" + (item.disabled ? " disabled" : "");
+      btn.disabled = !!item.disabled;
       btn.textContent = item.label;
       if (item.shortcut) {
         const kbd = document.createElement("kbd");

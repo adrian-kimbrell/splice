@@ -873,4 +873,142 @@ mod tests {
             "accept loop must handle all connections; `break` on any error would stop it permanently",
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Group F: remove_hooks_by_marker unit tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn remove_hooks_by_marker_removes_matching() {
+        let mut hooks_obj = serde_json::Map::new();
+        let target = serde_json::json!({
+            "matcher": "",
+            "hooks": [{"type": "command", "command": "python3 stuff # target-marker"}]
+        });
+        let other = serde_json::json!({
+            "matcher": "",
+            "hooks": [{"type": "command", "command": "python3 stuff # other-marker"}]
+        });
+        hooks_obj.insert("Notification".to_string(), serde_json::json!([target, other]));
+
+        remove_hooks_by_marker(&mut hooks_obj, "Notification", "target-marker");
+
+        let arr = hooks_obj["Notification"].as_array().unwrap();
+        assert_eq!(arr.len(), 1, "only the matching entry should be removed");
+        let cmd = arr[0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(cmd.contains("other-marker"), "unrelated entry must remain");
+    }
+
+    #[test]
+    fn remove_hooks_by_marker_no_match_leaves_all() {
+        let mut hooks_obj = serde_json::Map::new();
+        let entry = serde_json::json!({
+            "matcher": "",
+            "hooks": [{"type": "command", "command": "python3 stuff # some-marker"}]
+        });
+        hooks_obj.insert("Notification".to_string(), serde_json::json!([entry]));
+
+        remove_hooks_by_marker(&mut hooks_obj, "Notification", "nonexistent-marker");
+
+        assert_eq!(hooks_obj["Notification"].as_array().unwrap().len(), 1,
+            "no entries should be removed when marker is absent");
+    }
+
+    #[test]
+    fn remove_hooks_by_marker_missing_key_no_panic() {
+        let mut hooks_obj = serde_json::Map::new();
+        // Must not panic when the hook key doesn't exist at all
+        remove_hooks_by_marker(&mut hooks_obj, "Notification", "some-marker");
+    }
+
+    #[test]
+    fn remove_hooks_by_marker_removes_all_occurrences() {
+        let mut hooks_obj = serde_json::Map::new();
+        let dup = |label: &str| serde_json::json!({
+            "matcher": "",
+            "hooks": [{"type": "command", "command": format!("# {label}")}]
+        });
+        hooks_obj.insert("Notification".to_string(),
+            serde_json::json!([dup("dup-marker"), dup("dup-marker"), dup("other")]));
+
+        remove_hooks_by_marker(&mut hooks_obj, "Notification", "dup-marker");
+
+        let arr = hooks_obj["Notification"].as_array().unwrap();
+        assert_eq!(arr.len(), 1, "all duplicate entries should be removed");
+    }
+
+    // -----------------------------------------------------------------------
+    // Group G: install_hook_entry safety and replacement
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn install_hook_entry_rejects_unknown_path() {
+        let mut hooks_obj = serde_json::Map::new();
+        install_hook_entry(&mut hooks_obj, "Notification", "malicious/../path", "test-marker");
+        // Must be a no-op — no entries inserted for unknown paths
+        let is_empty = hooks_obj
+            .get("Notification")
+            .and_then(|v| v.as_array())
+            .map(|a| a.is_empty())
+            .unwrap_or(true);
+        assert!(is_empty, "install_hook_entry must not install hooks for unknown paths");
+    }
+
+    #[test]
+    fn install_hook_entry_replaces_outdated_hook() {
+        // An entry whose command lacks `.attention_port` is considered outdated
+        // (it uses a hardcoded port instead of reading the file at connect time).
+        let mut hooks_obj = serde_json::Map::new();
+        let outdated = serde_json::json!({
+            "matcher": "",
+            "hooks": [{"type": "command", "command": "python3 hardcoded:19876 # splice-attention-hook-v3"}]
+        });
+        hooks_obj.insert("Notification".to_string(), serde_json::json!([outdated]));
+
+        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v3");
+
+        let arr = hooks_obj["Notification"].as_array().unwrap();
+        assert_eq!(arr.len(), 1, "outdated entry should be replaced, not duplicated");
+        let cmd = arr[0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(cmd.contains(".attention_port"),
+            "replacement must read port from .attention_port file, not hardcode it");
+    }
+
+    #[test]
+    fn install_hook_both_hooks_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook-v3"), 1,
+            "attention (Notification) hook must be installed");
+        assert_eq!(count_hooks_with_marker(&root, "splice-session-hook-v4"), 1,
+            "session (SessionStart) hook must be installed");
+    }
+
+    #[test]
+    fn install_hook_entry_up_to_date_is_noop() {
+        // Once an up-to-date entry (with .attention_port) is present, a second
+        // call to install_hook_entry must not add a duplicate.
+        let mut hooks_obj = serde_json::Map::new();
+        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v3");
+        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v3");
+        let arr = hooks_obj["Notification"].as_array().unwrap();
+        assert_eq!(arr.len(), 1, "calling install_hook_entry twice must not duplicate the entry");
+    }
+
+    // -----------------------------------------------------------------------
+    // Group H: parse_content_length additional edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_content_length_with_extra_whitespace() {
+        // Extra spaces around the value should still parse
+        assert_eq!(parse_content_length("Content-Length:   128  \r\n"), Some(128));
+    }
+
+    #[test]
+    fn parse_content_length_negative_rejected() {
+        // Negative values cannot be represented as usize — parser should return None
+        assert_eq!(parse_content_length("Content-Length: -1\r\n"), None);
+    }
 }

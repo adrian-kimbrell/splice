@@ -98,8 +98,8 @@ describe("Advanced stress / performance", function () {
         }
       }
 
-      // Close the newest pane
-      const closeBtns = await browser.$$("button.pane-action-btn.close");
+      // Close the newest editor pane (avoid terminal pane which destroys workspace)
+      const closeBtns = await browser.$$("[data-pane-id]:has(.cm-editor) button.pane-action-btn.close");
       if (closeBtns.length > 0) {
         await closeBtns[closeBtns.length - 1].click();
         await sleep(150);
@@ -281,7 +281,8 @@ describe("Advanced stress / performance", function () {
       }, join(wsDir, `c${i}.ts`));
       await sleep(100);
 
-      const closeBtns = await browser.$$("button.pane-action-btn.close");
+      // Close the newest editor pane (avoid terminal pane which destroys workspace)
+      const closeBtns = await browser.$$("[data-pane-id]:has(.cm-editor) button.pane-action-btn.close");
       if (closeBtns.length > 0) {
         await closeBtns[closeBtns.length - 1].click();
         await sleep(200);

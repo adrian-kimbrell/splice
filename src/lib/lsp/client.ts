@@ -93,7 +93,6 @@ export class LspClient {
     const p = lspStart(languageId, workspaceRoot)
       .then(() => {
         this.runningLanguages.add(languageId);
-        console.log(`[LSP] ${languageId} server started`);
       })
       .catch((err) => {
         this.startPromises.delete(languageId);
@@ -146,20 +145,14 @@ export class LspClient {
    */
   async ensureReady(filePath: string, content: string, workspaceRoot: string): Promise<boolean> {
     const langId = this.getLanguageId(filePath);
-    console.log(`[LSP] ensureReady: file=${filePath} lang=${langId} root=${workspaceRoot}`);
-    if (!langId) { console.warn("[LSP] ensureReady: no langId → abort"); return false; }
+    if (!langId) return false;
     const root =
       workspaceRoot ||
       (filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : "");
-    if (!root) { console.warn("[LSP] ensureReady: no root → abort"); return false; }
-    console.log(`[LSP] ensureReady: calling ensureStarted(${langId}, ${root})`);
+    if (!root) return false;
     await this.ensureStarted(langId, root); // throws on failure
-    if (!this.runningLanguages.has(langId)) {
-      console.warn(`[LSP] ensureReady: server not running after ensureStarted → abort`);
-      return false;
-    }
+    if (!this.runningLanguages.has(langId)) return false;
     if (!this.docVersions.has(filePath)) {
-      console.log(`[LSP] ensureReady: sending didOpen for ${filePath}`);
       const inFlight = this.openPromises.get(filePath);
       if (inFlight) {
         await inFlight;
@@ -169,9 +162,7 @@ export class LspClient {
         );
       }
     }
-    const ready = this.runningLanguages.has(langId);
-    console.log(`[LSP] ensureReady: returning ${ready}`);
-    return ready;
+    return this.runningLanguages.has(langId);
   }
 
   async didOpen(filePath: string, content: string, workspaceRoot: string): Promise<void> {
@@ -233,13 +224,9 @@ export class LspClient {
   async gotoDefinition(filePath: string, line: number, char: number): Promise<LspLocation[]> {
     const langId = this.getLanguageId(filePath);
     if (!langId) return [];
-    console.log(`[LSP] gotoDefinition: ${filePath}:${line}:${char}`);
     try {
       const result = await lspRequest(langId, "textDocument/definition", this._textDocPos(filePath, line, char));
-      console.log("[LSP] definition raw result:", JSON.stringify(result));
-      const locs = this._normalizeLocations(result);
-      console.log("[LSP] definition normalized:", locs);
-      return locs;
+      return this._normalizeLocations(result);
     } catch (err) {
       console.error("[LSP] definition error:", err);
       return [];
@@ -270,13 +257,11 @@ export class LspClient {
   async findReferences(filePath: string, line: number, char: number): Promise<LspLocation[]> {
     const langId = this.getLanguageId(filePath);
     if (!langId) return [];
-    console.log(`[LSP] findReferences: ${filePath}:${line}:${char}`);
     try {
       const result = await lspRequest(langId, "textDocument/references", {
         ...this._textDocPos(filePath, line, char),
         context: { includeDeclaration: true },
       });
-      console.log("[LSP] references raw result:", JSON.stringify(result));
       return this._normalizeLocations(result);
     } catch (err) {
       console.error("[LSP] references error:", err);

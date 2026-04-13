@@ -71,9 +71,9 @@ describe("Pane management", () => {
     const panesBefore = (await browser.$$("[data-pane-id]")).length;
     expect(panesBefore).toBeGreaterThanOrEqual(2);
 
-    // The close button on the last pane's tab bar: button.pane-action-btn.close
-    // Click the LAST close button (newest pane)
-    const closeBtns = await browser.$$("button.pane-action-btn.close");
+    // Target close buttons only on editor panes (not terminal pane) to avoid
+    // accidentally closing the terminal which destroys the whole workspace.
+    const closeBtns = await browser.$$("[data-pane-id]:has(.cm-editor) button.pane-action-btn.close");
     expect(closeBtns.length).toBeGreaterThanOrEqual(1);
     await closeBtns[closeBtns.length - 1].click();
     await sleep(500);
@@ -108,8 +108,8 @@ describe("Pane management", () => {
     }
     expect(hasBTab).toBe(true);
 
-    // Close the newest pane
-    const closeBtns = await browser.$$("button.pane-action-btn.close");
+    // Close the newest editor pane (avoid terminal pane which destroys workspace)
+    const closeBtns = await browser.$$("[data-pane-id]:has(.cm-editor) button.pane-action-btn.close");
     await closeBtns[closeBtns.length - 1].click();
     await sleep(500);
 
@@ -183,7 +183,7 @@ describe("Pane management", () => {
     let paneCount = (await browser.$$("[data-pane-id]")).length;
 
     while (paneCount > target) {
-      const closeBtns = await browser.$$("button.pane-action-btn.close");
+      const closeBtns = await browser.$$("[data-pane-id]:has(.cm-editor) button.pane-action-btn.close");
       if (closeBtns.length === 0) break;
       await closeBtns[closeBtns.length - 1].click();
       await sleep(300);
