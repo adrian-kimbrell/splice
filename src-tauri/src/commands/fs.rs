@@ -1,3 +1,18 @@
+//! Tauri commands for filesystem operations.
+//!
+//! All path arguments are validated through `state::validate_path`, which canonicalizes
+//! the path and checks it falls under `AppState::allowed_roots`. Roots default to HOME;
+//! `add_allowed_root` expands the list when a workspace outside HOME is opened.
+//!
+//! Commands: read_dir_tree, read_file, write_file, read_file_base64, search_files,
+//! get_git_branch, get/add_recent_files, get/add_recent_projects, watch_path,
+//! unwatch_path, create_file_at, create_directory_at, rename_path, delete_path,
+//! duplicate_path, copy_path, reveal_in_file_manager, save_temp_image, write_to_clipboard.
+//!
+//! File watching uses the `notify` crate; `RecommendedWatcher` instances are stored in
+//! `AppState::watchers` keyed by path string so they can be dropped on `unwatch_path`.
+//! Watch events are forwarded to the frontend as Tauri `fs:change` events.
+
 use base64::Engine;
 use crate::state::{validate_path, AppState};
 use ignore::WalkBuilder;

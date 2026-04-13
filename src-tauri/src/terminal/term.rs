@@ -1,3 +1,17 @@
+//! VTE-backed terminal emulator (`Emulator` + `GridPerformer`).
+//!
+//! `Emulator` owns a `vte::Parser` and a `Grid`. Call `advance(bytes)` to feed raw PTY
+//! output; the parser drives `GridPerformer` (implements `vte::Perform`) which mutates the grid.
+//!
+//! SGR sub-parameters (e.g. `38:2:r:g:b` true-color) use the colon-separated sub-param form
+//! from ECMA-48. The `vte` crate exposes these as nested slices — `params[i]` is a `&[u16]`
+//! where `[0]` is the primary value and `[1..]` are sub-params. `SmallVec` avoids heap
+//! allocation for the common ≤8-param case.
+//!
+//! Pending side-effects (title change, reply bytes for DA/DSR queries, bell, OSC 52 clipboard)
+//! are collected in `Emulator` fields and drained by `pty::PtySession`'s reader thread
+//! after each `advance` call.
+
 use base64::Engine;
 use crate::terminal::color::{ansi_256_color, Rgb, ANSI_COLORS, DEFAULT_BG, DEFAULT_FG};
 use crate::terminal::grid::{flags, Grid};

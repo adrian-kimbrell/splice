@@ -1,3 +1,19 @@
+//! Serde types for workspace persistence and application settings.
+//!
+//! `Workspace`: one project — root path, pane layout tree, open files, active pane/file,
+//! terminal IDs, SSH config, and explorer visibility. Serialized per-window to
+//! `~/.config/Splice/workspaces[-{label}].json`.
+//!
+//! `LayoutNode`: binary tree that mirrors the frontend `LayoutNode` in
+//! `src/lib/stores/layout.svelte.ts` — keep both in sync when adding fields.
+//! `Leaf { pane_id }` | `Split { direction, ratio, children }`.
+//!
+//! `PaneInfo.claude_session_id` / `claude_pid`: written at persist time by the attention
+//! system so a Claude session can be resumed after app restart.
+//!
+//! Backward compat: files written before the `WorkspacesFile` wrapper (bare `Vec<Workspace>`
+//! JSON arrays) are handled by a fallback parse in `commands::workspace::read_workspaces_file`.
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

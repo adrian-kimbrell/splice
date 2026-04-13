@@ -1,3 +1,20 @@
+/**
+ * Primary workspace state machine (Svelte 5 runes).
+ *
+ * The "god store" — manages the full lifecycle of workspaces: creation, layout changes,
+ * tab/file operations, persistence, and session restore. Intentionally large because
+ * it coordinates state that spans multiple concerns.
+ *
+ * Heavy operations are delegated to focused modules:
+ * - workspace-file-ops:  open/close/save files, dirty tracking, auto-save
+ * - workspace-tab-ops:   pin, reorder, move-to-pane, close-others/left/right/clean
+ * - workspace-session:   persist/restore workspace state to/from Rust backend
+ * - layout.svelte:       binary tree layout mutations (split, remove, swap leaves)
+ * - attention.svelte:    Claude hook notification state
+ *
+ * SSH terminals are spawned by building `extraArgs` from `SshConfig` (the SSH binary is
+ * in ALLOWED_SHELLS on the Rust side); SFTP handles remote file read/write separately.
+ */
 import type { FileEntry, OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
 import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, swapLeavesInTree, findSiblingLeaf, treeDepth, MAX_SPLIT_DEPTH } from "./layout.svelte";

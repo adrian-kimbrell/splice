@@ -1,3 +1,19 @@
+//! Tauri commands for SSH remote workspace access.
+//!
+//! Uses the `openssh` crate (ControlMaster multiplexing) to maintain one persistent SSH
+//! connection per workspace, stored in `AppState::ssh_sessions` as `Arc<openssh::Session>`.
+//!
+//! Commands: ssh_connect, ssh_disconnect, sftp_list_dir, sftp_read_file, sftp_write_file,
+//! ssh_ping.
+//!
+//! `ssh_connect` respects `~/.ssh/config` — user/port/keyfile are only overridden when
+//! explicitly set in `SshConfig` (non-empty / non-default). `get_session` clones the
+//! `Arc<Session>` out of the state lock so SFTP commands can await without holding the mutex.
+//!
+//! SSH terminals use a different path: `spawn_terminal` is called with `extra_args` built
+//! from `SshConfig` (ssh binary is in ALLOWED_SHELLS). SFTP is used only for the file tree
+//! and editor read/write in remote workspaces.
+
 use crate::commands::fs::FileEntry;
 use crate::state::AppState;
 use crate::workspace::layout::SshConfig;

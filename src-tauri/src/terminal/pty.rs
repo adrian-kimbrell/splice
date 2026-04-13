@@ -1,3 +1,20 @@
+//! PTY session — spawns a shell and wires it to the emulator and emitter.
+//!
+//! `PtySession::spawn` creates three concurrent components:
+//!   1. A PTY pair via `portable-pty` (wraps platform `openpty` / `posix_openpt`)
+//!   2. A **reader thread** that loops `read(master_fd)` → `Emulator::advance` → bumps
+//!      `version: AtomicU32` → wakes the emitter via `EmitterNotify` (Condvar)
+//!   3. An **emitter thread** (see `emitter` module) that rate-limits and emits binary frames
+//!
+//! Security: shell must be in `commands::terminal::ALLOWED_SHELLS` before `PtySession::spawn`
+//! is ever called — validation happens in `spawn_terminal`.
+//!
+//! Login shell: `-l` is appended unless `extra_args` are provided. `extra_args` is used by
+//! SSH terminals, which pass explicit `ssh -t user@host` args instead of a login flag.
+//!
+//! `Drop` sets `running = false` and wakes the emitter so both threads exit cleanly
+//! without requiring explicit kill/join from the caller.
+
 use crate::terminal::emitter::{spawn_emitter, EmitterNotify};
 use crate::terminal::term::Emulator;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};

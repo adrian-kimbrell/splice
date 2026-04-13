@@ -1,3 +1,19 @@
+/**
+ * Frontend LSP client — coordinates language server lifecycle and request deduplication.
+ *
+ * The actual server process lives in `src-tauri/src/lsp/mod.rs`; this class is the
+ * coordination layer on top of Tauri IPC. Per-instance state:
+ * - `startPromises`: deduplicates concurrent `ensureStarted` calls for the same language
+ * - `openPromises`: deduplicates concurrent `didOpen` calls for the same file URI
+ * - `docVersions`: tracks per-file version numbers for textDocument sync
+ * - `runningLanguages` / `failedLanguages`: tracks server health to avoid retry storms
+ *
+ * Diagnostics arrive as `lsp:diagnostics` Tauri events (not via this class) and are
+ * consumed by `src/lib/stores/diagnostics.svelte.ts`.
+ *
+ * Language IDs are mapped from file extensions in `getLanguageId`. Supported:
+ * TypeScript/JavaScript, Rust, Python (pyright preferred over pylsp), HTML, CSS, JSON.
+ */
 import { lspStart, lspNotify, lspRequest, lspCheck, lspInstall } from "../ipc/commands";
 import { pushToast } from "../stores/toasts.svelte";
 

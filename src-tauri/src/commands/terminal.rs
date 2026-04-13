@@ -1,3 +1,17 @@
+//! Tauri commands for terminal lifecycle management.
+//!
+//! Commands: spawn_terminal, write_to_terminal, resize_terminal, scroll_terminal,
+//! set_terminal_scroll_offset, kill_terminal, search_terminal, get_terminal_cwd,
+//! get_terminal_text_range, install_claude_hook, get_debug_stats (e2e feature only).
+//!
+//! Security constraints applied before any PTY work:
+//! - Shell must be in `ALLOWED_SHELLS` allowlist
+//! - CWD is validated; falls back to HOME if missing or outside HOME
+//! - Terminal dimensions are clamped to MAX_TERMINAL_COLS × MAX_TERMINAL_ROWS
+//!
+//! `resize_terminal` clones `Arc<Mutex<MasterPty>>` and releases the AppState lock
+//! before issuing the PTY resize ioctl — the ioctl can block on some platforms.
+
 use crate::state::AppState;
 use portable_pty::PtySize;
 use serde::Serialize;

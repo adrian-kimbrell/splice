@@ -1,3 +1,20 @@
+//! Terminal grid data structures.
+//!
+//! `Cell` (12 bytes when serialized): character codepoint, fg/bg RGB, attribute flags, width.
+//! `Row`: a `Vec<Cell>` for one terminal line.
+//! `ScreenBuffer`: full mutable state for one screen — live lines, scrollback `VecDeque`,
+//!   cursor position, pen (current SGR attributes), scroll region, and the `cleared` flag.
+//! `Grid`: wraps primary + alt `ScreenBuffer` and all terminal mode flags (mouse mode,
+//!   cursor style, bracketed paste, app_cursor_keys, etc.).
+//!
+//! Key invariants:
+//! - Scrollback is a `VecDeque` capped at `max_scrollback`; oldest rows are popped from front.
+//! - `cleared` is set by ED 2 / ED 3 (erase screen) and reset when content scrolls up.
+//!   The emitter checks this flag to skip view-shift compositing — without it, old scrollback
+//!   rows would bleed into a freshly cleared screen (e.g. after `clear` or `printf '\033[2J'`).
+//! - Wide characters: left-half cell has `width=2`, right-half placeholder has `width=0`.
+//!   The serializer faithfully encodes both; the renderer skips placeholder cells.
+
 use std::collections::VecDeque;
 use crate::terminal::color::{Rgb, DEFAULT_BG, DEFAULT_FG};
 

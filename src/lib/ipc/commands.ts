@@ -1,3 +1,12 @@
+/**
+ * Typed wrappers around Tauri's invoke() for all backend commands.
+ *
+ * Single source of truth for command names and argument shapes. All Rust-side commands
+ * are registered in `src-tauri/src/lib.rs` via `generate_handler!`.
+ *
+ * Naming: camelCase here maps to snake_case in Rust (e.g. `spawnTerminal` → `spawn_terminal`).
+ * Tauri serializes JS objects to Rust structs automatically via serde.
+ */
 import { invoke } from "@tauri-apps/api/core";
 import type { FileEntry } from "../stores/files.svelte";
 import type { Settings } from "../stores/settings.svelte";

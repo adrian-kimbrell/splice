@@ -1,3 +1,18 @@
+//! Application entry point and Tauri bootstrap.
+//!
+//! Responsibilities:
+//! - Builds the native menu bar (`build_menu`)
+//! - Registers every `#[tauri::command]` handler via `generate_handler!`
+//! - Starts the attention HTTP server (`attention::start_server`) and installs the Claude hook
+//! - Sets up the macOS dock right-click menu (`dock::setup`)
+//!
+//! Two invoke-handler lists exist behind a feature gate:
+//! - default: production handler set
+//! - `e2e`: adds `get_debug_stats` and enables `tauri_plugin_webdriver`
+//!
+//! The `new-window` menu event is handled here — not forwarded to the frontend — so exactly
+//! one window opens regardless of how many webviews are currently listening.
+
 mod attention;
 mod commands;
 #[cfg(target_os = "macos")]

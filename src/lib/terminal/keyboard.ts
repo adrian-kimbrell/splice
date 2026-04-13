@@ -1,5 +1,17 @@
-// Pure xterm keyboard encoder — no Svelte/DOM renderer coupling.
-// Takes a KeyboardEvent and appCursorKeys flag, returns the bytes to send to the PTY.
+/**
+ * Pure xterm keyboard encoder — no Svelte/DOM coupling.
+ *
+ * Maps `KeyboardEvent` + terminal mode flags → escape byte sequences for the PTY.
+ * Three encoding strategies depending on key type:
+ * - Arrow keys / Home / End: CSI letter (`ESC [ A`) or SS3 (`ESC O A`) depending on
+ *   `appCursorKeys` mode; modified variants use `ESC [ 1 ; <mod> <letter>`
+ * - Function keys F1–F4: SS3 when unmodified, CSI when modified
+ * - Function keys F5+, Delete, Insert, PgUp/Dn: CSI tilde sequences (`ESC [ <n> ~`)
+ * - Printable + Ctrl combos: standard ASCII / C0 control codes
+ *
+ * Modifier code = 1 + shift + 2*alt + 4*ctrl (xterm convention).
+ * Mouse encoding is handled separately in `CanvasTerminal.svelte`.
+ */
 
 const textEncoder = new TextEncoder();
 

@@ -1,3 +1,21 @@
+//! LSP server proxy — spawns and manages language server processes.
+//!
+//! `LspSession` owns one language server process per `language_id`. Internal architecture:
+//! - A tokio **writer task** drains an `mpsc` channel into the process stdin
+//! - A tokio **reader task** (`lsp_reader`) parses JSON-RPC frames from stdout:
+//!     - Client responses (have `id`, no `method`) → routed to oneshot receivers in `pending` map
+//!     - Server notifications (have `method`, no `id`) → forwarded as Tauri events
+//!       (e.g. `lsp:diagnostics` for `textDocument/publishDiagnostics`)
+//!     - Server-initiated requests (have both `method` and `id`, e.g. `workspace/configuration`,
+//!       `client/registerCapability`) → answered inline by `handle_server_request`
+//!
+//! Tauri commands: `lsp_start` (idempotent — noop if already running), `lsp_notify`,
+//! `lsp_request`. `lsp_request` clones channel handles out of the AppState lock then awaits
+//! the oneshot outside the lock to avoid blocking other commands during long LSP calls.
+//!
+//! `augmented_path()` prepends Homebrew / cargo / npm-global dirs that the GUI app's PATH
+//! often lacks when launched from Finder or Spotlight.
+
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;

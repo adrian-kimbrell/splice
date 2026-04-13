@@ -1,3 +1,23 @@
+/**
+ * Canvas-based terminal renderer.
+ *
+ * Reads binary frames produced by `src-tauri/src/terminal/emitter.rs`:
+ *   - 20-byte header: cols, rows, cursor col/row/visibility/style, mode flags,
+ *     is_scrolled, first_display_history_row, scrollback_len
+ *   - 12 bytes per cell, row-major: codepoint (u32 LE), fg RGB, bg RGB, flags, width
+ *
+ * Performance:
+ * - Dirty-rect: only cells that changed between `lastFrame` and the new frame are repainted
+ * - Color string cache: maps packed RGB integer → "rgb(r,g,b)" string
+ * - ASCII char cache: pre-computed String.fromCodePoint for codepoints 32–127
+ *
+ * Coordinate system: selection and search matches use `historyRow` — an index into the
+ * combined [scrollback[0..n], live[0..rows]] array. historyRow=0 is the oldest row
+ * (oldest scrollback entry, or live[0] if there is no scrollback). This keeps coordinates
+ * stable as new output is appended and scrollback grows.
+ *
+ * `forceFullRedraw` is set on font or size change; otherwise only dirty cells are repainted.
+ */
 
 export const HEADER_SIZE = 20;
 export const CELL_SIZE = 12;

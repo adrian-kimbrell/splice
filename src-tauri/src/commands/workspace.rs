@@ -1,3 +1,18 @@
+//! Tauri commands for workspace and multi-window management.
+//!
+//! Commands: get_workspaces, save_workspace, delete_workspace, close_workspace,
+//! set_active_workspace_id, reorder_workspaces, add_allowed_root, check_pid_alive,
+//! register_window, unregister_window, get_secondary_window_labels.
+//!
+//! Persistence model: each Tauri window has its own config file on disk.
+//! - main window  → `~/.config/Splice/workspaces.json`
+//! - other windows → `~/.config/Splice/workspaces-{label}.json`
+//! Active window labels are tracked in `windows.json` for session restore on next launch.
+//!
+//! `close_workspace` kills all terminals owned by the workspace and removes their state
+//! from `AppState`. `check_pid_alive` is used by the attention system to verify that a
+//! Claude process is still running before persisting its session ID.
+
 use crate::state::AppState;
 use crate::workspace::layout::Workspace;
 use serde::{Deserialize, Serialize};

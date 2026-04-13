@@ -1,4 +1,18 @@
 /**
+ * Binary tree layout model for the pane grid.
+ *
+ * A `LayoutNode` is either a `leaf` (holds a pane ID) or a `split`
+ * (two children, a direction, and a 0–1 ratio). Mirrors `LayoutNode` in
+ * `src-tauri/src/workspace/layout.rs` — keep both in sync when adding fields.
+ *
+ * Two mutation strategies — intentionally inconsistent:
+ * - Resize (ratio): mutate in place on the Svelte proxy node (O(1), preserves identity)
+ * - Structural (split/remove/swap): return a fresh tree of plain objects to avoid
+ *   Svelte 5 proxy reparenting issues (a proxy node must not be moved between parents)
+ *
+ * `MAX_SPLIT_DEPTH = 5` caps tree depth. `collectLeafIds` is used to garbage-collect
+ * pane configs that are no longer referenced by the tree after a structural change.
+ *
  * Layout tree contract:
  * - Ratio changes (resize): in-place mutation on the proxy node (node.ratio = ...)
  * - Structural changes (split/remove): return a fresh tree of plain objects

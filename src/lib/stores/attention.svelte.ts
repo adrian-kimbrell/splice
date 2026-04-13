@@ -1,3 +1,16 @@
+/**
+ * Svelte 5 runes store for Claude Code attention notifications.
+ *
+ * Keyed by `terminalId` — only one pending notification per terminal at a time;
+ * a new notification for the same terminal overwrites the previous one.
+ *
+ * Notification types:
+ * - 'permission': Claude is requesting user approval (e.g. to run a shell command)
+ * - 'idle':       Claude has finished a task and is waiting for further input
+ *
+ * Populated by `onAttentionNotify` in `src/lib/ipc/events.ts`, which decodes
+ * the `attention:notify` Tauri event emitted by `src-tauri/src/attention/mod.rs`.
+ */
 export interface AttentionNotification {
   terminalId: number;
   type: 'permission' | 'idle';

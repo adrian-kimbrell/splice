@@ -1,3 +1,25 @@
+//! Binary frame serialization and the per-terminal emitter thread.
+//!
+//! # Binary frame format  (see `serialize_grid` for field-level detail)
+//!   - 20-byte header: cols, rows, cursor col/row, cursor visibility, cursor style,
+//!     mode_flags byte (mouse mode, bracketed paste, app_cursor, app_keypad, focus events,
+//!     mouse SGR), is_scrolled flag, first_display_history_row (i32 LE), scrollback_len (u32 LE)
+//!   - 12 bytes per cell, row-major: codepoint (u32 LE), fg RGB (3 bytes), bg RGB (3 bytes),
+//!     attribute flags (1 byte), width (1 byte). All multi-byte integers are little-endian.
+//!
+//! # View-shift compositing
+//! When the cursor has trailing blank rows below it and scrollback exists, the serialized
+//! output composites the bottom `view_shift` rows of scrollback into the **top** of the
+//! display, and shifts the cursor row down by `view_shift` in the header. The grid is
+//! not modified — this is purely a serialization-time recomposition. Net effect: the prompt
+//! appears visually pinned near the bottom instead of floating above empty lines.
+//! Skipped when `buf.cleared` is true (explicit ED 2/3), alt screen is active, or scrolled.
+//!
+//! # Emitter thread (`spawn_emitter`)
+//! A dedicated thread wakes on `EmitterNotify` (a Condvar), rate-limits to ~120 fps
+//! (MIN_FRAME_MS = 8 ms), base64-encodes the frame, and emits it as Tauri event
+//! `terminal:grid:<id>`. The frontend decodes it in `src/lib/ipc/events.ts`.
+
 use base64::Engine;
 use crate::terminal::grid::{Cell, Grid};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};

@@ -1,3 +1,15 @@
+/**
+ * Tauri event subscriptions for real-time backend → frontend data.
+ *
+ * `onTerminalGrid`: listens on `terminal:grid:<id>` for base64-encoded binary frames,
+ *   decodes to Uint8Array, and passes to the caller (typically `TerminalRenderer`).
+ *   Frame format is documented in `src-tauri/src/terminal/emitter.rs`.
+ *
+ * `onAttentionNotify`: listens on `attention:notify` for Claude hook payloads forwarded
+ *   by the HTTP server in `src-tauri/src/attention/mod.rs`.
+ *
+ * All listeners return an `unlisten` function — call it in component cleanup to avoid leaks.
+ */
 import { listen } from "@tauri-apps/api/event";
 
 export function onTerminalGrid(
