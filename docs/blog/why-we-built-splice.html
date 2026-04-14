@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Why we built Splice — Splice Blog</title>
-  <meta name="description" content="The problem with managing multiple AI coding agents across separate terminal windows — and how we ended up building a whole workspace system around it." />
+  <meta name="description" content="Claude Code kept scrolling my terminal into oblivion, formatting was a mess, and no editor gave me a sane way to organize it. So I built one." />
   <link rel="canonical" href="https://splice.dev/blog/why-we-built-splice" />
   <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" sizes="180x180" href="../logo.png" />
@@ -14,7 +14,7 @@
   <meta property="og:type" content="article" />
   <meta property="og:url" content="https://splice.dev/blog/why-we-built-splice" />
   <meta property="og:title" content="Why we built Splice" />
-  <meta property="og:description" content="The problem with managing multiple AI coding agents across separate terminal windows — and how we ended up building a whole workspace system around it." />
+  <meta property="og:description" content="Claude Code kept scrolling my terminal into oblivion, formatting was a mess, and no editor gave me a sane way to organize it. So I built one." />
   <meta property="og:image" content="https://splice.dev/og.svg" />
   <meta property="article:published_time" content="2026-04-14" />
 
@@ -72,51 +72,35 @@
 
     <div class="prose">
 
-      <p>This started with a frustration. I was running Claude Code on three projects at once — a frontend, a backend, and a side experiment — each in its own terminal window. Every time an agent hit a permission prompt or needed a decision, I'd have to find the right window, read the context, respond, and then remember what I was doing before.</p>
+      <p>I'd been using Claude Code heavily for a few months. It's genuinely impressive — it can hold a lot of context, it writes real code, and when you point it at a problem it usually makes meaningful progress without hand-holding. But actually using it day to day in any existing editor was a mess.</p>
 
-      <p>That's not a workflow problem. That's a tooling problem.</p>
+      <p>The terminal output was the first thing. Claude Code is verbose. It thinks out loud, it shows you what it's running, it prints diffs. That's all useful — except that a busy Claude session would scroll my terminal so far up that whatever I was looking at before was just gone. I'd lose my place constantly. I'd be reading its output, go to check something, come back, and have no idea where I was. Every editor and terminal I tried handled this the same broken way: one continuous stream, scroll up to find history, good luck.</p>
 
-      <h2>The missing abstraction</h2>
+      <p>The formatting made it worse. Claude Code uses rich terminal formatting — colors, bold, italics, special underline styles, cursor positioning. Some terminals handled it fine. Others would randomly glitch: underlines appearing where they shouldn't, text going dim for no reason, cursor jumping to the top of the screen mid-output. I spent time debugging what I thought were Claude bugs that turned out to be my terminal mishandling escape sequences.</p>
 
-      <p>Terminal emulators haven't changed much. They give you a window, maybe tabs, maybe a split. That was the right model when you were the one running commands. But when you're running agents — processes that work autonomously for minutes or hours at a time — the window-per-project model breaks down.</p>
+      <h2>The organization problem</h2>
 
-      <p>You need to see everything at once. You need to know when something needs you. You need to be able to jump into any context instantly, without losing what you were doing somewhere else.</p>
+      <p>Beyond the terminal itself, I was constantly context-switching in the worst possible way. I work on multiple things at once — usually a main project, something experimental, and whatever's broken that day. With Claude Code that means running agents across all of them simultaneously, which in practice meant a pile of windows. A VS Code window for each project. A terminal window or two for each. Maybe iTerm with a few tabs.</p>
 
-      <p>None of the tools I was using were built for this. iTerm2 is a great terminal emulator. VS Code is a great editor. But stringing them together for multi-agent, multi-project work means a lot of manual state management that gets in the way of actually building things.</p>
+      <p>Every time Claude finished something on one project and needed input, I'd have to find that window. Hunt through the taskbar, remember which terminal belonged to which project, figure out what state I was in. It sounds small. It adds up fast. And it completely kills the flow of actually doing the other work you're supposed to be doing while the agent runs.</p>
 
-      <h2>Workspaces as the core primitive</h2>
+      <p>VS Code was especially frustrating here. I like the editor. But it's not built for this workflow at all. The terminal panel is an afterthought — it's cramped, it lives at the bottom, and managing multiple Claude sessions in it means juggling tabs inside a panel inside a window. There's no good way to have your code and your agent side by side without constantly resizing things. And if you switch to a different project, you're opening a new window and starting over.</p>
 
-      <p>The first thing we built was workspaces. Not tabs, not windows — workspaces. Each one is a fully isolated environment: its own project folder, its own terminals, its own open files, its own layout. Switching between them is a keystroke. Everything is exactly where you left it.</p>
+      <h2>Building the thing I wanted</h2>
 
-      <p>This sounds simple. In practice, it means:</p>
+      <p>So I built Splice. The core idea is simple: each project gets a workspace. A workspace is its own self-contained environment — project folder, terminals, open files, layout, all of it. You switch between workspaces with a keystroke. Your terminals keep running. Nothing is lost.</p>
 
-      <ul>
-        <li>You can have Claude Code running on your backend in one workspace while you write frontend code in another</li>
-        <li>You can keep a long-running build alive in one workspace while you're in a completely different project</li>
-        <li>When you come back to a workspace, your terminals are still running — no reconnect, no loss of context</li>
-      </ul>
+      <p>That alone solved most of my daily frustration. I can have Claude Code running on three different projects and switch between them instantly. When an agent needs something, I go to that workspace, handle it, and go back. No hunting for windows.</p>
 
-      <p>And when you relaunch Splice, everything comes back. Workspaces, layouts, open files, terminal directories — all restored automatically.</p>
+      <p>For the terminal itself, I wrote one from scratch — Snakebite. The goal was simple: handle Claude Code's output correctly, every time. That meant implementing the full ANSI escape sequence spec properly in Rust, including the sub-parameters for underline styles that most terminals get wrong. It meant 10,000 lines of scrollback so past output doesn't just disappear. It meant rendering at up to 120fps on a canvas so heavy output doesn't cause the whole thing to stutter.</p>
 
-      <h2>Attention without interruption</h2>
+      <p>I also added attention hooks — Splice watches your terminal sessions and surfaces Claude prompts the moment they appear, so you're not constantly checking whether the agent needs you. When it doesn't, you're not bothered. When it does, you know immediately.</p>
 
-      <p>The other thing we built is what we call attention hooks. Splice watches for agent activity across all your terminal sessions and surfaces it when something needs you — a permission prompt, an error, a decision point. You see it without having to actively monitor every terminal.</p>
+      <h2>Where it is now</h2>
 
-      <p>When nothing needs your attention, Splice gets out of the way. The agents work. You work. You only interact when the work requires it.</p>
+      <p>Splice is early. Two public releases. There's a lot left to build. But the core workflow — organized workspaces, a terminal that handles Claude's output cleanly, and awareness of when your agents need you — that's solid and it's what I use every day.</p>
 
-      <h2>The terminal itself</h2>
-
-      <p>We also wrote our own terminal emulator from scratch — Snakebite. Not because existing solutions are bad, but because we needed something we could own completely: rendering, protocol handling, integration with the workspace system.</p>
-
-      <p>Snakebite renders directly to a canvas. No DOM per character, no xterm.js overhead. The parsing happens in Rust using <code>vte</code>, which handles the full ANSI escape sequence spec including SGR sub-parameters for underline styles. Scrollback is a ring buffer in Rust — the frontend requests viewport slices, not the whole buffer.</p>
-
-      <p>The result is a terminal that feels fast because it is fast. It stays smooth at 120fps even when build output is flooding the screen.</p>
-
-      <h2>What's next</h2>
-
-      <p>Splice is early. We have two public releases. There's a lot still to build — auto-update, notarization, Linux and Windows support, more AI workflow tooling.</p>
-
-      <p>But the core is solid. If you're working with AI coding agents and you're tired of juggling windows, <a href="/#download">give it a try</a>. It's free, open source, and MIT licensed.</p>
+      <p>If you've felt the same frustration, <a href="/#download">give it a try</a>. It's free and open source.</p>
 
     </div>
 
