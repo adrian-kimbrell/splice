@@ -16,7 +16,7 @@
 
   // --- Drag-to-reorder state ---
   let listEl: HTMLDivElement | undefined;
-  let dragId: string | null = null;
+  let dragId = $state<string | null>(null);
   let dragStartY = 0;
   let isDraggingActive = $state(false);
   let dragOverIndex = $state<number | null>(null);

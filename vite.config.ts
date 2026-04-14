@@ -5,7 +5,13 @@ import { resolve } from "path";
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [svelte({
+    onwarn(warning, defaultHandler) {
+      // Suppress a11y warnings — this is a desktop app, not a web page
+      if (warning.code.startsWith('a11y')) return;
+      defaultHandler(warning);
+    },
+  })],
   clearScreen: false,
   build: {
     rollupOptions: {
