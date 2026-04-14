@@ -32,7 +32,6 @@
   import { cancelPendingResume } from "../lib/stores/workspace-session";
   import { getRandomTagline } from "../lib/utils/taglines";
   import { getTabsForPane, getActiveTabForPane, getContentForPane } from "../lib/stores/workspace-view-helpers";
-  import { registerTestHelpers } from "../lib/dev/test-helpers";
 
   // Pre-import commands module for fast access after first load
   let _commands: typeof import("../lib/ipc/commands") | null = null;
@@ -576,8 +575,6 @@
       }
     }
 
-    // Expose test helpers for WebDriver E2E automation
-    registerTestHelpers({ workspaceManager, readFileForWs, ui, settings, openNewWindow });
     const stopGitPolling = workspaceManager.startGitBranchPolling();
 
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
@@ -767,9 +764,6 @@
       // Dev API event listeners — loaded once as a standalone module so they
       // survive App.svelte HMR updates. Vite tree-shakes this import entirely
       // in production builds (import.meta.env.DEV is statically false).
-      if (import.meta.env.DEV) {
-        await import("../lib/dev/index");
-      }
     }
 
     // Listen for close-active-tab from keybindings
