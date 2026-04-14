@@ -38,4 +38,3 @@ chaos-logs/
 src/lib/dev/
 src-tauri/src/dev_server.rs
 src-tauri/src/commands/dev.rs
-docs/screenshots/
