@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#1e1e1e"/>
+  <rect x="0" y="0" width="1200" height="4" fill="#00ff88"/>
+
+  <!-- Logo placeholder area -->
+  <rect x="80" y="200" width="64" height="64" rx="8" fill="#00ff88" opacity="0.15"/>
+  <text x="112" y="243" font-family="monospace" font-size="36" fill="#00ff88" text-anchor="middle">⚡</text>
+
+  <!-- Wordmark -->
+  <text x="80" y="340" font-family="'JetBrains Mono', monospace" font-size="72" font-weight="700" fill="#ffffff" letter-spacing="-2">Splice</text>
+
+  <!-- Tagline -->
+  <text x="80" y="400" font-family="'JetBrains Mono', monospace" font-size="28" fill="#858585">One window. Every project.</text>
+
+  <!-- Pills -->
+  <rect x="80" y="450" width="130" height="36" rx="4" fill="#252526"/>
+  <text x="145" y="473" font-family="monospace" font-size="14" fill="#cccccc" text-anchor="middle">macOS</text>
+
+  <rect x="224" y="450" width="100" height="36" rx="4" fill="#252526"/>
+  <text x="274" y="473" font-family="monospace" font-size="14" fill="#cccccc" text-anchor="middle">Free</text>
+
+  <rect x="338" y="450" width="130" height="36" rx="4" fill="#252526"/>
+  <text x="403" y="473" font-family="monospace" font-size="14" fill="#cccccc" text-anchor="middle">Open Source</text>
+
+  <!-- Domain -->
+  <text x="1120" y="580" font-family="monospace" font-size="20" fill="#3c3c3c" text-anchor="end">splice.dev</text>
+</svg>
