@@ -1,4 +1,6 @@
 {
   "outputDirectory": "docs",
-  "buildCommand": null
+  "buildCommand": null,
+  "cleanUrls": true,
+  "trailingSlash": false
 }
