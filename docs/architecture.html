@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Architecture — How Splice works under the hood — Splice</title>
+  <meta name="description" content="A technical deep-dive into how Splice is built: Rust backend, Svelte 5 frontend, binary terminal protocol, LSP proxy, Claude attention hooks, and SSH remote workspaces." />
+  <link rel="canonical" href="https://splice.dev/architecture" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" sizes="180x180" href="logo.png" />
+  <meta name="robots" content="index, follow" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://splice.dev/architecture" />
+  <meta property="og:title" content="Architecture — How Splice works under the hood" />
+  <meta property="og:description" content="A technical deep-dive into how Splice is built: Rust backend, Svelte 5 frontend, binary terminal protocol, LSP proxy, and Claude attention hooks." />
+  <meta property="og:image" content="https://splice.dev/og.svg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Architecture — How Splice works under the hood" />
+  <meta name="twitter:description" content="A technical deep-dive into how Splice is built: Rust backend, Svelte 5 frontend, binary terminal protocol, LSP proxy, and Claude attention hooks." />
+  <meta name="twitter:image" content="https://splice.dev/og.svg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="tailwind.css">
+  <style>
+    :root { --accent: #00ff88; }
+    body { background: #1e1e1e; }
+    .btn-orange { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
+    .btn-orange:hover { background: rgba(0,255,136,0.1); }
+    .text-orange { color: #00ff88; }
+    .border-orange { border-color: #00ff88; }
+    .bg-card { background: #252526; }
+    .bg-raised { background: #2d2d30; }
+    .border-dim { border-color: #3c3c3c; }
+    body { opacity: 0; animation: fadein 0.15s ease forwards; }
+    @keyframes fadein { to { opacity: 1; } }
+
+    /* Sticky sub-nav */
+    .sub-nav {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: #1a1a1a;
+      border-bottom: 1px solid #3c3c3c;
+    }
+    .sub-nav a {
+      display: inline-block;
+      padding: 12px 0;
+      font-size: 12px;
+      color: #71717a;
+      font-family: 'JetBrains Mono', monospace;
+      text-decoration: none;
+      transition: color 0.15s;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .sub-nav a:hover { color: #e4e4e7; }
+    .sub-nav a.active { color: #00ff88; border-bottom-color: #00ff88; }
+
+    /* Layer stack */
+    .layer-row {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 0 24px;
+      align-items: start;
+    }
+    .layer-label-col {
+      padding-top: 12px;
+      text-align: right;
+    }
+    .layer-cards-col {
+      border-left: 2px solid #2a2a2a;
+      padding-left: 24px;
+      padding-top: 8px;
+      padding-bottom: 16px;
+    }
+    .arch-card {
+      background: #252526;
+      border: 1px solid #3c3c3c;
+      padding: 16px 20px;
+      flex: 1;
+      min-width: 180px;
+    }
+    .arch-card:hover {
+      border-color: #555;
+      background: #2a2a2a;
+    }
+    .arch-connector {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 0 24px;
+      align-items: center;
+      height: 52px;
+    }
+    .arch-connector-line {
+      border-left: 2px solid #2a2a2a;
+      padding-left: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: 100%;
+    }
+    .connector-arrow-line {
+      height: 1px;
+      width: 40px;
+      background: #3c3c3c;
+    }
+    .connector-arrowhead {
+      width: 0; height: 0;
+      border-left: 5px solid #3c3c3c;
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+      margin-left: -1px;
+    }
+
+    /* Flow steps */
+    .flow-step {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 0;
+    }
+    .flow-step-gutter {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex-shrink: 0;
+      width: 28px;
+    }
+    .flow-step-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      flex-shrink: 0;
+      background: #1e1e1e;
+    }
+    .flow-step-vert {
+      flex: 1;
+      width: 2px;
+      background: #2a2a2a;
+      min-height: 16px;
+      margin: 3px 0;
+    }
+    .flow-step:last-child .flow-step-vert { display: none; }
+    .flow-step-body {
+      flex: 1;
+      padding-bottom: 20px;
+    }
+
+
+    /* Code blocks */
+    pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #71717a;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      padding: 12px 16px;
+      margin-top: 10px;
+      overflow-x: auto;
+      line-height: 1.7;
+    }
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #a3e635;
+    }
+  </style>
+</head>
+<body class="text-zinc-100 antialiased" style="background:#1e1e1e">
+
+  <!-- Nav -->
+  <header style="border-bottom:1px solid #3c3c3c">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2">
+        <img src="logo.png" alt="Splice" class="w-9 h-9" style="filter:brightness(0) invert(1)" />
+        <span class="font-mono text-sm font-medium tracking-widest uppercase text-orange">Splice</span>
+      </a>
+      <nav class="flex items-center gap-8 text-sm text-zinc-500">
+        <a href="/" class="hover:text-zinc-200 transition-colors">Home</a>
+        <a href="/blog" class="hover:text-zinc-200 transition-colors">Blog</a>
+        <a href="/releases" class="hover:text-zinc-200 transition-colors">Releases</a>
+        <a href="/architecture" class="text-zinc-200 transition-colors">Architecture</a>
+        <a href="https://github.com/adrian-kimbrell/splice" class="hover:text-zinc-200 transition-colors font-mono text-xs">GitHub</a>
+        <a href="/#download" class="btn-orange text-white px-4 py-1.5 text-xs font-mono tracking-wide transition-colors">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="max-w-6xl mx-auto px-6 py-20" style="border-bottom:1px solid #3c3c3c">
+    <p class="font-mono text-xs text-orange tracking-widest uppercase mb-6">Technical deep-dive</p>
+    <h1 class="text-4xl font-bold tracking-tight leading-tight mb-6 text-white">How Splice works</h1>
+    <p class="text-lg text-zinc-400 leading-relaxed max-w-2xl mb-8">
+      Splice is a native macOS desktop app built with a Rust backend and a Svelte 5 frontend, connected through Tauri's IPC bridge. This page covers the full system — from how terminal bytes become pixels to how Claude Code hooks work.
+    </p>
+    <div style="display:flex;flex-wrap:wrap;gap:10px">
+      <span class="font-mono text-xs px-3 py-1.5 text-zinc-400" style="background:#252526;border:1px solid #3c3c3c">Rust + Tauri v2</span>
+      <span class="font-mono text-xs px-3 py-1.5 text-zinc-400" style="background:#252526;border:1px solid #3c3c3c">Svelte 5 runes</span>
+      <span class="font-mono text-xs px-3 py-1.5 text-zinc-400" style="background:#252526;border:1px solid #3c3c3c">TypeScript + Vite</span>
+      <span class="font-mono text-xs px-3 py-1.5 text-zinc-400" style="background:#252526;border:1px solid #3c3c3c">CodeMirror 6</span>
+      <span class="font-mono text-xs px-3 py-1.5 text-zinc-400" style="background:#252526;border:1px solid #3c3c3c">Tailwind CSS</span>
+    </div>
+  </section>
+
+  <!-- Sticky sub-nav -->
+  <div class="sub-nav">
+    <div class="max-w-6xl mx-auto px-6 flex gap-8">
+      <a href="#stack" class="active">The Stack</a>
+      <a href="#graph">Component Graph</a>
+      <a href="#flows">Data Flows</a>
+    </div>
+  </div>
+
+  <!-- ═══════════════ THE STACK ═══════════════ -->
+  <section id="stack" class="max-w-6xl mx-auto px-6 py-20" style="border-bottom:1px solid #3c3c3c">
+
+    <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">The Stack</p>
+    <h2 class="text-2xl font-bold tracking-tight mb-3 text-white">Five layers, one window</h2>
+    <p class="text-zinc-400 leading-relaxed mb-16 max-w-2xl">
+      Every user action flows down through UI components, reactive stores, and the Tauri IPC bridge before reaching the Rust backend. Real-time data — terminal frames, LSP diagnostics, file changes — flows back up as events.
+    </p>
+
+    <div class="space-y-0">
+
+      <!-- USER -->
+      <div class="layer-row">
+        <div class="layer-label-col">
+          <span class="font-mono text-xs tracking-widest uppercase" style="color:#00ff88">User</span>
+        </div>
+        <div class="layer-cards-col">
+          <div class="flex flex-wrap gap-4 pb-4">
+            <div class="arch-card" style="border-top:2px solid #00ff88; max-width:280px">
+              <p class="font-mono text-sm font-medium text-white mb-1">Developer</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Keyboard · Mouse · macOS menu bar · Context menus</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- connector -->
+      <div class="arch-connector">
+        <div></div>
+        <div class="arch-connector-line">
+          <div class="connector-arrow-line"></div>
+          <div class="connector-arrowhead"></div>
+          <span class="font-mono text-xs text-zinc-600">renders via Svelte 5 components</span>
+        </div>
+      </div>
+
+      <!-- UI COMPONENTS -->
+      <div class="layer-row">
+        <div class="layer-label-col">
+          <span class="font-mono text-xs tracking-widest uppercase" style="color:#00ff88">Components</span>
+        </div>
+        <div class="layer-cards-col">
+          <div class="flex flex-wrap gap-4 pb-4">
+            <div class="arch-card" style="border-top:2px solid #00ff88">
+              <p class="font-mono text-xs font-medium text-white mb-1">App.svelte</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Root. Global shortcuts, menu events, toasts, Claude attention notifications, session restore on mount.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #00ff88">
+              <p class="font-mono text-xs font-medium text-white mb-1">PaneGrid + Panes</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Renders the binary-tree split layout. Drag-to-resize handles. Each leaf is an editor or terminal pane.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #00ff88">
+              <p class="font-mono text-xs font-medium text-white mb-1">CodeMirror Editor</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">File editor with syntax highlighting, LSP squiggles, completions, hover tooltips, and find-replace.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #00ff88">
+              <p class="font-mono text-xs font-medium text-white mb-1">Canvas Terminal</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Decodes binary frames from Rust and paints them to a canvas. Handles selection, search, URL clicks, keyboard.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #00ff88">
+              <p class="font-mono text-xs font-medium text-white mb-1">Sidebar</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">File tree with inline rename/create, global text search (ripgrep), workspace switcher.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #00ff88">
+              <p class="font-mono text-xs font-medium text-white mb-1">Overlays</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Command palette (⌘K), SSH form, Send-to-Claude modal, toast notifications.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- connector -->
+      <div class="arch-connector">
+        <div></div>
+        <div class="arch-connector-line">
+          <div class="connector-arrow-line"></div>
+          <div class="connector-arrowhead"></div>
+          <span class="font-mono text-xs text-zinc-600">reads &amp; mutates via Svelte 5 $state runes — any component reading a property auto-rerenders on change</span>
+        </div>
+      </div>
+
+      <!-- STORES -->
+      <div class="layer-row">
+        <div class="layer-label-col">
+          <span class="font-mono text-xs tracking-widest uppercase" style="color:#60a5fa">Stores</span>
+        </div>
+        <div class="layer-cards-col">
+          <div class="flex flex-wrap gap-4 pb-4">
+            <div class="arch-card" style="border-top:2px solid #60a5fa">
+              <p class="font-mono text-xs font-medium text-white mb-1">workspaceManager</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">The god store. Owns every workspace: open files, pane layouts, tabs, terminals, SSH config. All other stores are secondary.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #60a5fa">
+              <p class="font-mono text-xs font-medium text-white mb-1">layout</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Binary tree of pane nodes. In-place mutation for resize; fresh tree for split/remove to avoid Svelte proxy issues.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #60a5fa">
+              <p class="font-mono text-xs font-medium text-white mb-1">ui &amp; settings</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">UI flags (sidebar, zen mode, zoom) and user preferences (font, shell, theme). Settings debounced-saved to disk on change.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #60a5fa">
+              <p class="font-mono text-xs font-medium text-white mb-1">lspClient</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Lazy language server startup. Deduplicates concurrent starts with a Promise cache. Tracks failures to avoid retry storms.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #60a5fa">
+              <p class="font-mono text-xs font-medium text-white mb-1">attentionStore</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Holds Claude hook notifications keyed by terminal ID — permission needed, task finished, session started.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- connector -->
+      <div class="arch-connector">
+        <div></div>
+        <div class="arch-connector-line">
+          <div class="connector-arrow-line"></div>
+          <div class="connector-arrowhead"></div>
+          <span class="font-mono text-xs text-zinc-600">invoke() for requests (Promise) · events for real-time pushes (terminal frames at ~120fps, diagnostics, file changes)</span>
+        </div>
+      </div>
+
+      <!-- IPC -->
+      <div class="layer-row">
+        <div class="layer-label-col">
+          <span class="font-mono text-xs tracking-widest uppercase" style="color:#fb923c">IPC Bridge</span>
+        </div>
+        <div class="layer-cards-col">
+          <div class="flex flex-wrap gap-4 pb-4">
+            <div class="arch-card" style="border-top:2px solid #fb923c">
+              <p class="font-mono text-xs font-medium text-white mb-1">ipc/commands.ts</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Every <code>invoke()</code> call, typed. Single source of truth for all command names. Groups: filesystem, terminal, workspace, LSP, SSH, settings.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #fb923c">
+              <p class="font-mono text-xs font-medium text-white mb-1">ipc/events.ts</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Typed subscriptions to backend push events. Each returns an <code>unlisten()</code>. Key events: <code>terminal:grid</code>, <code>lsp:diagnostics</code>, <code>fs:change</code>, <code>attention:notify</code>.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- connector -->
+      <div class="arch-connector">
+        <div></div>
+        <div class="arch-connector-line">
+          <div class="connector-arrow-line"></div>
+          <div class="connector-arrowhead"></div>
+          <span class="font-mono text-xs text-zinc-600">Tauri IPC — JSON for commands · base64-encoded binary for terminal frames</span>
+        </div>
+      </div>
+
+      <!-- RUST -->
+      <div class="layer-row">
+        <div class="layer-label-col">
+          <span class="font-mono text-xs tracking-widest uppercase" style="color:#c084fc">Rust Backend</span>
+        </div>
+        <div class="layer-cards-col">
+          <div class="flex flex-wrap gap-4 pb-4">
+            <div class="arch-card" style="border-top:2px solid #c084fc">
+              <p class="font-mono text-xs font-medium text-white mb-1">AppState</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Single <code>Mutex&lt;AppState&gt;</code>. Holds all terminals, workspace state per window, LSP sessions, SSH sessions, and file watchers.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #c084fc">
+              <p class="font-mono text-xs font-medium text-white mb-1">Terminal emulator</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Full VT100/ANSI emulator. PTY bytes → VTE parser → cell grid → binary frame serialiser → Tauri event at ~120fps.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #c084fc">
+              <p class="font-mono text-xs font-medium text-white mb-1">Filesystem</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Read, write, create, rename, delete, search (ripgrep), file watching. Every path validated against allowed roots.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #c084fc">
+              <p class="font-mono text-xs font-medium text-white mb-1">LSP proxy</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">One language server process per language. Routes JSON-RPC responses to callers; pushes diagnostics as Tauri events.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #c084fc">
+              <p class="font-mono text-xs font-medium text-white mb-1">Attention server</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Local HTTP server on a random port. Receives Claude hook POSTs, validates auth token, emits Tauri event to frontend.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #c084fc">
+              <p class="font-mono text-xs font-medium text-white mb-1">SSH / SFTP</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Persistent ControlMaster SSH session per workspace. File ops over SFTP. Terminals open separate SSH connections.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- connector -->
+      <div class="arch-connector">
+        <div></div>
+        <div class="arch-connector-line">
+          <div class="connector-arrow-line"></div>
+          <div class="connector-arrowhead"></div>
+          <span class="font-mono text-xs text-zinc-600">syscalls · PTY · TCP/IP · disk I/O · JSON-RPC</span>
+        </div>
+      </div>
+
+      <!-- EXTERNAL -->
+      <div class="layer-row">
+        <div class="layer-label-col">
+          <span class="font-mono text-xs tracking-widest uppercase" style="color:#34d399">External</span>
+        </div>
+        <div class="layer-cards-col">
+          <div class="flex flex-wrap gap-4 pb-2">
+            <div class="arch-card" style="border-top:2px solid #34d399">
+              <p class="font-mono text-xs font-medium text-white mb-1">Shell (PTY)</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">bash, zsh, fish, or ssh — spawned in a pseudo-terminal. Validated against a hardcoded allowlist.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #34d399">
+              <p class="font-mono text-xs font-medium text-white mb-1">LSP servers</p>
+              <p class="text-xs text-zinc-500 leading-relaxed"><code>typescript-language-server</code>, <code>rust-analyzer</code>, <code>pyright</code> — installed separately, spoken to over stdin/stdout JSON-RPC.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #34d399">
+              <p class="font-mono text-xs font-medium text-white mb-1">Filesystem</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Local disk for project files. <code>~/.config/Splice/</code> for workspace state, settings, and Claude hook credentials.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #34d399">
+              <p class="font-mono text-xs font-medium text-white mb-1">Claude Code</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Runs in a Splice terminal. Splice installs hooks in <code>~/.claude/settings.json</code> so Claude can POST notifications back.</p>
+            </div>
+            <div class="arch-card" style="border-top:2px solid #34d399">
+              <p class="font-mono text-xs font-medium text-white mb-1">SSH remote host</p>
+              <p class="text-xs text-zinc-500 leading-relaxed">Any SSH-accessible machine. Files via SFTP, shell via SSH. Identical experience to local workspaces.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- .space-y-0 -->
+  </section>
+
+  <!-- ═══════════════ COMPONENT GRAPH ═══════════════ -->
+  <section id="graph" class="py-20" style="border-bottom:1px solid #3c3c3c;background:#111">
+
+    <div class="max-w-6xl mx-auto px-6 mb-10">
+      <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Live Data Flow</p>
+      <h2 class="text-2xl font-bold tracking-tight mb-3 text-white">How data moves through Splice</h2>
+      <p class="text-zinc-400 leading-relaxed max-w-2xl">
+        Each layer in the stack. Particles animate along the edges showing real-time data flow direction — downward for <span style="color:#fb923c">invoke()</span> requests, upward for <span style="color:#c084fc">events</span> pushed back to the frontend. Hover a node to highlight its connections.
+      </p>
+    </div>
+
+    <div style="position:relative;overflow:hidden">
+      <svg id="arch-graph" style="width:100%;display:block;overflow:visible"></svg>
+      <div id="graph-tooltip" style="position:fixed;pointer-events:none;background:#1e1e1e;border:1px solid #3c3c3c;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#a1a1aa;max-width:260px;line-height:1.65;display:none;z-index:100;box-shadow:0 4px 24px rgba(0,0,0,0.6)"></div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ DATA FLOWS ═══════════════ -->
+  <section id="flows" style="background:#252526;border-bottom:1px solid #3c3c3c">
+    <div class="max-w-6xl mx-auto px-6 py-20">
+
+      <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Data Flows</p>
+      <h2 class="text-2xl font-bold tracking-tight mb-3 text-white">How key operations work end-to-end</h2>
+      <p class="text-zinc-400 leading-relaxed mb-16 max-w-2xl">Step-by-step traces of the most important operations in Splice — from the moment you trigger an action to the moment you see the result.</p>
+
+      <div class="grid md:grid-cols-2 gap-px" style="border:1px solid #3c3c3c">
+
+        <!-- Terminal rendering -->
+        <div class="p-8" style="background:#1e1e1e;border-bottom:1px solid #3c3c3c;border-right:1px solid #3c3c3c">
+          <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
+            <i class="bi bi-terminal-fill"></i> Terminal rendering
+          </p>
+          <p class="text-sm font-semibold text-white mb-1">Shell bytes → canvas pixels</p>
+          <p class="text-xs text-zinc-500 mb-6 leading-relaxed">This loop runs at up to ~120fps. The full path from shell output to screen is under 10ms on modern hardware.</p>
+
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#34d399;color:#34d399">1</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#34d399">Shell (PTY)</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Writes ANSI escape sequences and UTF-8 text to the PTY master. E.g. <code>ESC[32mHello ESC[0m</code> means "green text, then reset".</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#c084fc;color:#c084fc">2</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#c084fc">Rust — VTE parser (term.rs)</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">VTE calls <code>GridPerformer</code> for each byte sequence. Prints characters, moves cursor, applies colour/style attributes to the cell grid.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#c084fc;color:#c084fc">3</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#c084fc">Rust — emitter.rs (~120fps)</p>
+              <p class="text-xs text-zinc-400 leading-relaxed mb-2">Rate-limited thread wakes every ~8ms. If the grid changed, serialises it to a compact binary frame and base64-encodes it.</p>
+              <pre>Header (20 bytes): cols, rows, cursor pos/style,
+  mode flags, scrollback length, first visible row
+Cells  (12 bytes each): codepoint u32, fg RGB,
+  bg RGB, style flags, char width</pre>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#fb923c;color:#fb923c">4</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#fb923c">Tauri event: terminal:grid:&lt;id&gt;</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Frame emitted to the webview as a base64 string, targeted to the specific terminal ID.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#00ff88;color:#00ff88">5</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#00ff88">renderer.ts — dirty-rect diff</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Decodes base64 → Uint8Array. Compares each cell to the previous frame. Only repaints cells that changed — a huge win when most of the screen is static.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#00ff88;color:#00ff88">6</div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#00ff88">CanvasTerminal.svelte — canvas 2D</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Paints changed cells using a colour string cache and ASCII char cache. Handles cursor blink, selection overlay, search highlights, scrollbar.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- File save -->
+        <div class="p-8" style="background:#1e1e1e;border-bottom:1px solid #3c3c3c">
+          <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
+            <i class="bi bi-floppy"></i> File save
+          </p>
+          <p class="text-sm font-semibold text-white mb-1">⌘S → bytes on disk</p>
+          <p class="text-xs text-zinc-500 mb-6 leading-relaxed">For SSH workspaces the IPC command changes to <code>sftp_write_file</code> but everything else is identical.</p>
+
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#00ff88;color:#00ff88">1</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#00ff88">App.svelte — global keydown</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">⌘S fires the <code>"save"</code> action. Calls <code>workspaceManager.saveActiveFile()</code>.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#60a5fa;color:#60a5fa">2</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#60a5fa">workspace-file-ops.ts</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Resolves active workspace → active pane → active file path → <code>OpenFile</code> object. Reads <code>file.content</code> (kept in sync by CodeMirror on every keystroke). Marks <code>file.dirty = false</code> optimistically.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#fb923c;color:#fb923c">3</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#fb923c">invoke("write_file") or invoke("sftp_write_file")</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Local: <code>write_file(path, content)</code>. SSH remote: <code>sftp_write_file(workspaceId, path, content)</code>.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#c084fc;color:#c084fc">4</div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#c084fc">Rust — fs/write.rs</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Validates path is within allowed roots. Writes to disk. The file watcher fires an <code>fs:change</code> event — the frontend ignores it if the content matches what was just saved.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- LSP -->
+        <div class="p-8" style="background:#1e1e1e;border-bottom:1px solid #3c3c3c;border-right:1px solid #3c3c3c">
+          <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
+            <i class="bi bi-braces-asterisk"></i> LSP: diagnostics &amp; completions
+          </p>
+          <p class="text-sm font-semibold text-white mb-1">Error squiggles and autocomplete</p>
+          <p class="text-xs text-zinc-500 mb-6 leading-relaxed">Language servers are started lazily — only when you open the first file of a given language.</p>
+
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#00ff88;color:#00ff88">1</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#00ff88">CodeMirrorEditor.svelte</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">On file open, calls <code>lspClient.ensureReady(filePath, content, wsRoot)</code>.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#60a5fa;color:#60a5fa">2</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#60a5fa">lspClient — lazy start + dedup</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Maps file extension → language ID. Calls <code>lsp_start</code> if not running. A <code>startPromises</code> map ensures concurrent opens for the same language only start the server once.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#c084fc;color:#c084fc">3</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#c084fc">Rust — lsp/mod.rs</p>
+              <p class="text-xs text-zinc-400 leading-relaxed mb-2">Spawns e.g. <code>typescript-language-server --stdio</code>. Writer task → stdin, reader task parses stdout JSON-RPC:</p>
+              <pre>Response (has id)       → wake the invoke() caller
+Notification (push)     → emit as lsp:diagnostics event
+Server request (both)   → answer inline</pre>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#fb923c;color:#fb923c">4</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#fb923c">Tauri event: lsp:diagnostics</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Frontend updates diagnosticsStore. CodeMirror's linter extension re-renders squiggles.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#00ff88;color:#00ff88">5</div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#00ff88">lsp-extensions.ts — CodeMirror</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Completions via <code>buildLspCompletionSource()</code> calling <code>textDocument/completion</code>. Hover tooltips via <code>buildHoverExtension()</code>.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Claude attention hook -->
+        <div class="p-8" style="background:#1e1e1e;border-bottom:1px solid #3c3c3c">
+          <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
+            <i class="bi bi-lightning-charge-fill"></i> Claude attention hook
+          </p>
+          <p class="text-sm font-semibold text-white mb-1">Claude → Splice notifications</p>
+          <p class="text-xs text-zinc-500 mb-6 leading-relaxed">The key insight: Claude reads <code>SPLICE_TERMINAL_ID</code> from its environment — no PID tree walking needed.</p>
+
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#c084fc;color:#c084fc">1</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#c084fc">Rust — on app startup</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Generates or loads a 128-bit auth token. Binds a random TCP port; writes it to <code>~/.config/Splice/.attention_port</code>. Installs versioned Python hook scripts into <code>~/.claude/settings.json</code>.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#c084fc;color:#c084fc">2</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#c084fc">Rust — PTY spawn</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Every terminal gets <code>SPLICE_TERMINAL_ID=&lt;n&gt;</code> injected into its shell environment. This propagates to all child processes, including Claude.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#34d399;color:#34d399">3</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#34d399">Claude Code — hook fires</p>
+              <p class="text-xs text-zinc-400 leading-relaxed mb-2">The installed Python script reads <code>SPLICE_TERMINAL_ID</code> from its env and the port from the file. POSTs to Splice's local HTTP server:</p>
+              <pre>POST http://127.0.0.1:&lt;port&gt;/attention
+Authorization: Bearer &lt;token&gt;
+{ "terminal_id": 3, "type": "permission" }
+{ "terminal_id": 3, "type": "idle" }</pre>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#fb923c;color:#fb923c">4</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#fb923c">Tauri event: attention:notify</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Rust validates the token and emits the payload to the frontend.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#00ff88;color:#00ff88">5</div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#00ff88">attentionStore + terminal tab UI</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Stored by terminal ID. Terminal tab gets a badge. Permission requests show inline allow/deny. Idle shows a "done" indicator.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Session restore -->
+        <div class="p-8" style="background:#1e1e1e;border-right:1px solid #3c3c3c">
+          <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
+            <i class="bi bi-arrow-counterclockwise"></i> Session restore
+          </p>
+          <p class="text-sm font-semibold text-white mb-1">Relaunch → exactly where you left off</p>
+          <p class="text-xs text-zinc-500 mb-6 leading-relaxed">Same layout, same files, same terminals. Claude sessions resume automatically once the shell is ready.</p>
+
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#00ff88;color:#00ff88">1</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#00ff88">App.svelte — onMount</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Calls <code>workspaceManager.restoreWorkspaceImpl()</code>.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#fb923c;color:#fb923c">2</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#fb923c">invoke("get_workspaces")</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Rust reads the per-window JSON: <code>workspaces.json</code> for main, <code>workspaces-{label}.json</code> for secondary windows.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#60a5fa;color:#60a5fa">3</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#60a5fa">workspace-session.ts — deserialise</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Remaps snake_case → camelCase. Reconstructs layout tree, pane configs, open file list. Reads each file from disk, detecting external edits.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#fb923c;color:#fb923c">4</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#fb923c">invoke("spawn_terminal") per terminal</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Respawns each saved terminal. <code>waitForShellReady()</code> polls terminal frames until cursor position is stable for 3 consecutive frames — the shell prompt has appeared. Then sends <code>claude --resume &lt;session_id&gt;</code>.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#00ff88;color:#00ff88">5</div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#00ff88">UI renders</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Full layout restored: pinned tabs, split panes, expanded file tree folders, active pane, Claude sessions resuming.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- SSH -->
+        <div class="p-8" style="background:#1e1e1e">
+          <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
+            <i class="bi bi-hdd-network"></i> SSH remote workspace
+          </p>
+          <p class="text-sm font-semibold text-white mb-1">Edit files and run terminals on a remote machine</p>
+          <p class="text-xs text-zinc-500 mb-6 leading-relaxed">Identical experience to a local workspace from the user's perspective — same canvas terminal, same editor, same file tree.</p>
+
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#00ff88;color:#00ff88">1</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#00ff88">SshConnectForm.svelte</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">User enters host/user/port/key/remotePath. Calls <code>invoke("ssh_connect")</code>.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#c084fc;color:#c084fc">2</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#c084fc">Rust — ssh.rs</p>
+              <p class="text-xs text-zinc-400 leading-relaxed">Opens a persistent ControlMaster SSH session via the <code>openssh</code> crate. Stored in <code>AppState::ssh_sessions[workspace_id]</code>. All SFTP operations reuse this one TCP connection.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#c084fc;color:#c084fc">3</div>
+              <div class="flow-step-vert"></div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#c084fc">File ops via SFTP</p>
+              <p class="text-xs text-zinc-400 leading-relaxed"><code>sftp_list_dir</code> runs a remote <code>find</code> command. <code>sftp_read_file</code> and <code>sftp_write_file</code> transfer full file contents over the existing SSH connection.</p>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-gutter">
+              <div class="flow-step-num" style="border-color:#c084fc;color:#c084fc">4</div>
+            </div>
+            <div class="flow-step-body">
+              <p class="font-mono text-xs font-semibold mb-1" style="color:#c084fc">Terminal via SSH binary</p>
+              <p class="text-xs text-zinc-400 leading-relaxed mb-2"><code>spawn_terminal</code> is called with extra args built from the SSH config. The shell is <code>/usr/bin/ssh</code> (on the allowed list). Same PTY + canvas renderer as local.</p>
+              <pre>"cd '/remote/path' &amp;&amp; exec $SHELL -l"</pre>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- grid -->
+    </div>
+  </section>
+
+
+  <!-- Footer -->
+  <footer style="border-top:1px solid #3c3c3c">
+    <div class="max-w-6xl mx-auto px-6 py-10 flex items-center justify-between text-xs text-zinc-600 font-mono">
+      <a href="/" class="tracking-widest uppercase text-orange">Splice</a>
+      <span>One window for all your work</span>
+    </div>
+  </footer>
+
+  <script>
+  // ─── Layered Data Flow Diagram ────────────────────────────────────────────
+  (function() {
+    const LAYER_COLORS = {
+      user:      '#00ff88',
+      component: '#00ff88',
+      store:     '#60a5fa',
+      ipc:       '#fb923c',
+      rust:      '#c084fc',
+      external:  '#34d399',
+    };
+
+    const LAYERS = [
+      { id: 'user',      label: 'USER' },
+      { id: 'component', label: 'COMPONENTS' },
+      { id: 'store',     label: 'STORES' },
+      { id: 'ipc',       label: 'IPC BRIDGE' },
+      { id: 'rust',      label: 'RUST BACKEND' },
+      { id: 'external',  label: 'EXTERNAL' },
+    ];
+
+    // x is 0–1 fraction of usable width within the layer
+    const NODE_DEFS = [
+      { id: 'dev',    label: 'Developer',       layer: 'user',      x: 0.50, desc: 'Keyboard, mouse, macOS menu bar, context menus' },
+      { id: 'app',    label: 'App.svelte',       layer: 'component', x: 0.10, desc: 'Root: global shortcuts, menu events, toasts, session restore' },
+      { id: 'canvas', label: 'CanvasTerminal',   layer: 'component', x: 0.30, desc: 'Decodes binary frames from Rust, paints to <canvas> at ~120fps' },
+      { id: 'cm',     label: 'CodeMirror',       layer: 'component', x: 0.52, desc: 'Editor: syntax highlighting, LSP squiggles, completions, hover' },
+      { id: 'pane',   label: 'PaneGrid',         layer: 'component', x: 0.71, desc: 'Binary-tree split layout. Drag-to-resize. Each leaf is a pane' },
+      { id: 'sidebar',label: 'Sidebar',          layer: 'component', x: 0.88, desc: 'File tree, inline rename/create, global ripgrep search' },
+      { id: 'wm',     label: 'workspaceManager', layer: 'store',     x: 0.22, desc: 'God store — owns all workspaces, files, tabs, terminals, SSH config' },
+      { id: 'lspcli', label: 'lspClient',        layer: 'store',     x: 0.52, desc: 'Lazy language server startup with deduplication and failure tracking' },
+      { id: 'attst',  label: 'attentionStore',   layer: 'store',     x: 0.78, desc: 'Claude hook notifications keyed by terminal ID' },
+      { id: 'cmds',   label: 'commands.ts',      layer: 'ipc',       x: 0.35, desc: 'All invoke() calls, typed. Single source of truth for command names' },
+      { id: 'evts',   label: 'events.ts',        layer: 'ipc',       x: 0.65, desc: 'Typed backend event subscriptions. Returns unlisten() for cleanup' },
+      { id: 'appst',  label: 'AppState',         layer: 'rust',      x: 0.15, desc: 'Single Mutex<AppState> — all PTY sessions, LSP/SSH sessions, watchers' },
+      { id: 'term',   label: 'Terminal',         layer: 'rust',      x: 0.37, desc: 'VTE parser → GridPerformer → binary frame serialiser → Tauri event' },
+      { id: 'lspprx', label: 'LSP Proxy',        layer: 'rust',      x: 0.58, desc: 'Spawns language servers; routes JSON-RPC, pushes diagnostics as events' },
+      { id: 'attsvr', label: 'Attention Server', layer: 'rust',      x: 0.78, desc: 'Local HTTP server; validates Claude hook POSTs, emits Tauri events' },
+      { id: 'pty',    label: 'Shell / PTY',      layer: 'external',  x: 0.22, desc: 'bash, zsh, fish, or ssh — spawned in a pseudo-terminal' },
+      { id: 'lspsvr', label: 'LSP Servers',      layer: 'external',  x: 0.50, desc: 'typescript-language-server, rust-analyzer, pyright — stdin/stdout JSON-RPC' },
+      { id: 'claude', label: 'Claude Code',      layer: 'external',  x: 0.78, desc: 'Runs in a Splice terminal. Posts notifications via SPLICE_TERMINAL_ID env var' },
+    ];
+
+    // dir: 'down' = invoke/request, 'up' = event/push-back, 'both' = bidirectional
+    const EDGE_DEFS = [
+      { s: 'dev',    t: 'app',    dir: 'down' },
+      { s: 'dev',    t: 'canvas', dir: 'down' },
+      { s: 'dev',    t: 'cm',     dir: 'down' },
+      { s: 'dev',    t: 'pane',   dir: 'down' },
+      { s: 'dev',    t: 'sidebar',dir: 'down' },
+      { s: 'app',    t: 'wm',     dir: 'both' },
+      { s: 'pane',   t: 'wm',     dir: 'both' },
+      { s: 'canvas', t: 'evts',   dir: 'up'   },
+      { s: 'cm',     t: 'lspcli', dir: 'down' },
+      { s: 'wm',     t: 'cmds',   dir: 'down' },
+      { s: 'lspcli', t: 'cmds',   dir: 'down' },
+      { s: 'attst',  t: 'evts',   dir: 'up'   },
+      { s: 'cmds',   t: 'appst',  dir: 'down' },
+      { s: 'appst',  t: 'evts',   dir: 'up'   },
+      { s: 'appst',  t: 'term',   dir: 'down' },
+      { s: 'appst',  t: 'lspprx', dir: 'down' },
+      { s: 'appst',  t: 'attsvr', dir: 'down' },
+      { s: 'term',   t: 'pty',    dir: 'both' },
+      { s: 'lspprx', t: 'lspsvr', dir: 'both' },
+      { s: 'attsvr', t: 'claude', dir: 'up'   },
+    ];
+
+    const svg = document.getElementById('arch-graph');
+    const tooltip = document.getElementById('graph-tooltip');
+
+    function render() {
+      const W = svg.getBoundingClientRect().width || 960;
+      const LABEL_W = 110;
+      const USABLE_W = W - LABEL_W - 24;
+      const ROW_H = 100;
+      const NODE_H = 32;
+      const TOTAL_H = LAYERS.length * ROW_H + 40;
+
+      svg.setAttribute('viewBox', `0 0 ${W} ${TOTAL_H}`);
+      svg.setAttribute('height', TOTAL_H);
+      svg.innerHTML = '';
+
+      const NS = 'http://www.w3.org/2000/svg';
+      function el(tag, attrs) {
+        const e = document.createElementNS(NS, tag);
+        for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+        return e;
+      }
+
+      // Resolve node positions
+      const nodeMap = {};
+      NODE_DEFS.forEach(n => {
+        const layerIdx = LAYERS.findIndex(l => l.id === n.layer);
+        const cx = LABEL_W + n.x * USABLE_W;
+        const cy = 20 + layerIdx * ROW_H + ROW_H / 2;
+        nodeMap[n.id] = { ...n, cx, cy, layerIdx, color: LAYER_COLORS[n.layer] };
+      });
+
+      // Background layer bands
+      LAYERS.forEach((layer, i) => {
+        const y = 20 + i * ROW_H;
+        const band = el('rect', { x: 0, y, width: W, height: ROW_H,
+          fill: i % 2 === 0 ? '#141414' : '#111', opacity: 1 });
+        svg.appendChild(band);
+
+        // Layer label
+        const lc = LAYER_COLORS[layer.id];
+        const labelBg = el('rect', { x: 8, y: y + ROW_H/2 - 10, width: LABEL_W - 16, height: 20,
+          fill: lc + '10', rx: 3 });
+        svg.appendChild(labelBg);
+        const labelEl = el('text', { x: LABEL_W/2, y: y + ROW_H/2 + 4,
+          'text-anchor': 'middle', fill: lc, opacity: 0.7,
+          'font-family': "'JetBrains Mono', monospace", 'font-size': '9',
+          'letter-spacing': '0.08em' });
+        labelEl.textContent = layer.label;
+        svg.appendChild(labelEl);
+
+        // Dividing line
+        if (i > 0) {
+          const line = el('line', { x1: 0, y1: y, x2: W, y2: y,
+            stroke: '#2a2a2a', 'stroke-width': 1 });
+          svg.appendChild(line);
+        }
+      });
+
+      // Edge layer (below nodes)
+      const edgeGroup = el('g', {});
+      svg.appendChild(edgeGroup);
+      const particleGroup = el('g', {});
+      svg.appendChild(particleGroup);
+      const nodeGroup = el('g', {});
+      svg.appendChild(nodeGroup);
+
+      // Draw edges as cubic bezier curves
+      const edgeEls = [];
+      EDGE_DEFS.forEach((e, ei) => {
+        const src = nodeMap[e.s];
+        const tgt = nodeMap[e.t];
+        if (!src || !tgt) return;
+
+        const going_down = tgt.cy > src.cy;
+        const x1 = src.cx, y1 = src.cy + (going_down ? NODE_H/2 : -NODE_H/2);
+        const x2 = tgt.cx, y2 = tgt.cy + (going_down ? -NODE_H/2 : NODE_H/2);
+        const cp = Math.abs(y2 - y1) * 0.55;
+        const d = `M${x1},${y1} C${x1},${y1+cp} ${x2},${y2-cp} ${x2},${y2}`;
+
+        const color = going_down ? LAYER_COLORS[src.layer] : LAYER_COLORS[tgt.layer];
+
+        const path = el('path', { d, fill: 'none', stroke: color, 'stroke-width': '1.5',
+          opacity: '0.18', 'stroke-linecap': 'round', 'data-ei': ei });
+        edgeGroup.appendChild(path);
+        edgeEls.push({ path, d, color, src, tgt, dir: e.dir, going_down });
+      });
+
+      // Draw nodes
+      const nodeEls = {};
+      NODE_DEFS.forEach(n => {
+        const nd = nodeMap[n.id];
+        const nw = Math.max(80, n.label.length * 7 + 24);
+        const g = el('g', { cursor: 'pointer', 'data-id': n.id });
+
+        const bg = el('rect', { x: nd.cx - nw/2, y: nd.cy - NODE_H/2, width: nw, height: NODE_H,
+          fill: '#1a1a1a', stroke: nd.color, 'stroke-width': '1', rx: '4',
+          'stroke-opacity': '0.6' });
+        g.appendChild(bg);
+
+        // Top border accent
+        const accent = el('rect', { x: nd.cx - nw/2 + 4, y: nd.cy - NODE_H/2, width: nw - 8, height: '2',
+          fill: nd.color, rx: '1', opacity: '0.7' });
+        g.appendChild(accent);
+
+        const txt = el('text', { x: nd.cx, y: nd.cy + 4,
+          'text-anchor': 'middle', fill: nd.color, opacity: '0.9',
+          'font-family': "'JetBrains Mono', monospace", 'font-size': '10',
+          'font-weight': '500' });
+        txt.textContent = n.label;
+        g.appendChild(txt);
+
+        // Hover interactions
+        g.addEventListener('mouseenter', function(ev) {
+          bg.setAttribute('fill', '#252526');
+          bg.setAttribute('stroke-opacity', '1');
+          // Highlight connected edges
+          edgeEls.forEach(ee => {
+            if (ee.src.id === n.id || ee.tgt.id === n.id) {
+              ee.path.setAttribute('opacity', '0.8');
+              ee.path.setAttribute('stroke-width', '2');
+            } else {
+              ee.path.setAttribute('opacity', '0.04');
+            }
+          });
+          // Dim other nodes
+          Object.keys(nodeEls).forEach(k => {
+            if (k !== n.id) nodeEls[k].bg.setAttribute('opacity', '0.4');
+          });
+          tooltip.style.display = 'block';
+          tooltip.innerHTML = `<span style="color:${nd.color};font-weight:600">${n.label}</span><br><span style="color:#52525b;font-size:9px;letter-spacing:0.06em;text-transform:uppercase">${n.layer}</span><br><br>${n.desc}`;
+          positionTooltip(ev);
+        });
+        g.addEventListener('mousemove', positionTooltip);
+        g.addEventListener('mouseleave', function() {
+          bg.setAttribute('fill', '#1a1a1a');
+          bg.setAttribute('stroke-opacity', '0.6');
+          edgeEls.forEach(ee => {
+            ee.path.setAttribute('opacity', '0.18');
+            ee.path.setAttribute('stroke-width', '1.5');
+          });
+          Object.keys(nodeEls).forEach(k => nodeEls[k].bg.setAttribute('opacity', '1'));
+          tooltip.style.display = 'none';
+        });
+
+        nodeGroup.appendChild(g);
+        nodeEls[n.id] = { g, bg };
+      });
+
+      function positionTooltip(ev) {
+        let x = ev.clientX + 14, y = ev.clientY - 10;
+        if (x + 280 > window.innerWidth) x = ev.clientX - 290;
+        tooltip.style.left = x + 'px';
+        tooltip.style.top  = y + 'px';
+      }
+
+      // ── Particle animation ────────────────────────────────────────────────
+      const particles = [];
+      edgeEls.forEach((ee, i) => {
+        const count = ee.dir === 'both' ? 2 : 1;
+        for (let p = 0; p < count; p++) {
+          const isReturn = p === 1; // second particle goes the other way
+          particles.push({
+            path: document.createElementNS(NS, 'circle'),
+            ee,
+            progress: Math.random(),
+            speed: 0.0025 + Math.random() * 0.002,
+            reverse: isReturn,
+            color: isReturn
+              ? LAYER_COLORS[ee.going_down ? ee.tgt.layer : ee.src.layer]
+              : LAYER_COLORS[ee.going_down ? ee.src.layer : ee.tgt.layer],
+          });
+        }
+      });
+
+      // Create a temporary <path> for measurement
+      const measPath = document.createElementNS(NS, 'path');
+      measPath.style.visibility = 'hidden';
+      svg.appendChild(measPath);
+
+      particles.forEach(p => {
+        p.path.setAttribute('r', '2.5');
+        p.path.setAttribute('fill', p.color);
+        p.path.setAttribute('opacity', '0');
+        particleGroup.appendChild(p.path);
+      });
+
+      let animId;
+      function tick() {
+        particles.forEach(p => {
+          p.progress += p.speed;
+          if (p.progress > 1) p.progress -= 1;
+          const t = p.reverse ? 1 - p.progress : p.progress;
+
+          measPath.setAttribute('d', p.ee.d);
+          const len = measPath.getTotalLength();
+          const pt = measPath.getPointAtLength(t * len);
+
+          p.path.setAttribute('cx', pt.x);
+          p.path.setAttribute('cy', pt.y);
+          // Fade in/out at ends
+          const fade = t < 0.08 ? t/0.08 : t > 0.92 ? (1-t)/0.08 : 1;
+          p.path.setAttribute('opacity', (fade * 0.75).toFixed(2));
+        });
+        animId = requestAnimationFrame(tick);
+      }
+
+      // Start animation when the section scrolls into view
+      const section = document.getElementById('graph');
+      const io = new IntersectionObserver(entries => {
+        if (entries[0].isIntersecting) { if (!animId) tick(); }
+        else { cancelAnimationFrame(animId); animId = null; }
+      }, { threshold: 0.1 });
+      io.observe(section);
+
+      svg.removeChild(measPath);
+      // Re-add for measurement inside tick
+      svg.appendChild(measPath);
+      measPath.setAttribute('fill', 'none');
+      measPath.setAttribute('stroke', 'none');
+    }
+
+    render();
+    window.addEventListener('resize', render);
+  })();
+  </script>
+
+
+  <script>
+    // Sub-nav active state on scroll
+    const sections = document.querySelectorAll('section[id]');
+    const links = document.querySelectorAll('.sub-nav a');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          links.forEach(l => l.classList.remove('active'));
+          const link = document.querySelector(`.sub-nav a[href="#${entry.target.id}"]`);
+          if (link) link.classList.add('active');
+        }
+      });
+    }, { threshold: 0.15 });
+    sections.forEach(s => observer.observe(s));
+  </script>
+
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>
