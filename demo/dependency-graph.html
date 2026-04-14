@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>File Dependency Graph</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1e1e1e; color: #ccc; font-family: -apple-system, sans-serif; overflow: hidden; }
+    h1 { position: fixed; top: 0; left: 0; right: 0; padding: 12px 20px; font-size: 14px; color: #00ff88;
+         letter-spacing: 0.05em; text-transform: uppercase; background: #1e1e1e; z-index: 10; border-bottom: 1px solid #3c3c3c; }
+    #hint { position: fixed; bottom: 16px; left: 0; right: 0; text-align: center; font-size: 11px; color: #858585; }
+    svg { margin-top: 44px; }
+    .link { stroke: #3c3c3c; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+    .link.highlighted { stroke: #00ff88; stroke-width: 2; }
+    .node circle { stroke-width: 2; cursor: grab; }
+    .node circle:active { cursor: grabbing; }
+    .node text { font-size: 11px; fill: #ccc; pointer-events: none; }
+    .node.dimmed circle { opacity: 0.15; }
+    .node.dimmed text { opacity: 0.15; }
+    .tooltip {
+      position: fixed; background: #252526; border: 1px solid #3c3c3c;
+      border-radius: 6px; padding: 8px 12px; font-size: 11px;
+      pointer-events: none; opacity: 0; transition: opacity 0.1s; z-index: 20;
+    }
+  </style>
+</head>
+<body>
+  <h1>File Dependency Graph — Splice</h1>
+  <div id="hint">Drag nodes · Hover to highlight · Scroll to zoom</div>
+  <div class="tooltip" id="tooltip"></div>
+  <svg id="chart"></svg>
+
+  <script>
+    const GROUP_COLOR = {
+      store:     "#00ff88",
+      component: "#61afef",
+      ipc:       "#c678dd",
+      lib:       "#e5c07b",
+      util:      "#56b6c2",
+    };
+
+    const nodes = [
+      // Stores
+      { id: "workspace.svelte",   label: "workspace",    group: "store",     r: 18 },
+      { id: "ui.svelte",          label: "ui",           group: "store",     r: 10 },
+      { id: "layout.svelte",      label: "layout",       group: "store",     r: 10 },
+      { id: "files.svelte",       label: "files",        group: "store",     r: 10 },
+      { id: "attention.svelte",   label: "attention",    group: "store",     r: 9  },
+      { id: "diagnostics.svelte", label: "diagnostics",  group: "store",     r: 9  },
+      { id: "drag.svelte",        label: "drag",         group: "store",     r: 9  },
+      // Components
+      { id: "App.svelte",         label: "App",          group: "component", r: 22 },
+      { id: "TerminalPane",       label: "TerminalPane", group: "component", r: 13 },
+      { id: "EditorPane",         label: "EditorPane",   group: "component", r: 13 },
+      { id: "LeftSidebar",        label: "LeftSidebar",  group: "component", r: 12 },
+      { id: "PaneGrid",           label: "PaneGrid",     group: "component", r: 11 },
+      { id: "TopBar",             label: "TopBar",       group: "component", r: 11 },
+      { id: "CanvasTerminal",     label: "CanvasTerminal", group: "component", r: 14 },
+      { id: "FileTree",           label: "FileTree",     group: "component", r: 10 },
+      { id: "TabBar",             label: "TabBar",       group: "component", r: 10 },
+      // IPC
+      { id: "commands.ts",        label: "ipc/commands", group: "ipc",       r: 14 },
+      { id: "events.ts",          label: "ipc/events",   group: "ipc",       r: 11 },
+      // Libs
+      { id: "renderer.ts",        label: "renderer",     group: "lib",       r: 13 },
+      { id: "lsp/client.ts",      label: "lsp/client",   group: "lib",       r: 11 },
+      { id: "themes.ts",          label: "themes",       group: "lib",       r: 11 },
+      // Utils
+      { id: "keybindings.ts",     label: "keybindings",  group: "util",      r: 10 },
+      { id: "file-icons.ts",      label: "file-icons",   group: "util",      r: 8  },
+    ];
+
+    const links = [
+      { source: "App.svelte",       target: "workspace.svelte" },
+      { source: "App.svelte",       target: "ui.svelte" },
+      { source: "App.svelte",       target: "layout.svelte" },
+      { source: "App.svelte",       target: "commands.ts" },
+      { source: "App.svelte",       target: "events.ts" },
+      { source: "App.svelte",       target: "themes.ts" },
+      { source: "App.svelte",       target: "keybindings.ts" },
+      { source: "App.svelte",       target: "TerminalPane" },
+      { source: "App.svelte",       target: "EditorPane" },
+      { source: "App.svelte",       target: "LeftSidebar" },
+      { source: "App.svelte",       target: "TopBar" },
+      { source: "App.svelte",       target: "PaneGrid" },
+      { source: "TerminalPane",     target: "CanvasTerminal" },
+      { source: "TerminalPane",     target: "commands.ts" },
+      { source: "CanvasTerminal",   target: "renderer.ts" },
+      { source: "CanvasTerminal",   target: "events.ts" },
+      { source: "CanvasTerminal",   target: "ui.svelte" },
+      { source: "renderer.ts",      target: "commands.ts" },
+      { source: "EditorPane",       target: "TabBar" },
+      { source: "EditorPane",       target: "workspace.svelte" },
+      { source: "LeftSidebar",      target: "FileTree" },
+      { source: "LeftSidebar",      target: "diagnostics.svelte" },
+      { source: "LeftSidebar",      target: "ui.svelte" },
+      { source: "FileTree",         target: "files.svelte" },
+      { source: "FileTree",         target: "file-icons.ts" },
+      { source: "FileTree",         target: "commands.ts" },
+      { source: "workspace.svelte", target: "commands.ts" },
+      { source: "workspace.svelte", target: "layout.svelte" },
+      { source: "workspace.svelte", target: "files.svelte" },
+      { source: "events.ts",        target: "workspace.svelte" },
+      { source: "events.ts",        target: "attention.svelte" },
+      { source: "events.ts",        target: "diagnostics.svelte" },
+      { source: "lsp/client.ts",    target: "commands.ts" },
+      { source: "diagnostics.svelte", target: "lsp/client.ts" },
+      { source: "PaneGrid",         target: "drag.svelte" },
+      { source: "TopBar",           target: "workspace.svelte" },
+      { source: "TopBar",           target: "ui.svelte" },
+      { source: "keybindings.ts",   target: "workspace.svelte" },
+      { source: "keybindings.ts",   target: "ui.svelte" },
+    ];
+
+    const W = window.innerWidth;
+    const H = window.innerHeight - 44;
+
+    const svg = d3.select("#chart").attr("width", W).attr("height", H);
+
+    // Arrow marker
+    svg.append("defs").append("marker")
+      .attr("id", "arrow")
+      .attr("viewBox", "0 -4 8 8")
+      .attr("refX", 8).attr("refY", 0)
+      .attr("markerWidth", 6).attr("markerHeight", 6)
+      .attr("orient", "auto")
+      .append("path")
+      .attr("d", "M0,-4L8,0L0,4")
+      .attr("fill", "#555");
+
+    const g = svg.append("g");
+
+    svg.call(d3.zoom()
+      .scaleExtent([0.3, 3])
+      .on("zoom", e => g.attr("transform", e.transform)));
+
+    const simulation = d3.forceSimulation(nodes)
+      .force("link", d3.forceLink(links).id(d => d.id).distance(d => {
+        const sr = nodes.find(n => n.id === (d.source.id || d.source))?.r || 10;
+        const tr = nodes.find(n => n.id === (d.target.id || d.target))?.r || 10;
+        return 60 + sr + tr;
+      }))
+      .force("charge", d3.forceManyBody().strength(d => -d.r * 18))
+      .force("center", d3.forceCenter(W / 2, H / 2))
+      .force("collision", d3.forceCollide().radius(d => d.r + 8));
+
+    const link = g.append("g")
+      .selectAll("line")
+      .data(links)
+      .join("line")
+      .attr("class", "link");
+
+    const node = g.append("g")
+      .selectAll("g")
+      .data(nodes)
+      .join("g")
+      .attr("class", "node")
+      .call(d3.drag()
+        .on("start", (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+        .on("drag",  (e, d) => { d.fx = e.x; d.fy = e.y; })
+        .on("end",   (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+    const tooltip = document.getElementById("tooltip");
+
+    node.append("circle")
+      .attr("r", d => d.r)
+      .attr("fill", d => GROUP_COLOR[d.group] + "33")
+      .attr("stroke", d => GROUP_COLOR[d.group])
+      .on("mouseover", (event, d) => {
+        const deps = links.filter(l => (l.source.id || l.source) === d.id).map(l => l.target.id || l.target);
+        const usedBy = links.filter(l => (l.target.id || l.target) === d.id).map(l => l.source.id || l.source);
+
+        link.classed("highlighted", l =>
+          (l.source.id || l.source) === d.id || (l.target.id || l.target) === d.id);
+
+        node.classed("dimmed", n =>
+          n.id !== d.id && !deps.includes(n.id) && !usedBy.includes(n.id));
+
+        tooltip.style.opacity = 1;
+        tooltip.style.left = (event.clientX + 14) + "px";
+        tooltip.style.top = (event.clientY - 10) + "px";
+        tooltip.innerHTML = `
+          <strong style="color:${GROUP_COLOR[d.group]}">${d.label}</strong><br>
+          <span style="color:#858585">imports ${deps.length} · used by ${usedBy.length}</span>
+        `;
+      })
+      .on("mousemove", (event) => {
+        tooltip.style.left = (event.clientX + 14) + "px";
+        tooltip.style.top = (event.clientY - 10) + "px";
+      })
+      .on("mouseout", () => {
+        link.classed("highlighted", false);
+        node.classed("dimmed", false);
+        tooltip.style.opacity = 0;
+      });
+
+    node.append("text")
+      .attr("dy", d => d.r + 13)
+      .attr("text-anchor", "middle")
+      .text(d => d.label);
+
+    simulation.on("tick", () => {
+      link
+        .attr("x1", d => d.source.x)
+        .attr("y1", d => d.source.y)
+        .attr("x2", d => {
+          const dx = d.target.x - d.source.x;
+          const dy = d.target.y - d.source.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          return d.target.x - (dx / dist) * (d.target.r + 8);
+        })
+        .attr("y2", d => {
+          const dx = d.target.x - d.source.x;
+          const dy = d.target.y - d.source.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          return d.target.y - (dy / dist) * (d.target.r + 8);
+        });
+
+      node.attr("transform", d => `translate(${d.x},${d.y})`);
+    });
+  </script>
+</body>
+</html>

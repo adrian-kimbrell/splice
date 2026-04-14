@@ -6,6 +6,8 @@ import {
   splitNodeInTreeWithSide,
   removeNodeFromTree,
   findSiblingLeaf,
+  findShallowestLeaf,
+  swapLeavesInTree,
   type LayoutNode,
 } from "./layout.svelte";
 
@@ -320,5 +322,171 @@ describe("findSiblingLeaf", () => {
     expect(findSiblingLeaf(tree, "B")).toBe("A");
     expect(findSiblingLeaf(tree, "C")).toBe("A");
     expect(findSiblingLeaf(tree, "A")).toBe("B");
+  });
+});
+
+// --- findShallowestLeaf ---
+
+describe("findShallowestLeaf", () => {
+  it("returns paneId for a leaf node", () => {
+    const leaf: LayoutNode = { type: "leaf", paneId: "only" };
+    expect(findShallowestLeaf(leaf)).toBe("only");
+  });
+
+  it("returns the shallower side of an unbalanced tree", () => {
+    // root(A, split(B, C)) — right side has depth 1, left has depth 0
+    // shallowest leaf is on the left (A)
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      children: [
+        { type: "leaf", paneId: "A" },
+        {
+          type: "split",
+          direction: "vertical",
+          ratio: 0.5,
+          children: [
+            { type: "leaf", paneId: "B" },
+            { type: "leaf", paneId: "C" },
+          ],
+        },
+      ],
+    };
+    expect(findShallowestLeaf(tree)).toBe("A");
+  });
+
+  it("returns left leaf when both sides have equal depth", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      children: [
+        { type: "leaf", paneId: "left" },
+        { type: "leaf", paneId: "right" },
+      ],
+    };
+    expect(findShallowestLeaf(tree)).toBe("left");
+  });
+
+  it("picks the shallowest across deeply nested tree", () => {
+    // root(split(A,B), split(split(C,D), E))
+    // Left subtree depth = 1, right subtree depth = 2
+    // Shallowest is on the left → A
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      children: [
+        {
+          type: "split",
+          direction: "vertical",
+          ratio: 0.5,
+          children: [
+            { type: "leaf", paneId: "A" },
+            { type: "leaf", paneId: "B" },
+          ],
+        },
+        {
+          type: "split",
+          direction: "vertical",
+          ratio: 0.5,
+          children: [
+            {
+              type: "split",
+              direction: "horizontal",
+              ratio: 0.5,
+              children: [
+                { type: "leaf", paneId: "C" },
+                { type: "leaf", paneId: "D" },
+              ],
+            },
+            { type: "leaf", paneId: "E" },
+          ],
+        },
+      ],
+    };
+    expect(findShallowestLeaf(tree)).toBe("A");
+  });
+});
+
+// --- swapLeavesInTree ---
+
+describe("swapLeavesInTree", () => {
+  it("swaps two sibling leaves", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      children: [
+        { type: "leaf", paneId: "A" },
+        { type: "leaf", paneId: "B" },
+      ],
+    };
+    const result = swapLeavesInTree(tree, "A", "B");
+    expect(result.type).toBe("split");
+    if (result.type === "split") {
+      expect(result.children[0]).toMatchObject({ type: "leaf", paneId: "B" });
+      expect(result.children[1]).toMatchObject({ type: "leaf", paneId: "A" });
+    }
+  });
+
+  it("swaps leaves in different subtrees", () => {
+    // root(A, split(B, C)) — swap A and C
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      children: [
+        { type: "leaf", paneId: "A" },
+        {
+          type: "split",
+          direction: "vertical",
+          ratio: 0.5,
+          children: [
+            { type: "leaf", paneId: "B" },
+            { type: "leaf", paneId: "C" },
+          ],
+        },
+      ],
+    };
+    const result = swapLeavesInTree(tree, "A", "C");
+    if (result.type === "split") {
+      expect(result.children[0]).toMatchObject({ type: "leaf", paneId: "C" });
+      const right = result.children[1];
+      if (right.type === "split") {
+        expect(right.children[1]).toMatchObject({ type: "leaf", paneId: "A" });
+        expect(right.children[0]).toMatchObject({ type: "leaf", paneId: "B" });
+      }
+    }
+  });
+
+  it("is a no-op when neither paneId is in the tree", () => {
+    const tree: LayoutNode = { type: "leaf", paneId: "A" };
+    const result = swapLeavesInTree(tree, "X", "Y");
+    expect(result).toMatchObject({ type: "leaf", paneId: "A" });
+  });
+
+  it("returns fresh objects (no shared references with input)", () => {
+    const leaf: LayoutNode = { type: "leaf", paneId: "A" };
+    const result = swapLeavesInTree(leaf, "A", "B");
+    expect(result).not.toBe(leaf);
+  });
+
+  it("preserves split direction and ratio", () => {
+    const tree: LayoutNode = {
+      type: "split",
+      direction: "vertical",
+      ratio: 0.3,
+      children: [
+        { type: "leaf", paneId: "A" },
+        { type: "leaf", paneId: "B" },
+      ],
+    };
+    const result = swapLeavesInTree(tree, "A", "B");
+    if (result.type === "split") {
+      expect(result.direction).toBe("vertical");
+      expect(result.ratio).toBe(0.3);
+    }
   });
 });

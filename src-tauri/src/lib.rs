@@ -15,6 +15,8 @@
 
 mod attention;
 mod commands;
+#[cfg(debug_assertions)]
+mod dev_server;
 #[cfg(target_os = "macos")]
 mod dock;
 pub mod lsp;
@@ -111,6 +113,20 @@ fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Raise the open-file-descriptor limit to 4096 so we can support many
+    // simultaneous PTY sessions (macOS default soft limit is only 256).
+    #[cfg(unix)]
+    unsafe {
+        let mut rl = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut rl) == 0 {
+            let target: libc::rlim_t = 4096;
+            if rl.rlim_cur < target {
+                rl.rlim_cur = rl.rlim_max.min(target);
+                libc::setrlimit(libc::RLIMIT_NOFILE, &rl);
+            }
+        }
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -140,6 +156,15 @@ pub fn run() {
             // macOS dock right-click menu ("New Window")
             #[cfg(target_os = "macos")]
             dock::setup(app.handle());
+
+            // Start dev API server (debug builds only)
+            #[cfg(debug_assertions)]
+            {
+                let dev_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    dev_server::start_dev_server(dev_handle).await;
+                });
+            }
 
             let token = attention::load_or_create_token();
             let handle = app.handle().clone();
@@ -308,6 +333,11 @@ pub fn run() {
                 lsp::lsp_start,
                 lsp::lsp_notify,
                 lsp::lsp_request,
+                commands::dev::save_screenshot_bytes,
+                commands::dev::resolve_dev_state,
+                commands::dev::resolve_dev_dom,
+                commands::dev::dev_log,
+                commands::dev::get_terminal_last_lines,
             ] }
             #[cfg(feature = "e2e")]
             { tauri::generate_handler![
@@ -367,6 +397,11 @@ pub fn run() {
                 lsp::lsp_notify,
                 lsp::lsp_request,
                 commands::terminal::get_debug_stats,
+                commands::dev::save_screenshot_bytes,
+                commands::dev::resolve_dev_state,
+                commands::dev::resolve_dev_dom,
+                commands::dev::dev_log,
+                commands::dev::get_terminal_last_lines,
             ] }
         })
         .run(tauri::generate_context!())

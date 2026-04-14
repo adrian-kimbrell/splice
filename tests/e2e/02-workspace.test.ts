@@ -1,9 +1,9 @@
 /**
  * Spec 02 – Workspace open / close lifecycle
  *
- * Creates a real temp directory, opens it as a workspace via the app's
- * IPC layer (bypassing the OS file picker), verifies the file tree
- * renders, then closes the workspace and verifies cleanup.
+ * Creates a real temp directory, opens it as a workspace via the dev API,
+ * verifies the file tree renders and internal state is correct, then closes
+ * the workspace and verifies cleanup.
  *
  * Also smoke-tests watcher accumulation: opening/closing 5 times should
  * not grow the file-descriptor count.
@@ -13,7 +13,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
-import { loadApp, openWorkspace, closeAllWorkspaces, sleep } from "./helpers";
+import { loadApp, openWorkspace, closeAllWorkspaces, sleep, api } from "./helpers";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -56,6 +56,7 @@ describe("Workspace lifecycle", () => {
   });
 
   after(async () => {
+    await api.assertNoErrors();
     await closeAllWorkspaces(browser).catch(() => {});
     rmSync(wsDir, { recursive: true, force: true });
   });
@@ -66,6 +67,19 @@ describe("Workspace lifecycle", () => {
 
     const tree = await browser.$('[role="tree"]');
     await expect(tree).toExist();
+  });
+
+  it("state reflects exactly one workspace with the correct root path", async () => {
+    const state = await api.state();
+    expect(state.workspaces.length).toBe(1);
+    expect(state.workspaces[0].rootPath).toBe(wsDir);
+  });
+
+  it("state shows at least one terminal in the workspace", async () => {
+    const state = await api.state();
+    const ws = state.workspaces[0];
+    expect(ws.terminalIds.length).toBeGreaterThanOrEqual(1);
+    expect(ws.activeTerminalId).not.toBeNull();
   });
 
   it("file tree contains the seed files", async () => {
@@ -81,19 +95,27 @@ describe("Workspace lifecycle", () => {
   });
 
   it("workspace name matches the folder name", async () => {
+    const state = await api.state();
+    const folderName = wsDir.split("/").pop()!;
+    // State name should match the folder
+    expect(state.workspaces[0].name).toContain(folderName.substring(0, 8));
+    // DOM title should too
     const title = await browser.$(".workspace-title");
     const text = await title.getText();
-    const folderName = wsDir.split("/").pop()!;
-    expect(text).toContain(folderName.substring(0, 8)); // prefix match (name may truncate)
+    expect(text).toContain(folderName.substring(0, 8));
   });
 
-  it("closing the workspace removes it from the sidebar", async () => {
+  it("closing the workspace removes it from state and DOM", async () => {
     await closeAllWorkspaces(browser);
     await sleep(400);
 
+    // State-level assertion — no workspaces remain
+    const state = await api.state();
+    expect(state.workspaces.length).toBe(0);
+
+    // DOM-level assertion — group gone or welcome screen visible
     const wsGroup = await browser.$(".workspace-group");
     const exists = await wsGroup.isExisting();
-    // Either gone, or welcome screen shows
     if (exists) {
       const welcome = await browser.$("div.welcome-screen");
       await expect(welcome).toExist();
@@ -111,6 +133,10 @@ describe("Watcher accumulation (open/close × 5)", () => {
     await loadApp(browser);
     splicePid = getSplicePid();
     fdsBefore = countFds(splicePid);
+  });
+
+  after(async () => {
+    await api.assertNoErrors();
   });
 
   it("FD count does not grow after 5 open/close cycles", async () => {

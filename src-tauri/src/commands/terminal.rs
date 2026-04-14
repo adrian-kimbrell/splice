@@ -57,6 +57,7 @@ pub fn spawn_terminal(
     }
 
     // Validate CWD: must exist and be under home directory. Fall back to HOME if invalid.
+    // In debug builds the restriction is relaxed to allow any valid directory (e.g. /tmp).
     let home_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
     let canonical_cwd = {
         let cwd_path = std::path::Path::new(&cwd);
@@ -67,16 +68,21 @@ pub fn spawn_terminal(
         } else {
             match std::fs::canonicalize(&cwd) {
                 Ok(c) => {
-                    if let Ok(canonical_home) = std::fs::canonicalize(&home_dir) {
-                        if c.starts_with(&canonical_home) {
-                            c
+                    #[cfg(not(debug_assertions))]
+                    {
+                        if let Ok(canonical_home) = std::fs::canonicalize(&home_dir) {
+                            if c.starts_with(&canonical_home) {
+                                c
+                            } else {
+                                warn!(cwd = %cwd, "CWD is outside HOME, falling back to HOME");
+                                canonical_home
+                            }
                         } else {
-                            warn!(cwd = %cwd, "CWD is outside HOME, falling back to HOME");
-                            canonical_home
+                            c
                         }
-                    } else {
-                        c
                     }
+                    #[cfg(debug_assertions)]
+                    { c }
                 }
                 Err(_) => {
                     warn!(cwd = %cwd, "Failed to canonicalize CWD, falling back to HOME");

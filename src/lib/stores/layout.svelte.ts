@@ -45,11 +45,22 @@ export interface PaneConfig {
   claudePid?: number | null;
 }
 
-export const MAX_SPLIT_DEPTH = 5;
+export const MAX_SPLIT_DEPTH = 10;
 
 export function treeDepth(node: LayoutNode): number {
   if (node.type === "leaf") return 0;
   return 1 + Math.max(treeDepth(node.children[0]), treeDepth(node.children[1]));
+}
+
+/** Returns the paneId of the shallowest leaf in the tree.
+ *  Used by spawnTerminalInWorkspace to keep the layout balanced. */
+export function findShallowestLeaf(node: LayoutNode): string {
+  if (node.type === "leaf") return node.paneId;
+  const leftDepth = treeDepth(node.children[0]);
+  const rightDepth = treeDepth(node.children[1]);
+  return leftDepth <= rightDepth
+    ? findShallowestLeaf(node.children[0])
+    : findShallowestLeaf(node.children[1]);
 }
 
 export function collectLeafIds(node: LayoutNode): Set<string> {

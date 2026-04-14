@@ -1,5 +1,7 @@
 import { type Browser } from "webdriverio";
+import { api } from "./dev-api.js";
 
+export { api, type DevState, type DevWorkspace, type DomElement, type LogEntry } from "./dev-api.js";
 export const DRIVER_URL = "tauri://localhost";
 
 /** Navigate to the app and wait for the root grid to be present. */
@@ -12,38 +14,37 @@ export async function loadApp(browser: Browser): Promise<void> {
 }
 
 /**
- * Ask the app's workspaceManager to open a directory programmatically.
- * Uses fire-and-forget (sync execute) since tauri-plugin-webdriver's executeAsync
- * has limited support. Callers should wait for DOM changes after this.
+ * Open a directory as a new workspace via the dev API.
+ * Faster and more reliable than the old __spliceTest global — state is verified
+ * through /dev/state rather than DOM polling.
  */
 export async function openWorkspace(
   browser: Browser,
   path: string
 ): Promise<void> {
-  await browser.execute((p: string) => {
-    void (window as unknown as { __spliceTest: { openWorkspace: (p: string) => Promise<void> } })
-      .__spliceTest.openWorkspace(p);
-  }, path);
-  // Wait until at least one pane or file-tree element appears
+  await api.openFolder(path);
+  // Wait for workspace to appear in state, then for a DOM pane to render
+  await api.waitForWorkspace({ timeoutMs: 8_000 });
   await browser.$("[data-pane-id], [role='tree']").waitForExist({
-    timeout: 8_000,
-    timeoutMsg: "Workspace did not load within 8s",
+    timeout: 5_000,
+    timeoutMsg: "Workspace pane did not render within 5s",
   });
 }
 
-/** Close all open workspaces and wait for them to disappear. */
+/**
+ * Reset all workspaces via the dev API, then confirm the DOM is clear.
+ */
 export async function closeAllWorkspaces(browser: Browser): Promise<void> {
-  await browser.execute(() => {
-    void (window as unknown as { __spliceTest: { closeAllWorkspaces: () => Promise<void> } })
-      .__spliceTest.closeAllWorkspaces();
-  });
-  // Wait for all workspace-group elements to disappear
+  await api.reset();
+  await api.waitForReset({ timeoutMs: 6_000 });
+  // Also wait for DOM to reflect the cleared state
   await browser.waitUntil(
     async () => {
       const groups = await browser.$$(".workspace-group");
-      return groups.length === 0;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (groups as any).length === 0;
     },
-    { timeout: 6_000, interval: 200, timeoutMsg: "Workspaces did not close within 6s" }
+    { timeout: 4_000, interval: 150, timeoutMsg: "Workspace DOM did not clear within 4s" }
   );
 }
 

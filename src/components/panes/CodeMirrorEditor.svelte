@@ -1,10 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, scrollPastEnd, placeholder, keymap, hoverTooltip } from "@codemirror/view";
+  import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, scrollPastEnd, placeholder, keymap } from "@codemirror/view";
   import { EditorState, Compartment } from "@codemirror/state";
-  import { linter, lintGutter, setDiagnostics } from "@codemirror/lint";
+  import { lintGutter, setDiagnostics } from "@codemirror/lint";
   import type { Diagnostic as CmDiagnostic } from "@codemirror/lint";
-  import type { CompletionContext, CompletionResult } from "@codemirror/autocomplete";
   import { bracketMatching, indentOnInput, foldGutter, foldKeymap, indentUnit, indentRange } from "@codemirror/language";
   import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from "@codemirror/commands";
   import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from "@codemirror/autocomplete";
@@ -16,10 +15,12 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { showContextMenu } from "../../lib/utils/context-menu";
   import { lspClient } from "../../lib/lsp/client";
-  import type { LspLocation, LspPos, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
+  import type { LspLocation, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
   import { getDiagnosticsForUri } from "../../lib/stores/diagnostics.svelte";
   import { pushToast } from "../../lib/stores/toasts.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
+  import { getExtForPath, getLanguageExtension } from "../../lib/editor/language-loader";
+  import { lspKindToType, lspServerName, buildLspCompletionSource, buildHoverExtension } from "../../lib/editor/lsp-extensions";
 
   let {
     content,
@@ -67,70 +68,6 @@
   let renameName = $state("");
   let renameTarget = $state({ line: 0, char: 0 });
 
-  function getExtForPath(path: string): string {
-    const dot = path.lastIndexOf(".");
-    return dot >= 0 ? path.slice(dot).toLowerCase() : "";
-  }
-
-  const langCache = new Map<string, any>();
-
-  async function getLanguageExtension(path: string) {
-    const ext = getExtForPath(path);
-    const cached = langCache.get(ext);
-    if (cached) return cached;
-
-    let lang: any;
-    switch (ext) {
-      case ".js":
-      case ".jsx": {
-        const { javascript } = await import("@codemirror/lang-javascript");
-        lang = javascript({ jsx: true });
-        break;
-      }
-      case ".ts":
-      case ".tsx": {
-        const { javascript } = await import("@codemirror/lang-javascript");
-        lang = javascript({ jsx: true, typescript: true });
-        break;
-      }
-      case ".html":
-      case ".svelte": {
-        const { html } = await import("@codemirror/lang-html");
-        lang = html();
-        break;
-      }
-      case ".css": {
-        const { css } = await import("@codemirror/lang-css");
-        lang = css();
-        break;
-      }
-      case ".json": {
-        const { json } = await import("@codemirror/lang-json");
-        lang = json();
-        break;
-      }
-      case ".rs": {
-        const { rust } = await import("@codemirror/lang-rust");
-        lang = rust();
-        break;
-      }
-      case ".py": {
-        const { python } = await import("@codemirror/lang-python");
-        lang = python();
-        break;
-      }
-      case ".md": {
-        const { markdown } = await import("@codemirror/lang-markdown");
-        lang = markdown();
-        break;
-      }
-      default:
-        return [];
-    }
-    langCache.set(ext, lang);
-    return lang;
-  }
-
   function formatDocument(view: EditorView): boolean {
     const state = view.state;
     const ext = getExtForPath(filePath);
@@ -155,17 +92,6 @@
 
   // LSP helpers
   const isTauri = "__TAURI_INTERNALS__" in window;
-
-  function lspServerName(langId: string): string {
-    switch (langId) {
-      case "typescript": case "javascript": case "typescriptreact": case "javascriptreact":
-        return "typescript-language-server";
-      case "python": return "pyright";
-      case "rust": return "rust-analyzer";
-      case "html": case "css": case "json": return "vscode-langservers-extracted";
-      default: return langId;
-    }
-  }
 
   function getCursorLspPos(pos: number): LspPos {
     const lineInfo = view!.state.doc.lineAt(pos);
@@ -305,73 +231,6 @@
           coords.top,
         );
       });
-  }
-
-  // LSP completion kind → CM6 type label
-  function lspKindToType(kind: number | undefined): string {
-    switch (kind) {
-      case 2: case 3: return "function";
-      case 4: return "function";   // constructor
-      case 5: return "variable";   // field
-      case 6: return "variable";
-      case 7: return "class";
-      case 8: return "interface";
-      case 9: return "namespace";
-      case 10: return "variable";  // enum
-      case 14: return "keyword";
-      case 15: return "text";
-      case 17: return "variable";  // color
-      case 18: return "text";      // file
-      case 20: return "constant";  // enum member
-      case 21: return "class";     // struct
-      default: return "text";
-    }
-  }
-
-  function buildLspCompletionSource(fp: string) {
-    return async (context: CompletionContext): Promise<CompletionResult | null> => {
-      if (!isTauri || !lspClient.getLanguageId(fp)) return null;
-      const pos = context.pos;
-      const lineInfo = context.state.doc.lineAt(pos);
-      const lspPos: LspPos = { line: lineInfo.number - 1, character: pos - lineInfo.from };
-      const word = context.matchBefore(/\w*/);
-      // Only fire for explicit invocation or after typing at least 1 char
-      if (!context.explicit && (!word || word.from === word.to)) return null;
-      const items = await lspClient.complete(fp, lspPos).catch(() => []);
-      if (!items.length) return null;
-      return {
-        from: word ? word.from : pos,
-        options: items.map(item => ({
-          label: item.label,
-          detail: item.detail,
-          type: lspKindToType(item.kind),
-        })),
-        validFor: /^\w*$/,
-      };
-    };
-  }
-
-  function buildHoverExtension(fp: string) {
-    return hoverTooltip(
-      async (_view: EditorView, pos: number) => {
-        if (!isTauri || !lspClient.getLanguageId(fp)) return null;
-        const lineInfo = _view.state.doc.lineAt(pos);
-        const lspPos: LspPos = { line: lineInfo.number - 1, character: pos - lineInfo.from };
-        const text = await lspClient.hover(fp, lspPos).catch(() => null);
-        if (!text) return null;
-        return {
-          pos,
-          create() {
-            const dom = document.createElement("div");
-            dom.className = "cm-lsp-hover";
-            dom.style.cssText = "max-width:400px;padding:4px 8px;font-size:12px;white-space:pre-wrap;word-break:break-word;";
-            dom.textContent = text;
-            return { dom };
-          },
-        };
-      },
-      { hoverTime: 300 },
-    );
   }
 
   onMount(() => {

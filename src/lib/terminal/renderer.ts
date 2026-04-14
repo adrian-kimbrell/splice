@@ -115,6 +115,8 @@ export class TerminalRenderer {
   detectedUrls: Array<{ historyRow: number; colStart: number; colEnd: number; url: string }> = [];
   hoveredUrl: { historyRow: number; colStart: number; colEnd: number; url: string } | null = null;
   private urlsNeedUpdate = false;
+  // Reusable codepoint buffer for URL detection — avoids per-row string allocation.
+  private _urlRowBuf: number[] = [];
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -335,22 +337,35 @@ export class TerminalRenderer {
   private detectUrls(data: Uint8Array, view: DataView, rows: number, cols: number) {
     this.detectedUrls = [];
     const fdhr = this._currentFirstDisplayHistoryRow;
+    const buf = this._urlRowBuf;
+    // Grow buffer lazily; never shrink so we avoid repeated allocations on resize.
+    if (buf.length < cols) buf.length = cols;
+
     for (let row = 0; row < rows; row++) {
-      // Reconstruct row text from cell codepoints
-      let rowText = "";
+      // Fill buffer with effective codepoints; track whether the row has any content.
+      let hasContent = false;
       for (let col = 0; col < cols; col++) {
         const off = HEADER_SIZE + (row * cols + col) * CELL_SIZE;
-        if (off + 4 > data.length) break;
+        if (off + 4 > data.length) { buf[col] = 32; continue; }
         const cp = view.getUint32(off, true);
         const width = data[off + 11];
-        if (width === 0) {
-          // Right-half placeholder: contribute a space to text (position it correctly)
-          rowText += " ";
-        } else {
-          rowText += cp > 32 ? String.fromCodePoint(cp) : " ";
-        }
+        // Right-half placeholder or control char → space; otherwise use codepoint.
+        const effective = (width === 0 || cp <= 32) ? 32 : cp;
+        buf[col] = effective;
+        if (effective !== 32) hasContent = true;
       }
-      // Find URLs in row text
+
+      // Skip blank rows — no URL can start in whitespace.
+      if (!hasContent) continue;
+
+      // Build the row string from the buffer (one allocation per non-blank row).
+      let rowText = "";
+      for (let col = 0; col < cols; col++) {
+        const cp = buf[col];
+        rowText += cp < 128 ? asciiChars[cp] ?? " " : String.fromCodePoint(cp);
+      }
+
+      // Find URLs in row text.
       URL_REGEX.lastIndex = 0;
       let match;
       while ((match = URL_REGEX.exec(rowText)) !== null) {

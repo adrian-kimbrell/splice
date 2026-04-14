@@ -71,6 +71,11 @@ export async function getTerminalCwd(id: number): Promise<string | null> {
   return invoke<string | null>("get_terminal_cwd", { id });
 }
 
+/** Dev-only: returns the last n non-blank lines from the terminal's scrollback+live buffer. */
+export async function getTerminalLastLines(id: number, n: number): Promise<string[]> {
+  return invoke("get_terminal_last_lines", { id, n });
+}
+
 /** Returns terminal lines for a history row range.
  *  historyStart = top/older (smaller index), historyEnd = bottom/newer (larger index).
  *  Both are direct indices into the combined [scrollback, live] array:

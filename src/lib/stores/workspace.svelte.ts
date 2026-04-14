@@ -17,7 +17,7 @@
  */
 import type { FileEntry, OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
-import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, swapLeavesInTree, findSiblingLeaf, treeDepth, MAX_SPLIT_DEPTH } from "./layout.svelte";
+import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, swapLeavesInTree, findSiblingLeaf, findShallowestLeaf, treeDepth, MAX_SPLIT_DEPTH } from "./layout.svelte";
 import { ui } from "./ui.svelte";
 import { isCornerDragActive } from "./corner-drag.svelte";
 import { isDragging as isTabDragging } from "./drag.svelte";
@@ -68,11 +68,27 @@ import {
 
 export type { Workspace } from "./workspace-types";
 
+/**
+ * Returns true if `p` is a safe filesystem path that can be passed as an SSH
+ * `-i` argument without risk of option injection. Rejects anything that starts
+ * with `-`, contains whitespace, or contains shell/SSH metacharacters.
+ */
+function isSafeKeyPath(p: string): boolean {
+  return /^~?\/[^\s`$&|;<>'"\\!*?{}()[\]#\x00-\x1f]+$/.test(p);
+}
+
 function buildSshExtraArgs(sshConfig: SshConfig): string[] {
   const target = sshConfig.user ? `${sshConfig.user}@${sshConfig.host}` : sshConfig.host;
   const escapedPath = sshConfig.remotePath.replace(/'/g, "'\\''");
+  const keyArgs: string[] = [];
+  if (sshConfig.keyPath) {
+    if (!isSafeKeyPath(sshConfig.keyPath)) {
+      throw new Error(`Unsafe SSH key path rejected: "${sshConfig.keyPath}"`);
+    }
+    keyArgs.push("-i", sshConfig.keyPath);
+  }
   return [
-    ...(sshConfig.keyPath ? ["-i", sshConfig.keyPath] : []),
+    ...keyArgs,
     "-p", String(sshConfig.port),
     "-t",
     "-o", "StrictHostKeyChecking=accept-new",
@@ -84,7 +100,20 @@ function buildSshExtraArgs(sshConfig: SshConfig): string[] {
 class WorkspaceManager {
   workspaces = $state<Record<string, Workspace>>({});
   activeWorkspaceId = $state<string | null>(null);
-  private nextTermNum = $state(1);
+  private nextTerminalNumber(): number {
+    const used = new Set<number>();
+    for (const ws of Object.values(this.workspaces)) {
+      for (const pane of Object.values(ws.panes)) {
+        if (pane.kind === "terminal") {
+          const m = pane.title.match(/^Terminal (\d+)$/);
+          if (m) used.add(parseInt(m[1], 10));
+        }
+      }
+    }
+    let n = 1;
+    while (used.has(n)) n++;
+    return n;
+  }
   private persistTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 
   get activeWorkspace(): Workspace | null {
@@ -248,7 +277,7 @@ class WorkspaceManager {
       activeTerminalId: terminalId,
       layout: { type: "leaf", paneId },
       panes: {
-        [paneId]: { id: paneId, kind: "terminal", title: `Terminal ${this.nextTermNum++}`, terminalId },
+        [paneId]: { id: paneId, kind: "terminal", title: `Terminal ${this.nextTerminalNumber()}`, terminalId },
       },
       activePaneId: paneId,
       gitBranch: "",
@@ -288,6 +317,12 @@ class WorkspaceManager {
       const { spawnTerminal } = await import("../ipc/commands");
       const ws = this.workspaces[wsId]!;
 
+      // Guard before spawning — no PTY wasted if we can't place it in the layout
+      if (ws.layout && treeDepth(ws.layout) >= MAX_SPLIT_DEPTH) {
+        console.warn("Split depth limit reached, cannot add more panes");
+        return null;
+      }
+
       let terminalId: number;
       if (ws.sshConfig) {
         // Remote workspace: spawn ssh with extra args; local cwd is irrelevant
@@ -301,6 +336,14 @@ class WorkspaceManager {
       if (!this.workspaces[wsId]) return null;
       const ws2 = this.workspaces[wsId]!;
 
+      // Re-check after await in case layout changed while we were spawning
+      if (ws2.layout && treeDepth(ws2.layout) >= MAX_SPLIT_DEPTH) {
+        console.warn("Split depth limit reached after spawn, killing orphaned terminal");
+        const { killTerminal } = await import("../ipc/commands");
+        killTerminal(terminalId).catch(() => {});
+        return null;
+      }
+
       ws2.terminalIds.push(terminalId);
       ws2.activeTerminalId = terminalId;
 
@@ -308,34 +351,21 @@ class WorkspaceManager {
       ws2.panes[paneId] = {
         id: paneId,
         kind: "terminal",
-        title: `Terminal ${this.nextTermNum++}`,
+        title: `Terminal ${this.nextTerminalNumber()}`,
         terminalId,
       };
 
       // Add to layout tree
       const isEmptyLayout = ws2.layout === null;
 
-      if (!isEmptyLayout && treeDepth(ws2.layout!) >= MAX_SPLIT_DEPTH) {
-        console.warn("Split depth limit reached, cannot add more panes");
-        // Still register the terminal, just don't split
-        ws2.activePaneId = paneId;
-        return terminalId;
-      }
-
       if (isEmptyLayout) {
         ws2.layout = { type: "leaf", paneId };
       } else {
-        // Find a valid split target: use activePaneId if it still exists, otherwise first leaf
-        const targetId = (ws2.activePaneId && ws2.panes[ws2.activePaneId])
-          ? ws2.activePaneId
-          : findFirstLeaf(ws2.layout);
-        if (!targetId) {
-          ws2.layout = { type: "leaf", paneId };
-        } else {
-          const splitResult = splitNodeInTree(ws2.layout!, targetId, paneId, "vertical");
-          if (!splitResult.found) console.warn(`splitNodeInTree: target "${targetId}" not found in layout`);
-          ws2.layout = splitResult.tree;
-        }
+        // Split the shallowest leaf to keep the tree balanced (avoids degenerate chains).
+        const targetId = findShallowestLeaf(ws2.layout!);
+        const splitResult = splitNodeInTree(ws2.layout!, targetId, paneId, "vertical");
+        if (!splitResult.found) console.warn(`splitNodeInTree: target "${targetId}" not found in layout`);
+        ws2.layout = splitResult.tree;
       }
 
       ws2.activePaneId = paneId;
@@ -690,7 +720,7 @@ class WorkspaceManager {
         ws.panes[newPaneId] = {
           id: newPaneId,
           kind: "terminal",
-          title: `Terminal ${this.nextTermNum++}`,
+          title: `Terminal ${this.nextTerminalNumber()}`,
           terminalId,
         };
       } else {
@@ -880,7 +910,7 @@ class WorkspaceManager {
   }
 
   async restoreWorkspace(rws: RustWorkspace, resumeStartIndex = 0): Promise<number> {
-    const result = await restoreWorkspaceImpl(rws, resumeStartIndex, () => this.nextTermNum++);
+    const result = await restoreWorkspaceImpl(rws, resumeStartIndex, () => this.nextTerminalNumber());
     this.workspaces[result.ws.id] = result.ws;
     const ws = result.ws;
 

@@ -61,15 +61,21 @@
     const rect = containerEl?.getBoundingClientRect();
     if (!rect) return;
 
+    const MIN_PX = 80; // minimum pane size in pixels
+
     function handleMouseMove(e: MouseEvent) {
       if (!rect || !node || node.type !== "split") return;
       let ratio: number;
       if (node.direction === "horizontal") {
         ratio = (e.clientX - rect.left) / rect.width;
+        const minRatio = MIN_PX / rect.width;
+        ratio = Math.max(minRatio, Math.min(1 - minRatio, ratio));
       } else {
         ratio = (e.clientY - rect.top) / rect.height;
+        const minRatio = MIN_PX / rect.height;
+        ratio = Math.max(minRatio, Math.min(1 - minRatio, ratio));
       }
-      node.ratio = Math.max(0.1, Math.min(0.9, ratio));
+      node.ratio = ratio;
     }
 
     function handleMouseUp() {
@@ -141,7 +147,7 @@
       <CornerDragOverlay {node} {containerEl} />
     {/if}
     <div
-      style="flex: 0 0 calc({node.ratio * 100}% - 2px); overflow: hidden; contain: layout style paint;"
+      style="flex: 0 0 calc({node.ratio * 100}% - 2px); overflow: hidden; contain: layout style paint; {node.direction === 'vertical' ? 'min-height: 80px;' : 'min-width: 80px;'}"
       class="flex min-w-0 min-h-0"
     >
       <PaneGrid node={node.children[0]} {panes} {paneSnippet} {activePaneId} {onPaneClick} />
@@ -163,19 +169,21 @@
       onkeydown={(e) => {
         if (node.type !== "split") return;
         const step = 0.02;
+        const size = node.direction === "horizontal" ? (containerEl?.offsetWidth ?? 800) : (containerEl?.offsetHeight ?? 600);
+        const minRatio = 80 / size;
         if ((node.direction === "horizontal" && e.key === "ArrowLeft") ||
             (node.direction === "vertical" && e.key === "ArrowUp")) {
           e.preventDefault();
-          node.ratio = Math.max(0.1, node.ratio - step);
+          node.ratio = Math.max(minRatio, node.ratio - step);
         } else if ((node.direction === "horizontal" && e.key === "ArrowRight") ||
                    (node.direction === "vertical" && e.key === "ArrowDown")) {
           e.preventDefault();
-          node.ratio = Math.min(0.9, node.ratio + step);
+          node.ratio = Math.min(1 - minRatio, node.ratio + step);
         }
       }}
     ></div>
 
-    <div style="flex: 1; overflow: hidden; contain: layout style paint;" class="flex min-w-0 min-h-0">
+    <div style="flex: 1; overflow: hidden; contain: layout style paint; {node.direction === 'vertical' ? 'min-height: 80px;' : 'min-width: 80px;'}" class="flex min-w-0 min-h-0">
       <PaneGrid node={node.children[1]} {panes} {paneSnippet} {activePaneId} {onPaneClick} />
     </div>
   </div>

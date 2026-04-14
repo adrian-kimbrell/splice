@@ -17,7 +17,9 @@
     "bench:rust:save": "cd src-tauri && cargo bench -- --save-baseline main",
     "bench:rust:compare": "cd src-tauri && cargo bench -- --baseline main",
     "build:e2e": "npm run build && cargo tauri build --debug --no-bundle -- --features e2e",
-    "test:e2e": "wdio run wdio.config.ts"
+    "test:e2e": "wdio run wdio.config.ts",
+    "test:api": "vitest run --config vitest.config.api.ts",
+    "test:api:watch": "vitest --config vitest.config.api.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.1.1",

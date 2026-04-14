@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Git Branch Graph</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1e1e1e; color: #ccc; font-family: -apple-system, sans-serif; overflow-x: hidden; }
+    h1 { padding: 16px 20px 12px; font-size: 14px; color: #00ff88; letter-spacing: 0.05em; text-transform: uppercase; }
+    #chart { width: 100vw; }
+    .commit-dot { cursor: pointer; transition: r 0.1s; }
+    .commit-dot:hover { r: 7; }
+    .commit-msg { font-size: 12px; fill: #ccc; }
+    .commit-hash { font-size: 10px; fill: #858585; font-family: monospace; }
+    .commit-author { font-size: 10px; fill: #858585; }
+    .branch-label { font-size: 11px; font-weight: 600; }
+    .edge { fill: none; stroke-width: 2; }
+    .tooltip {
+      position: fixed; background: #252526; border: 1px solid #3c3c3c;
+      border-radius: 6px; padding: 10px 14px; font-size: 12px;
+      pointer-events: none; opacity: 0; transition: opacity 0.15s;
+      max-width: 260px; z-index: 10;
+    }
+    .tooltip .hash { color: #00ff88; font-family: monospace; font-size: 11px; }
+    .tooltip .msg { color: #fff; margin: 4px 0 2px; }
+    .tooltip .meta { color: #858585; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <h1>Git Branch Graph</h1>
+  <div id="chart"></div>
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+    const BRANCH_COLORS = {
+      main:    "#00ff88",
+      feature: "#61afef",
+      fix:     "#e06c75",
+      release: "#e5c07b",
+      ssh:     "#c678dd",
+    };
+
+    const commits = [
+      { hash: "3c396ad", msg: "Reveal active file in file tree on tab switch or file open", author: "adrian", date: "Apr 13", branch: "main", parents: ["382a3cb"] },
+      { hash: "382a3cb", msg: "Add CI status badge to README", author: "adrian", date: "Apr 12", branch: "main", parents: ["3d5fa01"] },
+      { hash: "3d5fa01", msg: "Overhaul README with technical depth and website-aligned copy", author: "adrian", date: "Apr 12", branch: "main", parents: ["b341735"] },
+      { hash: "b341735", msg: "Add image file support (png, jpg, jpeg, gif, webp, svg, ico, bmp)", author: "adrian", date: "Apr 11", branch: "main", parents: ["678db31"] },
+      { hash: "678db31", msg: "Apply Clippy lint fixes across Rust backend", author: "adrian", date: "Apr 11", branch: "main", parents: ["04aba10"] },
+      { hash: "04aba10", msg: "Fix terminal not resizing back after pane zoom-out", author: "adrian", date: "Apr 10", branch: "main", parents: ["8526259"] },
+      { hash: "8526259", msg: "Fix Ctrl passthrough to terminal, focus timing, and keybinding order", author: "adrian", date: "Apr 10", branch: "main", parents: ["4e5c752"] },
+      { hash: "4e5c752", msg: "Add module-level doc headers to all load-bearing Rust and TS files", author: "adrian", date: "Apr 9",  branch: "main", parents: ["a09da25"] },
+      { hash: "a09da25", msg: "Persist file tree expansion state across workspace switches", author: "adrian", date: "Apr 8",  branch: "main", parents: ["48895c3"] },
+      { hash: "48895c3", msg: "Fix file tree lag for externally created files/folders", author: "adrian", date: "Apr 7",  branch: "main", parents: ["4352393"] },
+      { hash: "4352393", msg: "Audit fixes, new tests, and E2E reliability improvements", author: "adrian", date: "Apr 6",  branch: "main", parents: ["bf2ec27"] },
+      { hash: "bf2ec27", msg: "Bump to v0.2.1: fix CSP blocking CodeMirror dynamic styles", author: "adrian", date: "Apr 4",  branch: "main", parents: ["85e1dcd"] },
+      { hash: "85e1dcd", msg: "Bump to v0.2.0: fix terminal SGR/CSI parsing, hook session resumption", author: "adrian", date: "Apr 1",  branch: "main", parents: ["feat-ssh-1", "d8366a9"] },
+      { hash: "feat-ssh-1", msg: "Add SSH remote workspace support via openssh crate", author: "adrian", date: "Mar 30", branch: "ssh",  parents: ["feat-ssh-0"] },
+      { hash: "feat-ssh-0", msg: "Scaffold SSH config, SFTP commands, and frontend routing", author: "adrian", date: "Mar 28", branch: "ssh",  parents: ["d8366a9"] },
+      { hash: "d8366a9", msg: "Overhaul README with marketing-focused copy", author: "adrian", date: "Mar 25", branch: "main", parents: ["fix-1"] },
+      { hash: "fix-1",   msg: "Fix double-click selection across terminal rows", author: "adrian", date: "Mar 23", branch: "fix",  parents: ["fix-0"] },
+      { hash: "fix-0",   msg: "Fix SGR sub-parameter parsing for 256-color sequences", author: "adrian", date: "Mar 21", branch: "fix",  parents: ["base"] },
+      { hash: "base",    msg: "Initial Splice release v0.1.0", author: "adrian", date: "Mar 15", branch: "main", parents: [] },
+    ];
+
+    // Assign lane (x column) per branch
+    const branchLane = { main: 0, ssh: 1, fix: 2, feature: 3, release: 4 };
+
+    const ROW_H = 46;
+    const LANE_W = 28;
+    const LEFT_PAD = 140;
+    const TOP_PAD = 20;
+    const WIDTH = window.innerWidth;
+    const HEIGHT = commits.length * ROW_H + TOP_PAD * 2;
+
+    const hashIndex = new Map(commits.map((c, i) => [c.hash, i]));
+
+    const svg = d3.select("#chart")
+      .append("svg")
+      .attr("width", WIDTH)
+      .attr("height", HEIGHT);
+
+    // Draw edges
+    commits.forEach((c, i) => {
+      c.parents.forEach(pid => {
+        const pi = hashIndex.get(pid);
+        if (pi == null) return;
+        const p = commits[pi];
+        const x1 = LEFT_PAD + branchLane[c.branch] * LANE_W;
+        const y1 = TOP_PAD + i * ROW_H;
+        const x2 = LEFT_PAD + branchLane[p.branch] * LANE_W;
+        const y2 = TOP_PAD + pi * ROW_H;
+
+        const color = BRANCH_COLORS[c.branch] || "#aaa";
+
+        if (x1 === x2) {
+          svg.append("line")
+            .attr("class", "edge")
+            .attr("x1", x1).attr("y1", y1)
+            .attr("x2", x2).attr("y2", y2)
+            .attr("stroke", color);
+        } else {
+          const mid = (y1 + y2) / 2;
+          svg.append("path")
+            .attr("class", "edge")
+            .attr("d", `M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}`)
+            .attr("stroke", BRANCH_COLORS[p.branch] || color);
+        }
+      });
+    });
+
+    // Draw commit dots + labels
+    const tooltip = document.getElementById("tooltip");
+
+    commits.forEach((c, i) => {
+      const x = LEFT_PAD + branchLane[c.branch] * LANE_W;
+      const y = TOP_PAD + i * ROW_H;
+      const color = BRANCH_COLORS[c.branch] || "#aaa";
+
+      svg.append("circle")
+        .attr("class", "commit-dot")
+        .attr("cx", x).attr("cy", y).attr("r", 5)
+        .attr("fill", color)
+        .attr("stroke", "#1e1e1e")
+        .attr("stroke-width", 2)
+        .on("mousemove", (event) => {
+          tooltip.style.opacity = 1;
+          tooltip.style.left = (event.clientX + 16) + "px";
+          tooltip.style.top = (event.clientY - 10) + "px";
+          tooltip.innerHTML = `
+            <div class="hash">${c.hash}</div>
+            <div class="msg">${c.msg}</div>
+            <div class="meta">${c.author} · ${c.date}</div>
+          `;
+        })
+        .on("mouseleave", () => tooltip.style.opacity = 0);
+
+      // Hash
+      svg.append("text")
+        .attr("class", "commit-hash")
+        .attr("x", x + 14)
+        .attr("y", y - 6)
+        .text(c.hash);
+
+      // Message
+      svg.append("text")
+        .attr("class", "commit-msg")
+        .attr("x", x + 14)
+        .attr("y", y + 8)
+        .text(c.msg.length > 62 ? c.msg.slice(0, 62) + "…" : c.msg);
+    });
+
+    // Branch labels on the left
+    const drawn = new Set();
+    commits.forEach((c, i) => {
+      if (drawn.has(c.branch)) return;
+      drawn.add(c.branch);
+      const x = LEFT_PAD + branchLane[c.branch] * LANE_W;
+      const y = TOP_PAD + i * ROW_H;
+      svg.append("text")
+        .attr("class", "branch-label")
+        .attr("x", x)
+        .attr("y", y - 18)
+        .attr("text-anchor", "middle")
+        .attr("fill", BRANCH_COLORS[c.branch] || "#aaa")
+        .text(c.branch);
+    });
+  </script>
+</body>
+</html>

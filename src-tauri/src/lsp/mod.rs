@@ -347,10 +347,17 @@ impl LspSession {
             .send(bytes)
             .map_err(|e| format!("Send error: {}", e))?;
 
-        tokio::time::timeout(std::time::Duration::from_secs(30), rx)
-            .await
-            .map_err(|_| "LSP request timed out".to_string())?
-            .map_err(|_| "LSP channel closed".to_string())
+        match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(_)) => Err("LSP channel closed".to_string()),
+            Err(_) => {
+                // Timeout: remove our sender so the map doesn't grow unbounded.
+                if let Ok(mut map) = self.pending.lock() {
+                    map.remove(&id);
+                }
+                Err("LSP request timed out".to_string())
+            }
+        }
     }
 
     async fn initialize(&self, language_id: &str, workspace_root: &str) -> Result<(), String> {
@@ -573,10 +580,17 @@ pub async fn lsp_request(
         .send(bytes)
         .map_err(|e| format!("Send error: {}", e))?;
 
-    let response = tokio::time::timeout(std::time::Duration::from_secs(30), rx)
-        .await
-        .map_err(|_| "LSP request timed out".to_string())?
-        .map_err(|_| "LSP channel closed".to_string())?;
+    let response = match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(_)) => return Err("LSP channel closed".to_string()),
+        Err(_) => {
+            // Timeout: remove our sender so the map doesn't grow unbounded.
+            if let Ok(mut map) = pending.lock() {
+                map.remove(&id);
+            }
+            return Err("LSP request timed out".to_string());
+        }
+    };
 
     if let Some(err) = response.get("error") {
         return Err(format!("LSP error: {}", err));
