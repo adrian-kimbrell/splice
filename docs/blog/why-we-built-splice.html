@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Why we built Splice — Splice Blog</title>
+  <meta name="description" content="The problem with managing multiple AI coding agents across separate terminal windows — and how we ended up building a whole workspace system around it." />
+  <link rel="canonical" href="https://splice.dev/blog/why-we-built-splice" />
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" sizes="180x180" href="../logo.png" />
+  <meta name="robots" content="index, follow" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://splice.dev/blog/why-we-built-splice" />
+  <meta property="og:title" content="Why we built Splice" />
+  <meta property="og:description" content="The problem with managing multiple AI coding agents across separate terminal windows — and how we ended up building a whole workspace system around it." />
+  <meta property="og:image" content="https://splice.dev/og.svg" />
+  <meta property="article:published_time" content="2026-04-14" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="../tailwind.css">
+  <style>
+    :root { --accent: #00ff88; }
+    body { background: #1e1e1e; }
+    .btn-orange { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
+    .btn-orange:hover { background: rgba(0,255,136,0.1); }
+    .text-orange { color: #00ff88; }
+    .border-orange { border-color: #00ff88; }
+    .prose p { color: #a1a1aa; line-height: 1.8; margin-bottom: 1.25rem; font-size: 1rem; }
+    .prose h2 { color: #fff; font-size: 1.25rem; font-weight: 700; margin-top: 2.5rem; margin-bottom: 0.75rem; }
+    .prose code { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; color: #d4d4d4; background: #252526; padding: 0.1em 0.35em; }
+    .prose a { color: #00ff88; }
+    .prose a:hover { text-decoration: underline; }
+    .prose ul { list-style: none; padding: 0; margin-bottom: 1.25rem; }
+    .prose ul li { color: #a1a1aa; font-size: 1rem; line-height: 1.8; padding-left: 1.25rem; position: relative; }
+    .prose ul li::before { content: "—"; position: absolute; left: 0; color: #00ff88; }
+  </style>
+</head>
+<body class="text-zinc-100 antialiased" style="background:#1e1e1e">
+
+  <!-- Nav -->
+  <header style="border-bottom:1px solid #3c3c3c">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2">
+        <img src="../logo.png" alt="Splice" class="w-9 h-9" style="filter:brightness(0) invert(1)" />
+        <span class="font-mono text-sm font-medium tracking-widest uppercase text-orange">Splice</span>
+      </a>
+      <nav class="flex items-center gap-8 text-sm text-zinc-500">
+        <a href="/" class="hover:text-zinc-200 transition-colors">Home</a>
+        <a href="/blog" class="text-zinc-200 transition-colors">Blog</a>
+        <a href="/releases" class="hover:text-zinc-200 transition-colors">Releases</a>
+        <a href="https://github.com/adrian-kimbrell/splice" class="hover:text-zinc-200 transition-colors font-mono text-xs">GitHub</a>
+        <a href="/#download" class="btn-orange text-white px-4 py-1.5 text-xs font-mono tracking-wide transition-colors">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Article -->
+  <article class="max-w-2xl mx-auto px-6 py-20">
+
+    <a href="/blog" class="font-mono text-xs text-zinc-500 hover:text-zinc-300 transition-colors flex items-center gap-2 mb-10">
+      <i class="bi bi-arrow-left"></i> All posts
+    </a>
+
+    <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Product · AI workflows</p>
+    <h1 class="text-3xl font-bold tracking-tight text-white mb-4 leading-tight">Why we built Splice</h1>
+    <p class="font-mono text-xs text-zinc-500 mb-16">April 14, 2026</p>
+
+    <div class="prose">
+
+      <p>This started with a frustration. I was running Claude Code on three projects at once — a frontend, a backend, and a side experiment — each in its own terminal window. Every time an agent hit a permission prompt or needed a decision, I'd have to find the right window, read the context, respond, and then remember what I was doing before.</p>
+
+      <p>That's not a workflow problem. That's a tooling problem.</p>
+
+      <h2>The missing abstraction</h2>
+
+      <p>Terminal emulators haven't changed much. They give you a window, maybe tabs, maybe a split. That was the right model when you were the one running commands. But when you're running agents — processes that work autonomously for minutes or hours at a time — the window-per-project model breaks down.</p>
+
+      <p>You need to see everything at once. You need to know when something needs you. You need to be able to jump into any context instantly, without losing what you were doing somewhere else.</p>
+
+      <p>None of the tools I was using were built for this. iTerm2 is a great terminal emulator. VS Code is a great editor. But stringing them together for multi-agent, multi-project work means a lot of manual state management that gets in the way of actually building things.</p>
+
+      <h2>Workspaces as the core primitive</h2>
+
+      <p>The first thing we built was workspaces. Not tabs, not windows — workspaces. Each one is a fully isolated environment: its own project folder, its own terminals, its own open files, its own layout. Switching between them is a keystroke. Everything is exactly where you left it.</p>
+
+      <p>This sounds simple. In practice, it means:</p>
+
+      <ul>
+        <li>You can have Claude Code running on your backend in one workspace while you write frontend code in another</li>
+        <li>You can keep a long-running build alive in one workspace while you're in a completely different project</li>
+        <li>When you come back to a workspace, your terminals are still running — no reconnect, no loss of context</li>
+      </ul>
+
+      <p>And when you relaunch Splice, everything comes back. Workspaces, layouts, open files, terminal directories — all restored automatically.</p>
+
+      <h2>Attention without interruption</h2>
+
+      <p>The other thing we built is what we call attention hooks. Splice watches for agent activity across all your terminal sessions and surfaces it when something needs you — a permission prompt, an error, a decision point. You see it without having to actively monitor every terminal.</p>
+
+      <p>When nothing needs your attention, Splice gets out of the way. The agents work. You work. You only interact when the work requires it.</p>
+
+      <h2>The terminal itself</h2>
+
+      <p>We also wrote our own terminal emulator from scratch — Snakebite. Not because existing solutions are bad, but because we needed something we could own completely: rendering, protocol handling, integration with the workspace system.</p>
+
+      <p>Snakebite renders directly to a canvas. No DOM per character, no xterm.js overhead. The parsing happens in Rust using <code>vte</code>, which handles the full ANSI escape sequence spec including SGR sub-parameters for underline styles. Scrollback is a ring buffer in Rust — the frontend requests viewport slices, not the whole buffer.</p>
+
+      <p>The result is a terminal that feels fast because it is fast. It stays smooth at 120fps even when build output is flooding the screen.</p>
+
+      <h2>What's next</h2>
+
+      <p>Splice is early. We have two public releases. There's a lot still to build — auto-update, notarization, Linux and Windows support, more AI workflow tooling.</p>
+
+      <p>But the core is solid. If you're working with AI coding agents and you're tired of juggling windows, <a href="/#download">give it a try</a>. It's free, open source, and MIT licensed.</p>
+
+    </div>
+
+  </article>
+
+  <!-- Footer -->
+  <footer class="max-w-6xl mx-auto px-6 py-10 flex items-center justify-between text-xs text-zinc-600 font-mono" style="border-top:1px solid #3c3c3c">
+    <a href="/" class="tracking-widest uppercase text-orange">Splice</a>
+    <span>One window for all your work</span>
+  </footer>
+
+</body>
+</html>

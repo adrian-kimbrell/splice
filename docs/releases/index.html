@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Releases — Splice</title>
+  <meta name="description" content="Release history for Splice — the native macOS developer environment built on Rust and Tauri." />
+  <link rel="canonical" href="https://splice.dev/releases" />
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" sizes="180x180" href="../logo.png" />
+  <meta name="robots" content="index, follow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="../tailwind.css">
+  <style>
+    :root { --accent: #00ff88; }
+    body { background: #1e1e1e; }
+    .btn-orange { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
+    .btn-orange:hover { background: rgba(0,255,136,0.1); }
+    .text-orange { color: #00ff88; }
+    .border-orange { border-color: #00ff88; }
+    .bg-card { background: #252526; }
+    .bg-raised { background: #2d2d30; }
+    .border-dim { border-color: #3c3c3c; }
+  </style>
+</head>
+<body class="text-zinc-100 antialiased" style="background:#1e1e1e">
+
+  <!-- Nav -->
+  <header style="border-bottom:1px solid #3c3c3c">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2">
+        <img src="../logo.png" alt="Splice" class="w-9 h-9" style="filter:brightness(0) invert(1)" />
+        <span class="font-mono text-sm font-medium tracking-widest uppercase text-orange">Splice</span>
+      </a>
+      <nav class="flex items-center gap-8 text-sm text-zinc-500">
+        <a href="/" class="hover:text-zinc-200 transition-colors">Home</a>
+        <a href="/blog" class="hover:text-zinc-200 transition-colors">Blog</a>
+        <a href="/releases" class="text-zinc-200 transition-colors">Releases</a>
+        <a href="https://github.com/adrian-kimbrell/splice" class="hover:text-zinc-200 transition-colors font-mono text-xs">GitHub</a>
+        <a href="/#download" class="btn-orange text-white px-4 py-1.5 text-xs font-mono tracking-wide transition-colors">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Page header -->
+  <section class="max-w-6xl mx-auto px-6 py-20" style="border-bottom:1px solid #3c3c3c">
+    <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Changelog</p>
+    <h1 class="text-4xl font-bold tracking-tight text-white mb-4">Releases</h1>
+    <p class="text-zinc-400 text-base max-w-xl">Every release, what changed, and why. Full source and assets on <a href="https://github.com/adrian-kimbrell/splice/releases" class="text-orange hover:underline">GitHub Releases</a>.</p>
+  </section>
+
+  <!-- Release list -->
+  <section class="max-w-6xl mx-auto px-6 py-16 space-y-12">
+
+    <!-- v0.2.0 -->
+    <div style="border:1px solid #3c3c3c">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+        <div class="flex items-center gap-4">
+          <span class="font-mono text-lg font-bold text-white">v0.2.0</span>
+          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
+        </div>
+        <span class="font-mono text-xs text-zinc-500">March 25, 2026</span>
+      </div>
+      <div class="p-6 space-y-6" style="background:#1e1e1e">
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Terminal fixes</p>
+          <p class="text-sm text-zinc-500 font-mono mb-3">Triggered by Claude Code v2.1.83 exposing edge cases in escape sequence handling.</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Fixed SGR sub-param parsing: curly underlines (<code class="font-mono text-zinc-300">4:3m</code>) no longer mistakenly set italic; <code class="font-mono text-zinc-300">4:0m</code> no longer resets all attributes</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Fixed xterm Modify Other Keys (<code class="font-mono text-zinc-300">CSI &gt; m</code>) being treated as SGR — was underlining and dimming all text</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Fixed Kitty keyboard protocol (<code class="font-mono text-zinc-300">CSI = u</code>, <code class="font-mono text-zinc-300">CSI &lt; u</code>) being treated as cursor-restore — was jumping cursor to top of screen</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Session resume</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Fixed a startup race that left an outdated Claude hook in <code class="font-mono text-zinc-300">~/.claude/settings.json</code>, causing all Claude sessions to save as null and never resume</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">macOS dock menu</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Right-click the Splice icon in the Dock → "New Window"</span></li>
+          </ul>
+        </div>
+
+        <div class="pt-2 flex items-center gap-4">
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.2.0" class="btn-orange px-4 py-2 text-xs font-mono tracking-wide transition-colors inline-flex items-center gap-2">
+            <i class="bi bi-download"></i> Download v0.2.0
+          </a>
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.2.0" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono transition-colors">View on GitHub →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- v0.1.0 -->
+    <div style="border:1px solid #3c3c3c">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+        <div class="flex items-center gap-4">
+          <span class="font-mono text-lg font-bold text-white">v0.1.0</span>
+          <span class="font-mono text-xs px-2 py-0.5 text-zinc-500" style="border:1px solid #3c3c3c">Initial release</span>
+        </div>
+        <span class="font-mono text-xs text-zinc-500">March 19, 2026</span>
+      </div>
+      <div class="p-6 space-y-6" style="background:#1e1e1e">
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Shipped</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Multi-pane editor with split support (horizontal and vertical)</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Custom terminal emulator (Snakebite, Canvas 2D — no xterm.js)</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>LSP support: diagnostics, hover, completions, go-to-definition, find references, rename</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>SSH remote workspaces with SFTP file operations</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>File tree with inline create, rename, and delete</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Multi-workspace sessions with full persistence</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Multi-window support</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Find & replace, Problems panel, breadcrumbs</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Command palette (⌘K)</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Git branch indicator</span></li>
+          </ul>
+        </div>
+
+        <div class="pt-2 flex items-center gap-4">
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.1.0" class="btn-orange px-4 py-2 text-xs font-mono tracking-wide transition-colors inline-flex items-center gap-2">
+            <i class="bi bi-download"></i> Download v0.1.0
+          </a>
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.1.0" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono transition-colors">View on GitHub →</a>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- Footer -->
+  <footer class="max-w-6xl mx-auto px-6 py-10 flex items-center justify-between text-xs text-zinc-600 font-mono" style="border-top:1px solid #3c3c3c">
+    <a href="/" class="tracking-widest uppercase text-orange">Splice</a>
+    <span>One window for all your work</span>
+  </footer>
+
+</body>
+</html>
