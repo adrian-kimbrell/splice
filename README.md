@@ -2,7 +2,7 @@
 
 **One window. Every project.**
 
-Splice is a native macOS developer environment built on Rust and Tauri. Isolated workspaces, a canvas-rendered terminal, a full code editor, and first-class support for AI coding agents — all in a single window that starts fast and stays lean.
+Splice is a native macOS developer environment built on Rust and Tauri. Isolated workspaces, a Snakebite-powered terminal, a full code editor, and first-class support for AI coding agents — all in a single window that starts fast and stays lean.
 
 [**Download for macOS →**](https://github.com/adrian-kimbrell/splice/releases/latest)
 [![CI](https://github.com/adrian-kimbrell/splice/actions/workflows/ci.yml/badge.svg)](https://github.com/adrian-kimbrell/splice/actions/workflows/ci.yml)
@@ -41,7 +41,7 @@ The **attention hook system** integrates directly with Claude Code and OpenAI Co
 
 Splice ships a custom terminal emulator — no xterm.js, no DOM-per-character rendering.
 
-- **Canvas 2D renderer** — text and cursor drawn directly to an `HTMLCanvasElement`. Only dirty rows are repainted. Renders at up to ~120fps.
+- **Snakebite renderer** — text and cursor drawn directly to an `HTMLCanvasElement`. Only dirty rows are repainted. Renders at up to ~120fps.
 - **Rust PTY backend** — `portable-pty` manages the pseudoterminal. Output is parsed in Rust using `vte`, which handles ANSI escape sequences, SGR attributes (including sub-parameters for underline style/color), OSC, and DCS. Processed events are sent to the frontend over a binary protocol with a fixed 20-byte header.
 - **10,000-line scrollback** — maintained in Rust as a ring buffer. The frontend requests viewport slices on demand; no full-buffer serialization.
 - **In-terminal search** — full-text search across scrollback with live match count, prev/next navigation, and row/column highlighting.
@@ -127,7 +127,7 @@ cargo tauri build      # production build
 | Backend | Rust |
 | Frontend | Svelte 5 (runes) |
 | Editor | CodeMirror 6 |
-| Terminal renderer | Custom Canvas 2D |
+| Terminal renderer | Snakebite (custom Canvas 2D) |
 | Terminal parsing | `vte` |
 | PTY | `portable-pty` |
 | File watching | `notify` (FSEvents) |
