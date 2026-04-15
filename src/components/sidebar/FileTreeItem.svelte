@@ -3,6 +3,8 @@
   import { getFileIcon } from "../../lib/utils/file-icons";
   import FileTreeItem from "./FileTreeItem.svelte";
   import { getContext } from "svelte";
+  import { slide } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
 
   interface ExpandedCtx { has(p: string): boolean; add(p: string): void; delete(p: string): void; }
   const expandedCtx = getContext<ExpandedCtx | undefined>("expandedPaths");
@@ -241,41 +243,43 @@
 </div>
 
 {#if entry.is_dir && expanded && children}
-  {#each children as child (child.path)}
-    <FileTreeItem
-      entry={child}
-      depth={depth + 1}
-      {onFileClick}
-      {onFileDoubleClick}
-      {onContextMenu}
-      {selectedPath}
-      {focusedPath}
-      {collapseGeneration}
-      {refreshGeneration}
-      {inlineCreateDir}
-      {inlineCreateType}
-      {sshWorkspaceId}
-      {onInlineCreateSubmit}
-      {onInlineCreateCancel}
-    />
-  {/each}
-  {#if inlineCreateDir === entry.path && inlineCreateType}
-    <div
-      class="tree-item"
-      style="padding-left: {8 + (depth + 1) * 16}px; padding-right: 8px;"
-    >
-      <span class="w-4 shrink-0"></span>
-      <i class="bi {inlineCreateType === 'folder' ? 'bi-folder2' : 'bi-file-earmark'} tree-file-icon {inlineCreateType === 'folder' ? 'folder' : ''} text-lg mr-1.5 shrink-0"></i>
-      <input
-        use:autoFocus
-        class="flex-1 min-w-0 px-1 py-0 text-xs outline-none"
-        style="background: var(--bg-input); color: var(--text-bright); border: 1px solid var(--accent); line-height: 20px;"
-        onkeydown={(e) => {
-          if (e.key === "Enter") { e.preventDefault(); onInlineCreateSubmit?.((e.target as HTMLInputElement).value); }
-          if (e.key === "Escape") { e.preventDefault(); onInlineCreateCancel?.(); }
-        }}
-        onblur={() => onInlineCreateCancel?.()}
+  <div transition:slide={{ duration: 160, easing: cubicOut }}>
+    {#each children as child (child.path)}
+      <FileTreeItem
+        entry={child}
+        depth={depth + 1}
+        {onFileClick}
+        {onFileDoubleClick}
+        {onContextMenu}
+        {selectedPath}
+        {focusedPath}
+        {collapseGeneration}
+        {refreshGeneration}
+        {inlineCreateDir}
+        {inlineCreateType}
+        {sshWorkspaceId}
+        {onInlineCreateSubmit}
+        {onInlineCreateCancel}
       />
-    </div>
-  {/if}
+    {/each}
+    {#if inlineCreateDir === entry.path && inlineCreateType}
+      <div
+        class="tree-item"
+        style="padding-left: {8 + (depth + 1) * 16}px; padding-right: 8px;"
+      >
+        <span class="w-4 shrink-0"></span>
+        <i class="bi {inlineCreateType === 'folder' ? 'bi-folder2' : 'bi-file-earmark'} tree-file-icon {inlineCreateType === 'folder' ? 'folder' : ''} text-lg mr-1.5 shrink-0"></i>
+        <input
+          use:autoFocus
+          class="flex-1 min-w-0 px-1 py-0 text-xs outline-none"
+          style="background: var(--bg-input); color: var(--text-bright); border: 1px solid var(--accent); line-height: 20px;"
+          onkeydown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); onInlineCreateSubmit?.((e.target as HTMLInputElement).value); }
+            if (e.key === "Escape") { e.preventDefault(); onInlineCreateCancel?.(); }
+          }}
+          onblur={() => onInlineCreateCancel?.()}
+        />
+      </div>
+    {/if}
+  </div>
 {/if}

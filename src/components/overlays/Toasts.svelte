@@ -1,5 +1,7 @@
 <script lang="ts">
   import { toasts, removeToast } from "../../lib/stores/toasts.svelte";
+  import { fly } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
 
   const iconMap: Record<string, string> = {
     info: "bi-info-circle",
@@ -7,12 +9,24 @@
     error: "bi-exclamation-circle",
     warning: "bi-exclamation-triangle",
   };
+
+  const accentMap: Record<string, string> = {
+    info: "var(--accent)",
+    success: "var(--ansi-green, #98c379)",
+    error: "var(--ansi-red)",
+    warning: "var(--ansi-yellow)",
+  };
 </script>
 
 {#if toasts.length > 0}
   <div class="fixed bottom-12 right-4 z-[200] flex flex-col gap-2 pointer-events-none">
     {#each toasts as toast (toast.id)}
-      <div class="toast pointer-events-auto toast-{toast.kind}">
+      <div
+        in:fly={{ x: 20, duration: 200, easing: cubicOut }}
+        out:fly={{ x: 20, duration: 150, easing: cubicOut }}
+        class="toast pointer-events-auto toast-{toast.kind}"
+        style:border-left="3px solid {accentMap[toast.kind] ?? 'var(--border)'}"
+      >
         <i class="bi {iconMap[toast.kind]}"></i>
         <span class="toast-message">{toast.message}</span>
         {#if toast.action}
@@ -37,11 +51,11 @@
     color: var(--text-bright);
     background: var(--bg-palette);
     border: 1px solid var(--border);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    animation: toast-in 200ms ease-out;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.2);
     min-width: 200px;
     max-width: 420px;
     text-align: left;
+    transition: background 120ms;
   }
   .toast:hover {
     background: var(--bg-hover);
@@ -49,7 +63,7 @@
   .toast-message {
     flex: 1;
   }
-  .toast-success i { color: var(--ansi-green); }
+  .toast-success i { color: var(--ansi-green, #98c379); }
   .toast-error i { color: var(--ansi-red); }
   .toast-warning i { color: var(--ansi-yellow); }
   .toast-info i { color: var(--accent); }
@@ -65,6 +79,7 @@
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
+    transition: opacity 120ms;
   }
   .toast-action:hover { opacity: 0.85; }
 
@@ -78,11 +93,7 @@
     font-size: var(--ui-md);
     padding: 0 2px;
     line-height: 1;
+    transition: opacity 120ms;
   }
   .toast-dismiss:hover { opacity: 1; }
-
-  @keyframes toast-in {
-    from { opacity: 0; transform: translateX(20px); }
-    to   { opacity: 1; transform: translateX(0); }
-  }
 </style>

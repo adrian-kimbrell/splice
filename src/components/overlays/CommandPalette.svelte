@@ -5,6 +5,8 @@
   import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
   import { settings, debouncedSaveSettings } from "../../lib/stores/settings.svelte";
   import { recentFiles } from "../../lib/stores/recent-files.svelte";
+  import { fade, fly } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
 
   interface Command {
     name: string;
@@ -111,7 +113,9 @@
 
 {#if ui.commandPaletteOpen}
   <div
-    class="fixed inset-0 bg-black/50 z-100 flex justify-center pt-[15vh]"
+    transition:fade={{ duration: 150 }}
+    class="fixed inset-0 z-100 flex justify-center pt-[15vh]"
+    style="background: rgba(0,0,0,0.55); backdrop-filter: blur(3px);"
     role="dialog"
     tabindex="-1"
     aria-modal="true"
@@ -120,13 +124,15 @@
     onkeydown={handleKeyDown}
   >
     <div
-      class="bg-palette border border-border w-[500px] max-h-[340px] flex flex-col shadow-[0_8px_32px_rgba(0,0,0,0.5)] self-start"
+      transition:fly={{ y: -10, duration: 200, easing: cubicOut }}
+      class="bg-palette border border-border w-[500px] max-h-[340px] flex flex-col self-start"
+      style="border-radius: 6px; box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04);"
     >
       <input
         bind:this={inputEl}
         bind:value={filter}
-        class="bg-input border-none border-b border-border text-txt-bright text-sm px-4 py-3 outline-none"
-        style="font-family: var(--ui-font)"
+        class="border-none border-b border-border text-txt-bright text-sm px-4 py-3 outline-none"
+        style="font-family: var(--ui-font); background: var(--bg-input); border-radius: 6px 6px 0 0;"
         placeholder="Type a command…"
         spellcheck="false"
         role="combobox"
@@ -134,15 +140,17 @@
         aria-controls="command-palette-list"
         aria-activedescendant={filtered[selectedIndex] ? `cmd-${selectedIndex}` : undefined}
       />
-      <div class="overflow-y-auto flex-1" role="listbox" id="command-palette-list">
+      <div class="overflow-y-auto flex-1" role="listbox" id="command-palette-list" style="border-radius: 0 0 6px 6px;">
         {#each filtered as cmd, i (cmd.name)}
           <div
             id="cmd-{i}"
-            class="px-4 py-2 cursor-pointer text-[13px] text-txt flex justify-between"
-            class:bg-selected={i === selectedIndex}
+            class="py-2 cursor-pointer text-[13px] text-txt flex justify-between items-center"
             class:text-txt-bright={i === selectedIndex}
-            class:hover:bg-selected={i !== selectedIndex}
-            class:hover:text-txt-bright={i !== selectedIndex}
+            style:background={i === selectedIndex ? 'var(--bg-selected)' : ''}
+            style:border-left={i === selectedIndex ? '2px solid var(--accent)' : '2px solid transparent'}
+            style:padding-left={i === selectedIndex ? '14px' : '16px'}
+            style:padding-right="16px"
+            style:transition="background 80ms, border-color 80ms, padding 80ms cubic-bezier(0.4,0,0.2,1)"
             role="option"
             tabindex="-1"
             aria-selected={i === selectedIndex}
@@ -151,7 +159,7 @@
             onkeydown={(e) => { if (e.key === "Enter") executeCommand(cmd); }}
           >
             <span>{cmd.name}</span>
-            <span class="text-txt-dim text-[11px]">{cmd.shortcut}</span>
+            <span class="text-txt-dim text-[11px]" style="font-family: var(--ui-font);">{cmd.shortcut}</span>
           </div>
         {/each}
       </div>

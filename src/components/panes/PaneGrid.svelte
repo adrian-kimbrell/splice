@@ -116,7 +116,7 @@
       bind:this={leafEl}
       data-pane-id={node.paneId}
       class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative"
-      style="contain: layout style paint; border: {node.paneId === activePaneId ? '2px solid var(--pane-border-active)' : '1px solid var(--border)'}"
+      style="contain: layout style paint; transition: border-color 150ms cubic-bezier(0.4,0,0.2,1), box-shadow 150ms cubic-bezier(0.4,0,0.2,1); border: {node.paneId === activePaneId ? '2px solid var(--pane-border-active)' : '1px solid var(--border)'}; {node.paneId === activePaneId ? 'box-shadow: 0 0 0 1px rgba(0,255,136,0.08), inset 0 0 24px rgba(0,255,136,0.03);' : ''}"
       role="group"
       onclick={() => {
         onPaneClick?.(node.paneId);

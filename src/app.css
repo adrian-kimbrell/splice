@@ -147,10 +147,10 @@ body {
   font-size: var(--ui-btn);
   cursor: pointer;
   border-radius: 3px;
-  transition: background 0.1s, color 0.1s;
+  transition: background 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), transform 100ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .topbar-btn:hover { background: var(--bg-hover); color: var(--text-bright); }
-.topbar-btn:active { background: var(--bg-selected); }
+.topbar-btn:active { background: var(--bg-selected); transform: scale(0.88); }
 .topbar-btn.active { color: var(--text-bright); }
 
 .pane-action-btn {
@@ -165,9 +165,10 @@ body {
   font-size: var(--ui-btn);
   cursor: pointer;
   border-radius: 3px;
-  transition: background 0.1s, color 0.1s;
+  transition: background 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), transform 100ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .pane-action-btn:hover { background: var(--bg-hover); color: var(--text-bright); }
+.pane-action-btn:active { transform: scale(0.88); }
 .pane-action-btn.close:hover { background: var(--bg-hover); color: var(--ansi-red); }
 
 .sidebar-header {
@@ -259,7 +260,7 @@ body {
   overflow: hidden;
   user-select: none;
   border-left: 2px solid transparent;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background 120ms cubic-bezier(0.4, 0, 0.2, 1), border-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .tree-item:hover { background: var(--bg-hover); }
 .tree-item.active {
@@ -274,7 +275,7 @@ body {
   gap: 6px;
   padding: 2px 8px;
   cursor: pointer;
-  transition: background-color 0.1s;
+  transition: background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), border-color 120ms cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   height: var(--row-sm);
   border-left: 2px solid transparent;
@@ -366,6 +367,14 @@ body.tab-dragging * {
 }
 
 /* Split dropdown */
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateX(-100%) translateY(-4px); }
+  to   { opacity: 1; transform: translateX(-100%) translateY(0); }
+}
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .split-dropdown {
   position: fixed;
   z-index: 100;
@@ -374,8 +383,9 @@ body.tab-dragging * {
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 4px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
   min-width: 130px;
+  animation: dropdown-in 140ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 .split-dropdown-item {
   display: flex;
@@ -419,11 +429,13 @@ body.tab-dragging * {
 /* Tab context menu — same styles as split-dropdown but no translateX */
 .tab-ctx-menu {
   transform: none !important;
+  animation: menu-in 140ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 /* Component context menus (editor, terminal) — no translateX */
 .splice-ctx-menu {
   transform: none !important;
+  animation: menu-in 140ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .split-dropdown-item.disabled {
@@ -494,7 +506,7 @@ body.corner-dragging * { cursor: move !important; }
   color: var(--text);
   font-size: var(--ui-body);
   cursor: pointer;
-  transition: background 80ms;
+  transition: background 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
 }
 .welcome-item:hover {

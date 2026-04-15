@@ -42,7 +42,8 @@
 </script>
 
 <div
-  class="group flex items-center px-4 h-full text-xs cursor-pointer border-r border-border border-b-2 whitespace-nowrap select-none transition-opacity duration-100"
+  class="group flex items-center px-4 h-full text-xs cursor-pointer border-r border-border border-b-2 whitespace-nowrap select-none"
+  style="transition: background 120ms cubic-bezier(0.4,0,0.2,1), color 120ms cubic-bezier(0.4,0,0.2,1), border-bottom-color 120ms cubic-bezier(0.4,0,0.2,1), opacity 100ms;"
   role="tab"
   tabindex={active ? 0 : -1}
   aria-selected={active}
