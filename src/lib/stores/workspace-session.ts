@@ -131,7 +131,7 @@ export function scheduleClaudeResume(
 
     await waitForShellReady(
       terminalId,
-      { minWait: staggerMs, stableMs: 400, hardTimeout: 10_000 },
+      { minWait: staggerMs, stableMs: 600, hardTimeout: staggerMs + 6_000 },
       { subscribeToFrames: deps.subscribeToFrames, signal: abort.signal },
     );
 
@@ -322,7 +322,15 @@ export async function restoreWorkspaceImpl(
           if (!isValidSessionId(sessionId)) {
             console.warn("Refusing to inject suspicious session ID:", sessionId);
           } else {
-            const baseDelay = 500 + (resumeStartIndex + localClaudeResumeIndex) * 300;
+            // Stagger resume injections to avoid flooding the shell scheduler.
+            // First 8 sessions: 600ms apart. Beyond that: batch into waves of 8,
+            // each wave offset by 8000ms, so slot within wave stays tight but
+            // total time never runs away. This also keeps baseDelay well below
+            // the hardTimeout (staggerMs + 6000ms) for any realistic session count.
+            const idx = resumeStartIndex + localClaudeResumeIndex;
+            const wave = Math.floor(idx / 8);
+            const slot = idx % 8;
+            const baseDelay = 500 + wave * 8_000 + slot * 600;
             localClaudeResumeIndex++;
             // Pass null for savedPid: on restore we always spawn a fresh PTY, so
             // the old Claude is guaranteed dead regardless of what the saved PID

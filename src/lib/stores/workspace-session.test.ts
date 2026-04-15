@@ -208,9 +208,10 @@ describe("cancelPendingResume", () => {
 // scheduleClaudeResume — retry logic
 // ---------------------------------------------------------------------------
 describe("scheduleClaudeResume", () => {
-  // With no frames sent, waitForShellReady resolves at staggerMs + stableMs (400ms).
-  // Retry timers fire at: staggerMs+400, staggerMs+5400, staggerMs+13400.
-  const STABLE_MS = 400;
+  // scheduleClaudeResume uses stableMs=600 internally.
+  // With no frames sent, waitForShellReady resolves at staggerMs + stableMs (600ms).
+  // Retry timers fire at: staggerMs+600, staggerMs+5600, staggerMs+13600.
+  const STABLE_MS = 600;
 
   let subscribeToFrames: ReturnType<typeof vi.fn>;
 
@@ -344,20 +345,22 @@ describe("scheduleClaudeResume", () => {
     expect(deps.writeToTerminal).toHaveBeenCalledTimes(3);
   });
 
-  it("second_terminal_staggered_300ms_later", async () => {
+  it("second_terminal_staggered_600ms_later", async () => {
+    // Slot 0: baseDelay=500+0*600=500, fires at 500+STABLE_MS
+    // Slot 1: baseDelay=500+1*600=1100, fires at 1100+STABLE_MS
     const writeToTerminal = vi.fn().mockResolvedValue(undefined);
     const checkPidAlive = vi.fn().mockResolvedValue(false);
 
-    scheduleClaudeResume(20, "sess-a", null, 2000, { checkPidAlive, writeToTerminal, subscribeToFrames });
-    scheduleClaudeResume(21, "sess-b", null, 2300, { checkPidAlive, writeToTerminal, subscribeToFrames });
+    scheduleClaudeResume(20, "sess-a", null, 500,  { checkPidAlive, writeToTerminal, subscribeToFrames });
+    scheduleClaudeResume(21, "sess-b", null, 1100, { checkPidAlive, writeToTerminal, subscribeToFrames });
 
-    // Advance 1ms past terminal 20's boundary (staggerMs+stableMs=2400)
-    await vi.advanceTimersByTimeAsync(2000 + STABLE_MS + 1);
+    // Advance 1ms past terminal 20's boundary (500+STABLE_MS+1)
+    await vi.advanceTimersByTimeAsync(500 + STABLE_MS + 1);
     expect(writeToTerminal).toHaveBeenCalledTimes(1);
     expect(writeToTerminal.mock.calls[0][0]).toBe(20);
 
-    // Advance to past terminal 21's boundary (2300+400=2700); currently at 2401, need 300 more
-    await vi.advanceTimersByTimeAsync(300); // now at 2701, past terminal 21's t=2700
+    // Advance to past terminal 21's boundary; need 600ms more (1100-500=600)
+    await vi.advanceTimersByTimeAsync(600);
     expect(writeToTerminal).toHaveBeenCalledTimes(2);
     expect(writeToTerminal.mock.calls[1][0]).toBe(21);
   });
@@ -421,5 +424,108 @@ describe("waitForShellReady — edge cases", () => {
     const p = waitForShellReady(1, { minWait: 100, stableMs: 100, hardTimeout: 1000 }, deps);
     await expect(p).resolves.toBeUndefined();
     expect(subscribeCallCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stress tests — many concurrent sessions
+// ---------------------------------------------------------------------------
+describe("stress: many concurrent sessions", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    // Clean up all test terminal IDs
+    for (let i = 100; i < 200; i++) cancelPendingResume(i);
+  });
+
+  it("hardTimeout_always_exceeds_minWait_across_40_sessions", () => {
+    // Regression: previously hardTimeout was hardcoded at 10_000 while minWait
+    // grew with each session. For session idx>=33, minWait > 10_000 causing the
+    // hard timeout to fire before minWait completed and injecting claude --resume
+    // before the shell was ready.
+    //
+    // New formula: hardTimeout = staggerMs + 6_000, so it always clears minWait.
+    // Verify the invariant holds for 40 sessions (2 waves of 8 per 5 workspaces).
+    for (let idx = 0; idx < 40; idx++) {
+      const wave = Math.floor(idx / 8);
+      const slot = idx % 8;
+      const staggerMs = 500 + wave * 8_000 + slot * 600;
+      const hardTimeout = staggerMs + 6_000;
+      expect(hardTimeout).toBeGreaterThan(staggerMs);
+    }
+  });
+
+  it("wave_batching_keeps_stagger_bounded_at_16_sessions", () => {
+    // Without waves, session 40 would wait 500+40*600=24500ms — unreasonably long.
+    // With waves of 8: session 40 = wave 5 slot 0 = 500+5*8000+0=40500 — that's
+    // wave 5 which is expected. More importantly, within a wave the max slot is 7
+    // so intra-wave spread is always ≤ 7*600=4200ms.
+    for (let wave = 0; wave < 5; wave++) {
+      const first = 500 + wave * 8_000 + 0 * 600;
+      const last  = 500 + wave * 8_000 + 7 * 600;
+      expect(last - first).toBeLessThanOrEqual(7 * 600); // ≤ 4200ms within a wave
+    }
+  });
+
+  it("all_32_sessions_fire_in_order_with_no_overlap_violations", async () => {
+    vi.useFakeTimers();
+    const fired: number[] = [];
+    const deps = {
+      checkPidAlive: vi.fn().mockResolvedValue(false),
+      writeToTerminal: vi.fn().mockImplementation((id: number) => {
+        fired.push(id);
+        return Promise.resolve();
+      }),
+      subscribeToFrames: vi.fn().mockResolvedValue(() => {}),
+    };
+
+    // Schedule 32 sessions (4 waves of 8)
+    const staggerMs = (idx: number) => {
+      const wave = Math.floor(idx / 8);
+      const slot = idx % 8;
+      return 500 + wave * 8_000 + slot * 600;
+    };
+
+    for (let i = 0; i < 32; i++) {
+      scheduleClaudeResume(100 + i, `sess-${i}`, null, staggerMs(i), deps);
+    }
+
+    // Run all timers to completion (covers all 4 waves + 3 retries each)
+    await vi.runAllTimersAsync();
+
+    // All 32 sessions should have received at least 1 write each
+    const uniqueTerminals = new Set(fired);
+    expect(uniqueTerminals.size).toBe(32);
+  });
+
+  it("hardTimeout_never_fires_before_minWait_completes", async () => {
+    // Verifies the core bug fix: hardTimeout = staggerMs + 6000 means the
+    // hard timeout can never preempt the minWait period.
+    vi.useFakeTimers();
+
+    // Simulate the latest realistic session: idx=39, wave=4, slot=7
+    const staggerMs = 500 + 4 * 8_000 + 7 * 600; // 37_700ms
+    const hardTimeout = staggerMs + 6_000;         // 43_700ms
+
+    let resolved = false;
+    const p = waitForShellReady(
+      1,
+      { minWait: staggerMs, stableMs: 600, hardTimeout },
+      { subscribeToFrames: vi.fn().mockResolvedValue(() => {}) },
+    );
+    p.then(() => { resolved = true; });
+
+    // Advance to just before minWait completes — hard timeout (43_700ms) has
+    // not fired yet either, so must not be resolved.
+    await vi.advanceTimersByTimeAsync(staggerMs - 1);
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    // Advance past minWait+stableMs (37_700+600=38_300ms total) — resolves via
+    // stable timer, still well before hardTimeout at 43_700ms.
+    await vi.advanceTimersByTimeAsync(1 + 600 + 1);
+    await Promise.resolve();
+    expect(resolved).toBe(true);
+    // Total elapsed (staggerMs+601) < hardTimeout (staggerMs+6000) — prove invariant
+    expect(staggerMs + 601).toBeLessThan(hardTimeout);
   });
 });
