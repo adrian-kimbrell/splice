@@ -5,8 +5,10 @@
 
   let {
     side = "right",
+    onResizeStart,
   }: {
     side?: "left" | "right";
+    onResizeStart?: (e: MouseEvent) => void;
   } = $props();
 
   const wsList = $derived(Object.values(workspaceManager.workspaces));
@@ -196,15 +198,23 @@
 <svelte:document onclick={closeCtxMenu} />
 
 <div
-  class="bg-sidebar border-border flex flex-col overflow-hidden"
-  class:border-l={side === "right"}
-  class:border-r={side === "left"}
-  style="grid-column: {side === 'right' ? 5 : 1}; grid-row: 1"
+  class="bg-sidebar flex flex-col overflow-hidden"
+  style="grid-column: {side === 'right' ? 5 : 1}; grid-row: 1; border-radius: var(--radius-lg); box-shadow: 0 4px 24px rgba(0,0,0,0.35); overflow: hidden; position: relative;"
   role="complementary"
   aria-label="Workspaces"
   oncontextmenu={handleContextMenu}
 >
-  <div class="flex-1 overflow-y-auto flex flex-col" bind:this={listEl}>
+  <!-- Header strip — only needed on left side to clear macOS traffic lights -->
+  {#if side === 'left'}
+    <div class="shrink-0 border-b border-border" style="height: 32px; padding-left: 80px;" data-tauri-drag-region></div>
+  {/if}
+
+  <!-- Resize strip on inner edge -->
+  {#if onResizeStart}
+    <div class="resize-strip" data-side={side} onmousedown={onResizeStart}></div>
+  {/if}
+
+  <div class="flex-1 overflow-y-auto flex flex-col" style="{compact ? '' : side === 'left' ? 'padding-right: 10px;' : 'padding-left: 10px;'}" bind:this={listEl}>
     {#each wsList as workspace, i (workspace.id)}
       {#if isDraggingActive && dragOverIndex === i}
         <div class="ws-drop-indicator"></div>
@@ -235,3 +245,33 @@
     {/if}
   </div>
 </div>
+
+<style>
+  .resize-strip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 16px;
+    cursor: col-resize;
+    z-index: 10;
+  }
+  .resize-strip[data-side="right"] { left: 0; }
+  .resize-strip[data-side="left"] { right: 0; }
+
+  .resize-strip::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: transparent;
+    transition: background 120ms ease;
+    border-radius: 1px;
+  }
+  .resize-strip[data-side="right"]::after { left: 0; }
+  .resize-strip[data-side="left"]::after { right: 0; }
+
+  .resize-strip:hover::after {
+    background: rgba(255,255,255,0.15);
+  }
+</style>

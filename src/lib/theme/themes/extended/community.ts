@@ -3,7 +3,7 @@ import type { ThemeColors } from "../../themes";
 // Community themes: Slack Dark → Sepia (23 themes)
 const themes: Record<string, ThemeColors> = {
   "Slack Dark": {
-    "bg-editor": "#1a1d21",
+    "bg-editor": "#100f13",
     "bg-sidebar": "#19171d",
     "bg-statusbar": "#19171d",
     "bg-tab": "#19171d",
@@ -30,7 +30,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ff9f1a",
   },
   "Palenight Operator": {
-    "bg-editor": "#292d3e",
+    "bg-editor": "#12141c",
     "bg-sidebar": "#1b1e2b",
     "bg-statusbar": "#1b1e2b",
     "bg-tab": "#1b1e2b",
@@ -57,7 +57,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffcb6b",
   },
   "Tokyo Night Storm": {
-    "bg-editor": "#24283b",
+    "bg-editor": "#141722",
     "bg-sidebar": "#1f2335",
     "bg-statusbar": "#1f2335",
     "bg-tab": "#1f2335",
@@ -84,11 +84,11 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#e0af68",
   },
   "Tokyo Night Light": {
-    "bg-editor": "#d5d6db",
+    "bg-editor": "#ffffff",
     "bg-sidebar": "#cbccd1",
     "bg-statusbar": "#cbccd1",
     "bg-tab": "#cbccd1",
-    "bg-tab-active": "#d5d6db",
+    "bg-tab-active": "#ffffff",
     "bg-hover": "#c4c5ca",
     "bg-selected": "#b9bac0",
     "bg-input": "#c4c5ca",
@@ -111,7 +111,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#8f5e15",
   },
   "Snazzy": {
-    "bg-editor": "#282a36",
+    "bg-editor": "#15161d",
     "bg-sidebar": "#21222c",
     "bg-statusbar": "#21222c",
     "bg-tab": "#21222c",
@@ -138,11 +138,11 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#f3f99d",
   },
   "Gruvbox Light": {
-    "bg-editor": "#fbf1c7",
+    "bg-editor": "#ffffff",
     "bg-sidebar": "#f2e5bc",
     "bg-statusbar": "#f2e5bc",
     "bg-tab": "#f2e5bc",
-    "bg-tab-active": "#fbf1c7",
+    "bg-tab-active": "#ffffff",
     "bg-hover": "#ebdbb2",
     "bg-selected": "#d5c4a1",
     "bg-input": "#ebdbb2",
@@ -165,7 +165,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#b57614",
   },
   "Dracula Soft": {
-    "bg-editor": "#282a36",
+    "bg-editor": "#16171e",
     "bg-sidebar": "#22232e",
     "bg-statusbar": "#22232e",
     "bg-tab": "#22232e",
@@ -192,7 +192,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffff80",
   },
   "Monokai Pro": {
-    "bg-editor": "#2d2a2e",
+    "bg-editor": "#161416",
     "bg-sidebar": "#221f22",
     "bg-statusbar": "#221f22",
     "bg-tab": "#221f22",
@@ -219,7 +219,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffd866",
   },
   "Zenburn": {
-    "bg-editor": "#3f3f3f",
+    "bg-editor": "#222222",
     "bg-sidebar": "#353535",
     "bg-statusbar": "#353535",
     "bg-tab": "#353535",
@@ -246,7 +246,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#f0dfaf",
   },
   "Material Darker": {
-    "bg-editor": "#212121",
+    "bg-editor": "#111111",
     "bg-sidebar": "#1a1a1a",
     "bg-statusbar": "#1a1a1a",
     "bg-tab": "#1a1a1a",
@@ -273,7 +273,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffcb6b",
   },
   "Noctis": {
-    "bg-editor": "#1b2932",
+    "bg-editor": "#0e151b",
     "bg-sidebar": "#162029",
     "bg-statusbar": "#162029",
     "bg-tab": "#162029",
@@ -300,7 +300,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#e4b781",
   },
   "Panda": {
-    "bg-editor": "#292a2b",
+    "bg-editor": "#171819",
     "bg-sidebar": "#242526",
     "bg-statusbar": "#242526",
     "bg-tab": "#242526",
@@ -327,7 +327,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffb86c",
   },
   "Solarized Nebraska": {
-    "bg-editor": "#002b36",
+    "bg-editor": "#001419",
     "bg-sidebar": "#001f27",
     "bg-statusbar": "#001f27",
     "bg-tab": "#001f27",
@@ -354,7 +354,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#b58900",
   },
   "Noctis Minimus": {
-    "bg-editor": "#1b2932",
+    "bg-editor": "#0e151b",
     "bg-sidebar": "#162029",
     "bg-statusbar": "#162029",
     "bg-tab": "#162029",
@@ -409,14 +409,14 @@ const themes: Record<string, ThemeColors> = {
   },
   "High Contrast Light": {
     "bg-editor": "#ffffff",
-    "bg-sidebar": "#f5f5f5",
-    "bg-statusbar": "#f5f5f5",
-    "bg-tab": "#f5f5f5",
+    "bg-sidebar": "#e1e1e1",
+    "bg-statusbar": "#e1e1e1",
+    "bg-tab": "#e1e1e1",
     "bg-tab-active": "#ffffff",
     "bg-hover": "#ebebeb",
     "bg-selected": "#d6d6d6",
     "bg-input": "#ebebeb",
-    "bg-palette": "#f5f5f5",
+    "bg-palette": "#e1e1e1",
     border: "#0f4a85",
     text: "#000000",
     "text-dim": "#555555",
@@ -435,11 +435,11 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#c18401",
   },
   "Nord Light": {
-    "bg-editor": "#eceff4",
+    "bg-editor": "#ffffff",
     "bg-sidebar": "#e5e9f0",
     "bg-statusbar": "#e5e9f0",
     "bg-tab": "#e5e9f0",
-    "bg-tab-active": "#eceff4",
+    "bg-tab-active": "#ffffff",
     "bg-hover": "#d8dee9",
     "bg-selected": "#d0d6e1",
     "bg-input": "#d8dee9",
@@ -462,7 +462,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ebcb8b",
   },
   "Bearded Arc": {
-    "bg-editor": "#1c2433",
+    "bg-editor": "#0f151f",
     "bg-sidebar": "#172030",
     "bg-statusbar": "#172030",
     "bg-tab": "#172030",
@@ -489,7 +489,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffcc66",
   },
   "Winter Is Coming": {
-    "bg-editor": "#001627",
+    "bg-editor": "#000b16",
     "bg-sidebar": "#001122",
     "bg-statusbar": "#001122",
     "bg-tab": "#001122",
@@ -516,7 +516,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#e5c07b",
   },
   "Remedy Dark": {
-    "bg-editor": "#1e1e1e",
+    "bg-editor": "#101010",
     "bg-sidebar": "#181818",
     "bg-statusbar": "#181818",
     "bg-tab": "#181818",
@@ -543,11 +543,11 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffab70",
   },
   "Quiet Light": {
-    "bg-editor": "#f5f5f5",
+    "bg-editor": "#ffffff",
     "bg-sidebar": "#ebebeb",
     "bg-statusbar": "#ebebeb",
     "bg-tab": "#ebebeb",
-    "bg-tab-active": "#f5f5f5",
+    "bg-tab-active": "#ffffff",
     "bg-hover": "#e0e0e0",
     "bg-selected": "#d4d4d4",
     "bg-input": "#e0e0e0",
@@ -570,7 +570,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#8b6508",
   },
   "Neon Night": {
-    "bg-editor": "#0c0e14",
+    "bg-editor": "#05070a",
     "bg-sidebar": "#080a10",
     "bg-statusbar": "#080a10",
     "bg-tab": "#080a10",
@@ -597,7 +597,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffb627",
   },
   "Ember Dark": {
-    "bg-editor": "#1d1515",
+    "bg-editor": "#0f0a0a",
     "bg-sidebar": "#171010",
     "bg-statusbar": "#171010",
     "bg-tab": "#171010",
@@ -624,7 +624,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffd700",
   },
   "Dark Moss": {
-    "bg-editor": "#171d13",
+    "bg-editor": "#0c100a",
     "bg-sidebar": "#131810",
     "bg-statusbar": "#131810",
     "bg-tab": "#131810",
@@ -651,11 +651,11 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#fff176",
   },
   "Sepia": {
-    "bg-editor": "#f5f0e8",
+    "bg-editor": "#ffffff",
     "bg-sidebar": "#ede7dd",
     "bg-statusbar": "#ede7dd",
     "bg-tab": "#ede7dd",
-    "bg-tab-active": "#f5f0e8",
+    "bg-tab-active": "#ffffff",
     "bg-hover": "#e5ddd3",
     "bg-selected": "#d8cfc3",
     "bg-input": "#e5ddd3",

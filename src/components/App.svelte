@@ -10,6 +10,7 @@
   import SshConnectForm from "./overlays/SshConnectForm.svelte";
   import Toasts from "./overlays/Toasts.svelte";
   import SendToClaudeModal from "./overlays/SendToClaudeModal.svelte";
+  import AttentionBar from "./overlays/AttentionBar.svelte";
   import { openSettingsWindow } from "../lib/utils/settings-window";
   import { showContextMenu } from "../lib/utils/context-menu";
   import { openNewWindow } from "../lib/utils/new-window";
@@ -843,25 +844,17 @@
 
 <svelte:window onfocus={handleWindowFocus} />
 
-<!-- Drag region covering the overlay title bar strip (traffic lights area) -->
-<div
-  style="height: var(--titlebar-height); background: var(--bg-sidebar); border-bottom: 1px solid var(--border);"
-  onmousedown={(e) => {
-    if (e.button === 0) {
-      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-        getCurrentWindow().startDragging();
-      });
-    }
-  }}
-></div>
+<!-- Invisible drag strip — full-width grab zone at the very top of the window -->
+<div style="position: fixed; top: 0; left: 0; right: 0; height: 10px; z-index: 9999;" data-tauri-drag-region></div>
 
 <div
   class="grid"
-  style="height: calc(100vh - var(--titlebar-height)); grid-template-columns: {leftVisible && !ui.zenMode
-    ? `${leftWidth}px 4px`
+  data-tauri-drag-region
+  style="height: 100vh; background: var(--bg-editor); padding: 6px; grid-template-columns: {leftVisible && !ui.zenMode
+    ? `${leftWidth}px 6px`
     : '0px 0px'} minmax(0,1fr) {rightVisible && !ui.zenMode
-    ? `4px ${rightWidth}px`
-    : '0px 0px'}; grid-template-rows: 1fr {ui.zenMode ? '0px' : 'var(--topbar-height)'};"
+    ? `6px ${rightWidth}px`
+    : '0px 0px'}; grid-template-rows: 1fr 0px;"
 >
 
   <!-- LEFT SIDEBAR -->
@@ -878,28 +871,15 @@
         rootPath={ws?.rootPath ?? ""}
         sshWorkspaceId={ws?.sshConfig ? ws.id : null}
         side="left"
+        onResizeStart={(e) => handleSidebarResizeDown('left', e)}
       />
     {:else}
-      <RightSidebar side="left" />
+      <RightSidebar side="left" onResizeStart={(e) => handleSidebarResizeDown('left', e)} />
     {/if}
-    <!-- Left resize handle -->
-    <div
-      style="grid-column: 2; grid-row: 1; cursor: col-resize; background: {draggingSidebar === 'left' ? '#aaaaaa' : 'var(--border)'}; transition: background 100ms;"
-      role="separator"
-      tabindex="0"
-      aria-orientation="vertical"
-      onmousedown={(e) => handleSidebarResizeDown('left', e)}
-      onmouseenter={(e) => { if (!draggingSidebar) e.currentTarget.style.background = '#888888'; }}
-      onmouseleave={(e) => { if (!draggingSidebar) e.currentTarget.style.background = 'var(--border)'; }}
-      onkeydown={(e) => {
-        if (e.key === "ArrowLeft") { e.preventDefault(); setLeftWidth(Math.max(leftMinWidth, leftWidth - 10)); }
-        else if (e.key === "ArrowRight") { e.preventDefault(); setLeftWidth(Math.min(500, leftWidth + 10)); }
-      }}
-    ></div>
   </div>
 
   <!-- CENTER: PANE GRID — render ALL workspaces, hide inactive with display:none -->
-  <div class="flex flex-col overflow-hidden min-w-0" style="grid-column: 3; grid-row: 1">
+  <div class="flex flex-col min-w-0" style="grid-column: 3; grid-row: 1; overflow: hidden;">
     {#each Object.entries(workspaceManager.workspaces) as [wsId, workspace] (wsId)}
       {@const isActive = wsId === workspaceManager.activeWorkspaceId}
       {@const hasContent = workspace.rootPath || workspace.layout !== null || workspace.sshConfig}
@@ -918,6 +898,7 @@
                 filePath={config.activeFilePath ?? ""}
                 paneId={config.id}
                 rootPath={workspace.rootPath ?? ""}
+                gitBranch={workspace.gitBranch ?? ""}
                 readOnly={activeOpenFile?.readOnly ?? false}
                 onTabClick={(path) => handleTabClick(path, config.id)}
                 onTabClose={(path) => handleTabClose(path, config.id)}
@@ -942,6 +923,7 @@
               <TerminalPane
                 title={config.title}
                 cwd={workspace.rootPath ?? ""}
+                gitBranch={workspace.gitBranch ?? ""}
                 terminalId={config.terminalId ?? 0}
                 paneId={config.id}
                 active={isActive}
@@ -1076,24 +1058,11 @@
         </div>
       </div>
     {/each}
+    <AttentionBar />
   </div>
 
   <!-- RIGHT SIDEBAR -->
   <div style:display={rightVisible ? 'contents' : 'none'}>
-    <!-- Right resize handle -->
-    <div
-      style="grid-column: 4; grid-row: 1; cursor: col-resize; background: {draggingSidebar === 'right' ? '#aaaaaa' : 'var(--border)'}; transition: background 100ms;"
-      role="separator"
-      tabindex="0"
-      aria-orientation="vertical"
-      onmousedown={(e) => handleSidebarResizeDown('right', e)}
-      onmouseenter={(e) => { if (!draggingSidebar) e.currentTarget.style.background = '#888888'; }}
-      onmouseleave={(e) => { if (!draggingSidebar) e.currentTarget.style.background = 'var(--border)'; }}
-      onkeydown={(e) => {
-        if (e.key === "ArrowLeft") { e.preventDefault(); setRightWidth(Math.min(500, rightWidth + 10)); }
-        else if (e.key === "ArrowRight") { e.preventDefault(); setRightWidth(Math.max(rightMinWidth, rightWidth - 10)); }
-      }}
-    ></div>
     {#if !explorerOnLeft}
       <LeftSidebar
         entries={fileTree}
@@ -1106,9 +1075,10 @@
         rootPath={ws?.rootPath ?? ""}
         sshWorkspaceId={ws?.sshConfig ? ws.id : null}
         side="right"
+        onResizeStart={(e) => handleSidebarResizeDown('right', e)}
       />
     {:else}
-      <RightSidebar side="right" />
+      <RightSidebar side="right" onResizeStart={(e) => handleSidebarResizeDown('right', e)} />
     {/if}
   </div>
 

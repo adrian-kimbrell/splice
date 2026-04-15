@@ -10,6 +10,7 @@
   let {
     title,
     cwd = "",
+    gitBranch = "",
     terminalId = 0,
     paneId = "",
     active = false,
@@ -19,6 +20,7 @@
   }: {
     title: string;
     cwd?: string;
+    gitBranch?: string;
     terminalId?: number;
     paneId?: string;
     active?: boolean;
@@ -68,7 +70,7 @@
   class:flash-idle={notification?.type === 'idle'}
   onkeydown={handleKeyDown}
 >
-  <TerminalTitlebar {title} {cwd} {paneId} {onSplit} {onClose} {onAction} {notification} />
+  <TerminalTitlebar {title} {cwd} {gitBranch} {paneId} {onSplit} {onClose} {onAction} {notification} />
   <div bind:this={contentAreaEl} class="flex-1 flex flex-col overflow-hidden min-h-0">
     <TerminalSearch
       {terminalId}

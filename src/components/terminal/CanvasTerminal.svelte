@@ -144,7 +144,7 @@
 
   function handleResize() {
     if (!containerEl || !canvasEl || !renderer || !cachedResizeTerminal) return;
-    const rect = containerEl.getBoundingClientRect();
+    const rect = canvasEl.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
 
     renderer.updateCanvasSize(rect.width, rect.height);
@@ -805,6 +805,7 @@
     min-height: 0;
     contain: strict;
     background-color: var(--bg-editor, #1e1e1e);
+    padding: 0 8px 4px 8px;
   }
   .terminal-canvas {
     width: 100%;

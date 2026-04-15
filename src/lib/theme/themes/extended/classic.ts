@@ -3,7 +3,7 @@ import type { ThemeColors } from "../../themes";
 // Classic themes: Cobalt2 → Synthwave '84 (15 themes)
 const themes: Record<string, ThemeColors> = {
   "Cobalt2": {
-    "bg-editor": "#193549",
+    "bg-editor": "#0c1924",
     "bg-sidebar": "#122738",
     "bg-statusbar": "#122738",
     "bg-tab": "#122738",
@@ -30,7 +30,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffc600",
   },
   "Material Ocean": {
-    "bg-editor": "#0f111a",
+    "bg-editor": "#06070a",
     "bg-sidebar": "#090b10",
     "bg-statusbar": "#090b10",
     "bg-tab": "#090b10",
@@ -57,7 +57,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffcb6b",
   },
   "Palenight": {
-    "bg-editor": "#292d3e",
+    "bg-editor": "#12141c",
     "bg-sidebar": "#1b1e2b",
     "bg-statusbar": "#1b1e2b",
     "bg-tab": "#1b1e2b",
@@ -84,7 +84,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffcb6b",
   },
   "Ayu Mirage": {
-    "bg-editor": "#1f2430",
+    "bg-editor": "#0f1217",
     "bg-sidebar": "#171b24",
     "bg-statusbar": "#171b24",
     "bg-tab": "#171b24",
@@ -111,7 +111,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffd580",
   },
   "Horizon": {
-    "bg-editor": "#1c1e26",
+    "bg-editor": "#0e0e12",
     "bg-sidebar": "#16161c",
     "bg-statusbar": "#16161c",
     "bg-tab": "#16161c",
@@ -138,7 +138,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#fac29a",
   },
   "Shades of Purple": {
-    "bg-editor": "#2d2b55",
+    "bg-editor": "#141429",
     "bg-sidebar": "#1e1e3f",
     "bg-statusbar": "#1e1e3f",
     "bg-tab": "#1e1e3f",
@@ -165,7 +165,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#fad000",
   },
   "Rosé Pine": {
-    "bg-editor": "#191724",
+    "bg-editor": "#14131e",
     "bg-sidebar": "#1f1d2e",
     "bg-statusbar": "#1f1d2e",
     "bg-tab": "#1f1d2e",
@@ -192,7 +192,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#f6c177",
   },
   "Rosé Pine Moon": {
-    "bg-editor": "#232136",
+    "bg-editor": "#1b1929",
     "bg-sidebar": "#2a273f",
     "bg-statusbar": "#2a273f",
     "bg-tab": "#2a273f",
@@ -219,15 +219,15 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#f6c177",
   },
   "Rosé Pine Dawn": {
-    "bg-editor": "#faf4ed",
-    "bg-sidebar": "#fffaf3",
-    "bg-statusbar": "#fffaf3",
-    "bg-tab": "#fffaf3",
+    "bg-editor": "#ffffff",
+    "bg-sidebar": "#ebe6e0",
+    "bg-statusbar": "#ebe6e0",
+    "bg-tab": "#ebe6e0",
     "bg-tab-active": "#f2e9e1",
     "bg-hover": "#f2e9e1",
     "bg-selected": "#dfdad9",
     "bg-input": "#f2e9e1",
-    "bg-palette": "#fffaf3",
+    "bg-palette": "#ebe6e0",
     border: "#f2e9e1",
     text: "#575279",
     "text-dim": "#797593",
@@ -246,7 +246,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ea9d34",
   },
   "Kanagawa": {
-    "bg-editor": "#1f1f28",
+    "bg-editor": "#0e0e13",
     "bg-sidebar": "#16161d",
     "bg-statusbar": "#16161d",
     "bg-tab": "#16161d",
@@ -273,7 +273,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#e6c384",
   },
   "Everforest Dark": {
-    "bg-editor": "#2b3339",
+    "bg-editor": "#191e21",
     "bg-sidebar": "#272e33",
     "bg-statusbar": "#272e33",
     "bg-tab": "#272e33",
@@ -300,7 +300,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#dbbc7f",
   },
   "Everforest Light": {
-    "bg-editor": "#fdf6e3",
+    "bg-editor": "#ffffff",
     "bg-sidebar": "#f3ead3",
     "bg-statusbar": "#f3ead3",
     "bg-tab": "#f3ead3",
@@ -327,7 +327,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#dfa000",
   },
   "Night Owl": {
-    "bg-editor": "#011627",
+    "bg-editor": "#010e19",
     "bg-sidebar": "#011627",
     "bg-statusbar": "#011627",
     "bg-tab": "#01111d",
@@ -354,7 +354,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ffeb95",
   },
   "Synthwave '84": {
-    "bg-editor": "#262335",
+    "bg-editor": "#17121f",
     "bg-sidebar": "#241b2f",
     "bg-statusbar": "#241b2f",
     "bg-tab": "#262335",

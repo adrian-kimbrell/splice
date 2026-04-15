@@ -2,7 +2,7 @@ import type { ThemeColors } from "../themes";
 
 const themes: Record<string, ThemeColors> = {
   "Dracula": {
-    "bg-editor": "#282a36",
+    "bg-editor": "#15161d",
     "bg-sidebar": "#21222c",
     "bg-statusbar": "#21222c",
     "bg-tab": "#21222c",
@@ -29,7 +29,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#f1fa8c",
   },
   "Solarized Dark": {
-    "bg-editor": "#002b36",
+    "bg-editor": "#00151c",
     "bg-sidebar": "#00212b",
     "bg-statusbar": "#00212b",
     "bg-tab": "#00212b",
@@ -56,15 +56,15 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#b58900",
   },
   "Solarized Light": {
-    "bg-editor": "#fdf6e3",
-    "bg-sidebar": "#f6f0de",
-    "bg-statusbar": "#f6f0de",
-    "bg-tab": "#f6f0de",
+    "bg-editor": "#ffffff",
+    "bg-sidebar": "#e2ddcc",
+    "bg-statusbar": "#e2ddcc",
+    "bg-tab": "#e2ddcc",
     "bg-tab-active": "#eee8d5",
     "bg-hover": "#eee8d5",
     "bg-selected": "#e0dbc8",
     "bg-input": "#eee8d5",
-    "bg-palette": "#f6f0de",
+    "bg-palette": "#e2ddcc",
     border: "#eee8d5",
     text: "#657b83",
     "text-dim": "#93a1a1",
@@ -83,7 +83,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#b58900",
   },
   "Nord": {
-    "bg-editor": "#2e3440",
+    "bg-editor": "#1e222a",
     "bg-sidebar": "#2e3440",
     "bg-statusbar": "#2e3440",
     "bg-tab": "#2e3440",
@@ -110,7 +110,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#ebcb8b",
   },
   "Monokai": {
-    "bg-editor": "#272822",
+    "bg-editor": "#1e1e1e",
     "bg-sidebar": "#2e2e2e",
     "bg-statusbar": "#2e2e2e",
     "bg-tab": "#2e2e2e",
@@ -137,7 +137,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#e6db74",
   },
   "One Dark": {
-    "bg-editor": "#282c34",
+    "bg-editor": "#15181c",
     "bg-sidebar": "#21252b",
     "bg-statusbar": "#21252b",
     "bg-tab": "#2c313c",
@@ -164,7 +164,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#e5c07b",
   },
   "Gruvbox Dark": {
-    "bg-editor": "#282828",
+    "bg-editor": "#131515",
     "bg-sidebar": "#1d2021",
     "bg-statusbar": "#1d2021",
     "bg-tab": "#1d2021",
@@ -191,7 +191,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#fabd2f",
   },
   "Tokyo Night": {
-    "bg-editor": "#1a1b26",
+    "bg-editor": "#0e0e14",
     "bg-sidebar": "#16161e",
     "bg-statusbar": "#16161e",
     "bg-tab": "#16161e",
@@ -218,7 +218,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#e0af68",
   },
   "Catppuccin Mocha": {
-    "bg-editor": "#1e1e2e",
+    "bg-editor": "#101018",
     "bg-sidebar": "#181825",
     "bg-statusbar": "#181825",
     "bg-tab": "#181825",
@@ -245,7 +245,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#f9e2af",
   },
   "Catppuccin Macchiato": {
-    "bg-editor": "#24273a",
+    "bg-editor": "#14151f",
     "bg-sidebar": "#1e2030",
     "bg-statusbar": "#1e2030",
     "bg-tab": "#1e2030",
@@ -272,7 +272,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#eed49f",
   },
   "Catppuccin Frappé": {
-    "bg-editor": "#303446",
+    "bg-editor": "#1b1d27",
     "bg-sidebar": "#292c3c",
     "bg-statusbar": "#292c3c",
     "bg-tab": "#292c3c",
@@ -299,11 +299,11 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#e5c890",
   },
   "Catppuccin Latte": {
-    "bg-editor": "#eff1f5",
+    "bg-editor": "#ffffff",
     "bg-sidebar": "#e6e9ef",
     "bg-statusbar": "#e6e9ef",
     "bg-tab": "#e6e9ef",
-    "bg-tab-active": "#eff1f5",
+    "bg-tab-active": "#ffffff",
     "bg-hover": "#ccd0da",
     "bg-selected": "#bcc0cc",
     "bg-input": "#ccd0da",
@@ -326,7 +326,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#df8e1d",
   },
   "GitHub Dark": {
-    "bg-editor": "#0d1117",
+    "bg-editor": "#0e1216",
     "bg-sidebar": "#161b22",
     "bg-statusbar": "#161b22",
     "bg-tab": "#161b22",
@@ -354,14 +354,14 @@ const themes: Record<string, ThemeColors> = {
   },
   "GitHub Light": {
     "bg-editor": "#ffffff",
-    "bg-sidebar": "#f6f8fa",
-    "bg-statusbar": "#f6f8fa",
-    "bg-tab": "#f6f8fa",
+    "bg-sidebar": "#e2e4e6",
+    "bg-statusbar": "#e2e4e6",
+    "bg-tab": "#e2e4e6",
     "bg-tab-active": "#ffffff",
     "bg-hover": "#eaeef2",
     "bg-selected": "#ddf4ff",
-    "bg-input": "#f6f8fa",
-    "bg-palette": "#f6f8fa",
+    "bg-input": "#e2e4e6",
+    "bg-palette": "#e2e4e6",
     border: "#d0d7de",
     text: "#24292f",
     "text-dim": "#656d76",

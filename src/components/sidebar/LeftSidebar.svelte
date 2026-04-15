@@ -7,6 +7,7 @@
   import { diagnosticsStore, getDiagnosticCounts, type LspDiagnostic } from "../../lib/stores/diagnostics.svelte";
   import { lspClient } from "../../lib/lsp/client";
   import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
+  import { openSettingsWindow } from "../../lib/utils/settings-window";
 
   let {
     entries,
@@ -19,6 +20,7 @@
     side = "left",
     rootPath = "",
     sshWorkspaceId = null,
+    onResizeStart,
   }: {
     entries: FileEntry[];
     onFileClick: (entry: FileEntry) => void;
@@ -30,6 +32,7 @@
     side?: "left" | "right";
     rootPath?: string;
     sshWorkspaceId?: string | null;
+    onResizeStart?: (e: MouseEvent) => void;
   } = $props();
 
   const counts = $derived(getDiagnosticCounts());
@@ -91,9 +94,39 @@
   }
 </script>
 
-<div class="bg-sidebar border-border flex flex-col overflow-hidden" class:border-r={side === "left"} class:border-l={side === "right"} style="grid-column: {side === 'left' ? 1 : 5}; grid-row: 1">
-  <!-- Tab strip -->
-  <div class="flex items-center border-b border-border shrink-0" style="height: 32px;">
+<style>
+  .resize-strip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 16px;
+    cursor: col-resize;
+    z-index: 10;
+  }
+  .resize-strip[data-side="left"] { right: 0; }
+  .resize-strip[data-side="right"] { left: 0; }
+
+  .resize-strip::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: transparent;
+    transition: background 120ms ease;
+    border-radius: 1px;
+  }
+  .resize-strip[data-side="left"]::after { right: 0; }
+  .resize-strip[data-side="right"]::after { left: 0; }
+
+  .resize-strip:hover::after {
+    background: rgba(255,255,255,0.15);
+  }
+</style>
+
+<div class="bg-sidebar flex flex-col overflow-hidden" style="grid-column: {side === 'left' ? 1 : 5}; grid-row: 1; border-radius: var(--radius-lg); box-shadow: 0 4px 24px rgba(0,0,0,0.35); overflow: hidden; position: relative;">
+  <!-- Tab strip — also serves as drag region; left padding clears the macOS traffic lights -->
+  <div class="flex items-center border-b border-border shrink-0" style="height: 32px; padding-left: {side === 'left' ? '70px' : '8px'}; padding-right: {side === 'right' ? '80px' : side === 'left' ? '18px' : '8px'};" data-tauri-drag-region>
     <button
       class="flex items-center justify-center w-8 h-full relative"
       class:text-accent={ui.sidebarMode === "files"}
@@ -101,7 +134,7 @@
       title="Files"
       onclick={() => { ui.sidebarMode = "files"; }}
     >
-      <i class="bi bi-folder2 text-sm"></i>
+      <i class="bi bi-folder2 text-base"></i>
     </button>
     <button
       class="flex items-center justify-center w-8 h-full relative"
@@ -110,7 +143,7 @@
       title="Search (⌘⇧F)"
       onclick={() => { ui.sidebarMode = "search"; }}
     >
-      <i class="bi bi-search text-sm"></i>
+      <i class="bi bi-search text-base"></i>
     </button>
     <button
       class="flex items-center justify-center w-8 h-full relative"
@@ -119,7 +152,7 @@
       title="Problems (⌘⇧M)"
       onclick={() => { ui.sidebarMode = "problems"; }}
     >
-      <i class="bi bi-exclamation-triangle text-sm"></i>
+      <i class="bi bi-exclamation-triangle text-base"></i>
       {#if counts.errors > 0 || counts.warnings > 0}
         <span class="absolute top-1 right-0.5 text-[8px] leading-none font-bold"
           class:text-red-400={counts.errors > 0}
@@ -130,7 +163,7 @@
     </button>
   </div>
 
-  <div class="flex-1 overflow-auto flex flex-col">
+  <div class="flex-1 overflow-auto flex flex-col min-h-0" style="{side === 'left' ? 'padding-right: 10px;' : 'padding-left: 10px;'}">
     {#if ui.sidebarMode === "search"}
       <SearchPanel />
     {:else if ui.sidebarMode === "problems"}
@@ -186,6 +219,26 @@
           Open Folder
         </button>
       </div>
+    {/if}
+  </div>
+
+  <!-- Resize strip on inner edge -->
+  {#if onResizeStart}
+    <div class="resize-strip" data-side={side} onmousedown={onResizeStart}></div>
+  {/if}
+
+  <!-- Pinned footer — outside scroll area -->
+  <div class="shrink-0 flex items-center border-t border-border px-1" style="height: 22px;">
+    <button class="topbar-btn" title="Settings" onclick={openSettingsWindow}>
+      <i class="bi bi-gear"></i>
+    </button>
+    <button class="topbar-btn" title="New Terminal" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
+      <i class="bi bi-terminal"></i>
+    </button>
+    {#if hasWorkspace}
+      <button class="topbar-btn" title="Open Folder" onclick={handleOpenFolder}>
+        <i class="bi bi-folder2-open"></i>
+      </button>
     {/if}
   </div>
 </div>

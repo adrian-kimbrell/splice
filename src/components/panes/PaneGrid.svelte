@@ -15,12 +15,15 @@
   import { isCornerDragActive } from "../../lib/stores/corner-drag.svelte";
   import CornerDragOverlay from "./CornerDragOverlay.svelte";
   import PaneGrid from "./PaneGrid.svelte";
+  import { ui } from "../../lib/stores/ui.svelte";
+  import { settings } from "../../lib/stores/settings.svelte";
 
   let {
     node,
     panes,
     paneSnippet,
     isRoot = false,
+    isFirst = true,
     activePaneId = null,
     onPaneClick,
   }: {
@@ -28,9 +31,16 @@
     panes: Record<string, PaneConfig>;
     paneSnippet: Snippet<[PaneConfig]>;
     isRoot?: boolean;
+    isFirst?: boolean;
     activePaneId?: string | null;
     onPaneClick?: (paneId: string) => void;
   } = $props();
+
+  const explorerOnLeft = $derived(settings.appearance.explorer_side === "left");
+  const leftSidebarHidden = $derived(
+    !ui.zenMode && (explorerOnLeft ? !ui.explorerVisible : !ui.workspacesVisible)
+  );
+  const trafficOffset = $derived(isFirst && leftSidebarHidden ? "68px" : "0px");
 
   let dragging = $state(false);
   let containerEl = $state<HTMLDivElement>();
@@ -116,7 +126,7 @@
       bind:this={leafEl}
       data-pane-id={node.paneId}
       class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative"
-      style="contain: layout style paint; transition: border-color 150ms cubic-bezier(0.4,0,0.2,1), box-shadow 150ms cubic-bezier(0.4,0,0.2,1); border: {node.paneId === activePaneId ? '2px solid var(--pane-border-active)' : '1px solid var(--border)'}; {node.paneId === activePaneId ? 'box-shadow: 0 0 0 1px rgba(0,255,136,0.08), inset 0 0 24px rgba(0,255,136,0.03);' : ''}"
+      style="contain: layout style paint; border-radius: var(--radius-lg); transition: border-color 150ms cubic-bezier(0.4,0,0.2,1), box-shadow 150ms cubic-bezier(0.4,0,0.2,1); border: {node.paneId === activePaneId ? '1px solid rgba(0,255,136,0.35)' : '1px solid color-mix(in srgb, var(--text-dim) 22%, transparent)'}; {node.paneId === activePaneId ? 'box-shadow: 0 0 0 1px rgba(0,255,136,0.08), inset 0 0 24px rgba(0,255,136,0.03);' : ''} --header-traffic-offset: {trafficOffset};"
       role="group"
       onclick={() => {
         onPaneClick?.(node.paneId);
@@ -150,22 +160,22 @@
       style="flex: 0 0 calc({node.ratio * 100}% - 2px); overflow: hidden; contain: layout style paint; {node.direction === 'vertical' ? 'min-height: 80px;' : 'min-width: 80px;'}"
       class="flex min-w-0 min-h-0"
     >
-      <PaneGrid node={node.children[0]} {panes} {paneSnippet} {activePaneId} {onPaneClick} />
+      <PaneGrid node={node.children[0]} {panes} {paneSnippet} {activePaneId} {onPaneClick} isFirst={isFirst} />
     </div>
 
     <div
-      class="shrink-0 transition-colors duration-100"
+      class="shrink-0 transition-colors duration-150"
       class:cursor-col-resize={node.direction === "horizontal"}
       class:cursor-row-resize={node.direction === "vertical"}
       style="{node.direction === 'horizontal'
-        ? 'width: 4px; min-width: 4px;'
-        : 'height: 4px; min-height: 4px;'} background: {dragging ? '#aaaaaa' : 'var(--border)'};"
+        ? 'width: 5px; min-width: 5px;'
+        : 'height: 5px; min-height: 5px;'} background: {dragging ? 'rgba(0,255,136,0.4)' : 'transparent'};"
       role="separator"
       tabindex="0"
       aria-orientation={node.direction === "horizontal" ? "vertical" : "horizontal"}
       onmousedown={handleMouseDown}
-      onmouseenter={(e) => { if (!dragging) e.currentTarget.style.background = '#888888'; }}
-      onmouseleave={(e) => { if (!dragging) e.currentTarget.style.background = 'var(--border)'; }}
+      onmouseenter={(e) => { if (!dragging) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+      onmouseleave={(e) => { if (!dragging) e.currentTarget.style.background = 'transparent'; }}
       onkeydown={(e) => {
         if (node.type !== "split") return;
         const step = 0.02;
@@ -184,7 +194,7 @@
     ></div>
 
     <div style="flex: 1; overflow: hidden; contain: layout style paint; {node.direction === 'vertical' ? 'min-height: 80px;' : 'min-width: 80px;'}" class="flex min-w-0 min-h-0">
-      <PaneGrid node={node.children[1]} {panes} {paneSnippet} {activePaneId} {onPaneClick} />
+      <PaneGrid node={node.children[1]} {panes} {paneSnippet} {activePaneId} {onPaneClick} isFirst={false} />
     </div>
   </div>
 {/if}

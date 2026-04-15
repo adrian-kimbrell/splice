@@ -20,6 +20,14 @@
 
   const categories = ["General", "Appearance", "Editor", "Terminal", "Keymap"];
 
+  const categoryIcons: Record<string, string> = {
+    General: "bi-sliders",
+    Appearance: "bi-palette",
+    Editor: "bi-code-slash",
+    Terminal: "bi-terminal",
+    Keymap: "bi-keyboard",
+  };
+
   const settingDefs: SettingDef[] = [
     // General
     { key: "general.auto_save", category: "General", title: "Auto Save", description: "Controls whether files are saved automatically.", control: { type: "select", options: [{ label: "Off", value: "off" }, { label: "On Focus Change", value: "onFocusChange" }, { label: "After Delay", value: "afterDelay" }] } },
@@ -29,7 +37,7 @@
     // Appearance
     { key: "appearance.theme", category: "Appearance", title: "Theme", description: "The color theme for the editor and UI.", control: { type: "select", options: themeNames } },
     { key: "appearance.ui_scale", category: "Appearance", title: "UI Scale", description: "Zoom level for the entire interface.", control: { type: "select", options: Array.from({ length: 16 }, (_, i) => { const v = 50 + i * 10; return { label: `${v}%`, value: v }; }) } },
-    { key: "appearance.explorer_side", category: "Appearance", title: "Explorer Side", description: "Which side the file explorer appears on. Workspaces panel moves to the opposite side.", control: { type: "select", options: [{ label: "Left", value: "left" }, { label: "Right", value: "right" }] } },
+    { key: "appearance.explorer_side", category: "Appearance", title: "Explorer Side", description: "Which side the file explorer appears on.", control: { type: "select", options: [{ label: "Left", value: "left" }, { label: "Right", value: "right" }] } },
     { key: "appearance.show_status_bar", category: "Appearance", title: "Show Status Bar", description: "Show or hide the bottom status bar.", control: { type: "toggle" } },
 
     // Editor
@@ -56,19 +64,19 @@
   ];
 
   const keybindings = [
-    { keys: "Cmd N", action: "New File" },
-    { keys: "Cmd O", action: "Open Folder" },
-    { keys: "Cmd P", action: "Command Palette" },
-    { keys: "Cmd B", action: "Toggle Explorer" },
-    { keys: "Cmd ,", action: "Open Settings" },
-    { keys: "Cmd Z", action: "Toggle Pane Zoom" },
-    { keys: "Cmd 1-9", action: "Switch to Pane" },
-    { keys: "Cmd Alt Arrow", action: "Navigate Panes" },
-    { keys: "Cmd Alt Shift Arrow", action: "Switch Workspace" },
-    { keys: "Cmd =", action: "Zoom In" },
-    { keys: "Cmd -", action: "Zoom Out" },
-    { keys: "Cmd 0", action: "Reset Zoom" },
-    { keys: "Escape", action: "Close Overlay / Unzoom" },
+    { keys: "⌘ N", action: "New File" },
+    { keys: "⌘ O", action: "Open Folder" },
+    { keys: "⌘ P", action: "Command Palette" },
+    { keys: "⌘ B", action: "Toggle Explorer" },
+    { keys: "⌘ ,", action: "Open Settings" },
+    { keys: "⌘ Z", action: "Toggle Pane Zoom" },
+    { keys: "⌘ 1–9", action: "Switch to Pane" },
+    { keys: "⌘ ⌥ ↑↓←→", action: "Navigate Panes" },
+    { keys: "⌘ ⌥ ⇧ ↑↓", action: "Switch Workspace" },
+    { keys: "⌘ =", action: "Zoom In" },
+    { keys: "⌘ –", action: "Zoom Out" },
+    { keys: "⌘ 0", action: "Reset Zoom" },
+    { keys: "Esc", action: "Close Overlay / Unzoom" },
   ];
 
   // --- Search ---
@@ -185,73 +193,68 @@
   }
 </script>
 
-<div class="flex flex-col overflow-hidden bg-editor flex-1 min-w-0 min-h-0">
-  <div class="flex flex-1 overflow-hidden min-w-0">
-    <!-- Left nav -->
-    <nav class="w-[160px] bg-sidebar border-r border-border py-2 shrink-0 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden">
-      <div class="px-2 pb-2">
-        <div class="relative">
-          <i class="bi bi-search absolute left-2 top-1/2 -translate-y-1/2 text-txt-dim text-[10px]"></i>
-          <input
-            type="text"
-            placeholder="Search..."
-            bind:value={searchQuery}
-            class="w-full bg-input border border-border text-txt text-xs pl-6 pr-2 py-1 rounded outline-none focus:border-accent"
-          />
-        </div>
-      </div>
+<div class="settings-root">
+  <!-- Sidebar nav -->
+  <aside class="settings-nav">
+    <div class="settings-search-wrap">
+      <i class="bi bi-search settings-search-icon"></i>
+      <input
+        type="text"
+        placeholder="Search settings…"
+        bind:value={searchQuery}
+        class="settings-search"
+      />
+    </div>
 
+    <nav class="settings-nav-list">
       {#each categories as cat}
         {@const isVisible = visibleCategories.includes(cat)}
         <button
-          class="flex items-center gap-2 px-3 py-1.5 text-xs text-left border-none bg-transparent cursor-pointer transition-colors w-full"
-          class:text-txt-bright={activeCategory === cat && isVisible}
-          class:bg-selected={activeCategory === cat && isVisible}
-          class:text-txt-dim={activeCategory !== cat || !isVisible}
-          class:opacity-30={!isVisible}
+          class="settings-nav-item"
+          class:active={activeCategory === cat && isVisible}
+          class:dimmed={!isVisible}
           disabled={!isVisible}
           onclick={() => scrollToCategory(cat)}
         >
-          {#if cat === "General"}<i class="bi bi-sliders text-[12px]"></i>
-          {:else if cat === "Appearance"}<i class="bi bi-palette text-[12px]"></i>
-          {:else if cat === "Editor"}<i class="bi bi-code-slash text-[12px]"></i>
-          {:else if cat === "Terminal"}<i class="bi bi-terminal text-[12px]"></i>
-          {:else if cat === "Keymap"}<i class="bi bi-keyboard text-[12px]"></i>
-          {/if}
-          {cat}
+          <i class="bi {categoryIcons[cat]} settings-nav-icon"></i>
+          <span>{cat}</span>
         </button>
       {/each}
     </nav>
+  </aside>
 
-    <!-- Right content -->
-    <div
-      class="flex-1 overflow-y-auto overflow-x-hidden py-5 pl-5 pr-6 min-w-0"
-      bind:this={contentEl}
-      onscroll={handleContentScroll}
-    >
-      {#each visibleCategories as cat}
-        <div bind:this={sectionEls[cat]} class="mb-6">
-          <div class="text-[11px] font-semibold uppercase tracking-wider text-txt-dim mb-3 pb-1 border-b border-border">
-            {cat}
+  <!-- Content -->
+  <main
+    class="settings-content"
+    bind:this={contentEl}
+    onscroll={handleContentScroll}
+  >
+    {#each visibleCategories as cat}
+      <section bind:this={sectionEls[cat]} class="settings-section">
+        <h2 class="settings-section-title">
+          <i class="bi {categoryIcons[cat]}"></i>
+          {cat}
+        </h2>
+
+        {#if cat === "Keymap"}
+          <div class="keymap-grid">
+            {#each keybindings as kb}
+              <div class="keymap-row">
+                <span class="keymap-action">{kb.action}</span>
+                <kbd class="keymap-kbd">{kb.keys}</kbd>
+              </div>
+            {/each}
           </div>
-
-          {#if cat === "Keymap"}
-            <div class="flex flex-col gap-0">
-              {#each keybindings as kb}
-                <div class="flex items-center justify-between py-1.5">
-                  <span class="text-xs text-txt">{kb.action}</span>
-                  <kbd class="bg-input border border-border text-txt-dim text-[11px] px-2 py-0.5 rounded font-mono">{kb.keys}</kbd>
+        {:else}
+          <div class="settings-rows">
+            {#each filteredDefs.filter((d) => d.category === cat) as def, i (def.key)}
+              {@const isLast = i === filteredDefs.filter((d) => d.category === cat).length - 1}
+              <div class="setting-row" class:no-border={isLast}>
+                <div class="setting-label">
+                  <span class="setting-title">{def.title}</span>
+                  <span class="setting-desc">{def.description}</span>
                 </div>
-              {/each}
-            </div>
-          {:else}
-            {#each filteredDefs.filter((d) => d.category === cat) as def (def.key)}
-              <div class="flex items-start justify-between py-2 gap-4">
-                <div class="flex-1 min-w-0">
-                  <div class="text-xs text-txt-bright">{def.title}</div>
-                  <div class="text-[11px] text-txt-dim mt-0.5 leading-tight">{def.description}</div>
-                </div>
-                <div class="shrink-0">
+                <div class="setting-control">
                   {#if def.control.type === "toggle"}
                     <label class="toggle">
                       <input
@@ -278,7 +281,7 @@
                         onclick={() => toggleDropdown(def.key)}
                       >
                         <span class="truncate">{getDisplayLabel(def)}</span>
-                        <i class="bi bi-chevron-down text-[9px] text-txt-dim ml-1 transition-transform" class:rotate-180={openDropdownKey === def.key}></i>
+                        <i class="bi bi-chevron-down chevron" class:open={openDropdownKey === def.key}></i>
                       </button>
                       {#if openDropdownKey === def.key}
                         <div class="settings-select-menu">
@@ -291,9 +294,9 @@
                               class:active={isActive}
                               onclick={() => { setValue(def.key, val); closeDropdown(); }}
                             >
-                              {label}
+                              <span>{label}</span>
                               {#if isActive}
-                                <i class="bi bi-check2 text-accent text-[11px] ml-auto"></i>
+                                <i class="bi bi-check2 check-icon"></i>
                               {/if}
                             </button>
                           {/each}
@@ -304,41 +307,222 @@
                 </div>
               </div>
             {/each}
-          {/if}
-        </div>
-      {/each}
-    </div>
-  </div>
+          </div>
+        {/if}
+      </section>
+    {/each}
+  </main>
 </div>
 
 <style>
+  .settings-root {
+    display: flex;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg-editor);
+  }
+
+  /* ── Sidebar ── */
+  .settings-nav {
+    width: 185px;
+    flex-shrink: 0;
+    background: var(--bg-sidebar);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 8px 16px;
+    gap: 4px;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+  }
+
+  .settings-search-wrap {
+    position: relative;
+    margin-bottom: 8px;
+  }
+
+  .settings-search-icon {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-dim);
+    font-size: 11px;
+    pointer-events: none;
+  }
+
+  .settings-search {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 12px;
+    padding: 6px 8px 6px 28px;
+    border-radius: 6px;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 100ms;
+  }
+  .settings-search:focus {
+    border-color: var(--accent);
+  }
+  .settings-search::placeholder {
+    color: var(--text-dim);
+  }
+
+  .settings-nav-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .settings-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 80ms, color 80ms;
+  }
+  .settings-nav-item:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+  .settings-nav-item.active {
+    background: var(--bg-selected);
+    color: var(--text-bright);
+  }
+  .settings-nav-item.dimmed {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  .settings-nav-icon {
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  /* ── Content ── */
+  .settings-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 24px 32px;
+    min-width: 0;
+  }
+
+  .settings-section {
+    margin-bottom: 40px;
+  }
+
+  .settings-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin: 0 0 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Rows ── */
+  .settings-rows {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .setting-row:first-child {
+    border-radius: 8px 8px 0 0;
+  }
+  .setting-row:last-child {
+    border-radius: 0 0 8px 8px;
+  }
+  .setting-row:only-child {
+    border-radius: 8px;
+  }
+
+  .setting-row {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-sidebar);
+    transition: background 80ms;
+  }
+  .setting-row:hover {
+    background: color-mix(in srgb, var(--bg-hover) 60%, var(--bg-sidebar));
+  }
+  .setting-row.no-border {
+    border-bottom: none;
+  }
+
+  .setting-label {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .setting-title {
+    font-size: 13px;
+    color: var(--text-bright);
+    line-height: 1.3;
+  }
+
+  .setting-desc {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  .setting-control {
+    flex-shrink: 0;
+  }
+
+  /* ── Number input ── */
   .settings-number {
     background: var(--bg-input);
     border: 1px solid var(--border);
     color: var(--text-bright);
-    font-size: 12px;
-    padding: 4px 8px;
-    border-radius: 4px;
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 6px;
     outline: none;
-    width: 100px;
+    width: 86px;
+    text-align: center;
     color-scheme: dark;
+    transition: border-color 100ms;
   }
   .settings-number:focus {
     border-color: var(--accent);
   }
 
+  /* ── Select ── */
   .settings-select-trigger {
     display: flex;
     align-items: center;
-    gap: 2px;
+    justify-content: space-between;
+    gap: 8px;
     background: var(--bg-input);
     border: 1px solid var(--border);
     color: var(--text-bright);
-    font-size: 12px;
-    padding: 4px 8px;
-    border-radius: 4px;
+    font-size: 13px;
+    padding: 7px 12px;
+    border-radius: 6px;
     cursor: pointer;
-    min-width: 130px;
+    min-width: 180px;
     text-align: left;
     transition: border-color 100ms;
   }
@@ -346,33 +530,46 @@
     border-color: var(--text-dim);
   }
 
+  .chevron {
+    font-size: 9px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    transition: transform 150ms;
+  }
+  .chevron.open {
+    transform: rotate(180deg);
+  }
+
   .settings-select-menu {
     position: absolute;
     top: calc(100% + 4px);
     right: 0;
     min-width: 100%;
-    max-height: 240px;
+    max-height: 480px;
     overflow-y: auto;
     background: var(--bg-sidebar);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 4px 0;
+    border-radius: 8px;
+    padding: 4px;
     z-index: 50;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   }
 
   .settings-select-option {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     width: 100%;
-    padding: 5px 10px;
+    padding: 8px 12px;
     border: none;
+    border-radius: 5px;
     background: transparent;
     color: var(--text);
-    font-size: 12px;
+    font-size: 13px;
     cursor: pointer;
     text-align: left;
     white-space: nowrap;
+    transition: background 60ms;
   }
   .settings-select-option:hover {
     background: var(--bg-hover);
@@ -380,5 +577,54 @@
   }
   .settings-select-option.active {
     color: var(--text-bright);
+  }
+
+  .check-icon {
+    color: var(--accent);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+
+  /* ── Keymap ── */
+  .keymap-grid {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .keymap-row:first-child {
+    border-radius: 8px 8px 0 0;
+  }
+  .keymap-row:last-child {
+    border-radius: 0 0 8px 8px;
+  }
+
+  .keymap-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-sidebar);
+    gap: 16px;
+  }
+  .keymap-row:last-child {
+    border-bottom: none;
+  }
+
+  .keymap-action {
+    font-size: 13px;
+    color: var(--text-bright);
+  }
+
+  .keymap-kbd {
+    font-size: 11px;
+    font-family: var(--font-family, monospace);
+    color: var(--text-dim);
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 3px 8px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 </style>

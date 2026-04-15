@@ -10,6 +10,7 @@
   let reorderIndicatorIndex = $state<number | null>(null);
   let tabBarEl = $state<HTMLDivElement>();
 
+
   function handleTabBarDragOver(e: MouseEvent) {
     if (!isDragging() || !tabBarEl) return;
     const drag = getDragActive();
@@ -54,6 +55,7 @@
     tabs,
     activeTab,
     paneId,
+    gitBranch = "",
     onTabClick,
     onTabClose,
     onTabDoubleClick,
@@ -68,6 +70,7 @@
     tabs: { name: string; path: string; preview?: boolean; dirty?: boolean; pinned?: boolean; readOnly?: boolean }[];
     activeTab: string | null;
     paneId: string;
+    gitBranch?: string;
     onTabClick: (path: string) => void;
     onTabClose?: (path: string) => void;
     onTabDoubleClick?: (path: string) => void;
@@ -243,6 +246,7 @@
 />
 
 <div class="flex bg-tab border-b border-border h-8 shrink-0 overflow-hidden min-w-0">
+  <div class="shrink-0 transition-all duration-150" style="width: var(--header-traffic-offset, 0px);"></div>
   <div
     bind:this={tabBarEl}
     class="flex flex-1 overflow-x-auto min-w-0 relative"
@@ -273,6 +277,11 @@
     {/if}
   </div>
   <div class="flex items-center gap-0.5 px-1 shrink-0">
+    {#if gitBranch}
+      <span class="text-txt-dim text-[11px] flex items-center gap-1 mr-1 shrink-0">
+        <i class="bi bi-git"></i>{gitBranch}
+      </span>
+    {/if}
     {#if ui.zoomedPaneId}
       <span class="text-[10px] uppercase tracking-wide text-accent mr-1 font-medium">Zoomed</span>
     {/if}

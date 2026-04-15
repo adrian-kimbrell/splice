@@ -8,6 +8,7 @@
   let {
     title,
     cwd = "",
+    gitBranch = "",
     paneId = "",
     notification = null,
     onSplit,
@@ -16,6 +17,7 @@
   }: {
     title: string;
     cwd?: string;
+    gitBranch?: string;
     paneId?: string;
     notification?: AttentionNotification | null;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
@@ -111,7 +113,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="flex items-center px-2.5 bg-tab-active border-b border-border text-xs shrink-0 select-none overflow-hidden min-w-0 transition-opacity duration-100"
-  style="height: var(--titlebar-height); min-height: var(--titlebar-height);{isBeingDragged ? ' opacity: 0.35;' : ''}"
+  style="height: var(--titlebar-height); min-height: var(--titlebar-height); padding-left: calc(0.625rem + var(--header-traffic-offset, 0px)); transition: padding-left 150ms ease;{isBeingDragged ? ' opacity: 0.35;' : ''}"
   onmousedown={handleMouseDown}
 >
   <span class="text-txt-bright font-medium whitespace-nowrap mr-2 overflow-hidden text-ellipsis min-w-0"
@@ -130,6 +132,9 @@
   <span
     class="flex items-center gap-3 text-txt-dim text-[11px] whitespace-nowrap overflow-hidden min-w-0"
   >
+    {#if gitBranch}
+      <span class="overflow-hidden text-ellipsis shrink-0"><i class="bi bi-git mr-1 text-[11px]"></i>{gitBranch}</span>
+    {/if}
     {#if cwd}
       <span class="overflow-hidden text-ellipsis"
         ><i class="bi bi-folder2 mr-1 text-[11px]"></i>{cwd}</span

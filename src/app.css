@@ -14,12 +14,16 @@
   --bg-selected: #37373d;
   --bg-input: #3c3c3c;
   --bg-palette: #252526;
-  --border: #3c3c3c;
+  --border: rgba(255,255,255,0.07);
   --text: #cccccc;
-  --text-dim: #858585;
+  --text-dim: #737373;
   --text-bright: #ffffff;
   --accent: #00ff88;
   --tab-indicator: #00ff88;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
 
   --syn-kw: #c678dd;
   --syn-fn: #61afef;
@@ -37,7 +41,7 @@
   --tree-indent: 16px;
 
   --topbar-height: 35px;
-  --titlebar-height: 28px;
+  --titlebar-height: 32px;
   --sidebar-header-height: 32px;
 
   --bg-topbar: var(--bg-editor);
@@ -130,9 +134,9 @@ body {
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-sidebar); }
-::-webkit-scrollbar-thumb { background: var(--bg-input); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--border); }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
 
 /* Navigation components */
 .topbar-btn {
@@ -146,7 +150,7 @@ body {
   color: var(--text-dim);
   font-size: var(--ui-btn);
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   transition: background 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), transform 100ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .topbar-btn:hover { background: var(--bg-hover); color: var(--text-bright); }
@@ -164,7 +168,7 @@ body {
   color: var(--text-dim);
   font-size: var(--ui-btn);
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   transition: background 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1), transform 100ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .pane-action-btn:hover { background: var(--bg-hover); color: var(--text-bright); }
@@ -175,11 +179,10 @@ body {
   height: var(--sidebar-header-height);
   display: flex;
   align-items: center;
-  padding: 0 8px;
+  padding: 0 12px;
   font-size: var(--ui-label);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-weight: 400;
+  letter-spacing: 0.3px;
   color: var(--text-dim);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -200,8 +203,7 @@ body {
   font-size: var(--ui-label);
   color: var(--text-dim);
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -259,12 +261,12 @@ body {
   white-space: nowrap;
   overflow: hidden;
   user-select: none;
-  border-left: 2px solid transparent;
-  transition: background 120ms cubic-bezier(0.4, 0, 0.2, 1), border-color 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  margin: 1px 4px;
+  border-radius: var(--radius-sm);
+  transition: background 120ms cubic-bezier(0.4, 0, 0.2, 1), color 120ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .tree-item:hover { background: var(--bg-hover); }
 .tree-item.active {
-  border-left-color: var(--accent);
   background: var(--bg-selected);
   color: var(--text-bright);
 }
@@ -275,10 +277,11 @@ body {
   gap: 6px;
   padding: 2px 8px;
   cursor: pointer;
-  transition: background-color 120ms cubic-bezier(0.4, 0, 0.2, 1), border-color 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color 120ms cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   height: var(--row-sm);
-  border-left: 2px solid transparent;
+  margin: 1px 4px;
+  border-radius: var(--radius-sm);
 }
 .session-item.compact {
   justify-content: flex-start;
@@ -288,7 +291,6 @@ body {
 .session-item:hover { background-color: var(--bg-hover); }
 .session-item.active {
   background-color: var(--bg-selected);
-  border-left-color: var(--accent);
 }
 
 /* Tree bar system */
@@ -381,9 +383,9 @@ body.tab-dragging * {
   transform: translateX(-100%);
   background: var(--bg-palette);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-lg);
   padding: 4px 0;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.2);
   min-width: 130px;
   animation: dropdown-in 140ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
@@ -391,14 +393,17 @@ body.tab-dragging * {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  padding: 5px 12px;
+  width: calc(100% - 8px);
+  margin: 0 4px;
+  padding: 5px 8px;
   border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   font-size: var(--ui-body);
   cursor: pointer;
   white-space: nowrap;
+  transition: background 100ms, color 100ms;
 }
 .split-dropdown-item:hover {
   background: var(--bg-hover);
@@ -479,7 +484,7 @@ body.corner-dragging * { cursor: move !important; }
 }
 .welcome-section {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 6px 0;
   margin: 0 0 16px 0;
   min-width: 0;
@@ -535,7 +540,7 @@ body.corner-dragging * { cursor: move !important; }
   justify-content: center;
   width: auto;
   padding: 6px 16px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
 }
 
@@ -592,8 +597,8 @@ body.corner-dragging * { cursor: move !important; }
 .lsp-ref-empty { padding: 6px 12px; color: var(--text-dim); font-size: var(--ui-body); font-style: italic; }
 
 /* Rename overlay */
-.rename-overlay { z-index: 200; box-shadow: 0 2px 8px rgba(0,0,0,0.5); }
-.rename-input { background: var(--bg-palette); color: var(--text-bright); border: 1px solid var(--accent, #00ff88); padding: 3px 8px; font-size: var(--ui-md); font-family: inherit; outline: none; min-width: 160px; }
+.rename-overlay { z-index: 200; box-shadow: 0 4px 16px rgba(0,0,0,0.6); border-radius: var(--radius-md); }
+.rename-input { background: var(--bg-palette); color: var(--text-bright); border: 1px solid var(--accent, #00ff88); padding: 3px 8px; font-size: var(--ui-md); font-family: inherit; outline: none; min-width: 160px; border-radius: var(--radius-md); }
 
 /* Workspace drag-to-reorder drop indicator */
 .ws-drop-indicator { height: 2px; background: var(--accent); margin: 0 4px; border-radius: 1px; flex-shrink: 0; }

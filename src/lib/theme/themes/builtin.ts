@@ -2,7 +2,7 @@ import type { ThemeColors } from "../themes";
 
 const themes: Record<string, ThemeColors> = {
   "Splice Default": {
-    "bg-editor": "#1e1e1e",
+    "bg-editor": "#181819",
     "bg-sidebar": "#252526",
     "bg-statusbar": "#252526",
     "bg-tab": "#252526",
@@ -29,7 +29,7 @@ const themes: Record<string, ThemeColors> = {
     "ansi-yellow": "#e5c07b",
   },
   "Dark": {
-    "bg-editor": "#1e1e1e",
+    "bg-editor": "#181818",
     "bg-sidebar": "#252525",
     "bg-statusbar": "#252525",
     "bg-tab": "#252525",
