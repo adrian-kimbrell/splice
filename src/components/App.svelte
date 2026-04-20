@@ -510,7 +510,7 @@
     // Reposition native macOS traffic lights to match the scaled UI
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
       import("../lib/ipc/commands").then(({ setTrafficLightPosition }) => {
-        setTrafficLightPosition(Math.round(14 * scale), Math.round(26 * scale)).catch(() => {});
+        setTrafficLightPosition(Math.round(14 * scale), Math.round(19 * scale)).catch(() => {});
       });
     }
   });
@@ -861,7 +861,7 @@
 <div
   class="grid"
   data-tauri-drag-region
-  style="height: 100vh; background: var(--bg-editor); padding: 12px 6px 12px 6px; grid-template-columns: {leftVisible && !ui.zenMode
+  style="height: 100vh; background: var(--bg-editor); padding: 6px; grid-template-columns: {leftVisible && !ui.zenMode
     ? `${leftWidth}px 6px`
     : '0px 0px'} minmax(0,1fr) {rightVisible && !ui.zenMode
     ? `6px ${rightWidth}px`
