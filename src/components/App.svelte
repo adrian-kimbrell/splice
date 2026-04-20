@@ -861,7 +861,7 @@
 <div
   class="grid"
   data-tauri-drag-region
-  style="height: 100vh; background: var(--bg-editor); padding: 12px 6px 6px 6px; grid-template-columns: {leftVisible && !ui.zenMode
+  style="height: 100vh; background: var(--bg-editor); padding: 12px 6px 12px 6px; grid-template-columns: {leftVisible && !ui.zenMode
     ? `${leftWidth}px 6px`
     : '0px 0px'} minmax(0,1fr) {rightVisible && !ui.zenMode
     ? `6px ${rightWidth}px`
