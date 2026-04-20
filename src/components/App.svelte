@@ -505,7 +505,14 @@
   });
 
   $effect(() => {
-    document.documentElement.style.zoom = `${settings.appearance.ui_scale / 100}`;
+    const scale = settings.appearance.ui_scale / 100;
+    document.documentElement.style.zoom = `${scale}`;
+    // Reposition native macOS traffic lights to match the scaled UI
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      import("../lib/ipc/commands").then(({ setTrafficLightPosition }) => {
+        setTrafficLightPosition(Math.round(14 * scale), Math.round(19 * scale)).catch(() => {});
+      });
+    }
   });
 
   $effect(() => {
@@ -677,11 +684,15 @@
       installClaudeHook().catch(console.warn);
 
       unlistenAttention = await onAttentionNotify((payload) => {
-        // Only show notifications for terminals that exist in a workspace
-        const terminalExists = Object.values(workspaceManager.workspaces).some(
-          w => w.terminalIds.includes(payload.terminal_id)
-        );
-        if (!terminalExists) return;
+        // Only show notifications for terminals with an active Claude session
+        // in THIS Splice instance. This prevents cross-instance leakage when
+        // multiple Splice windows share the same ~/.config/Splice/.attention_port.
+        const hasActiveSession = Object.values(workspaceManager.workspaces).some(w => {
+          if (!w.terminalIds.includes(payload.terminal_id)) return false;
+          const paneId = `term-${payload.terminal_id}`;
+          return !!w.panes[paneId]?.claudeSessionId;
+        });
+        if (!hasActiveSession) return;
         attentionStore.notify({
           terminalId: payload.terminal_id,
           type: payload.notification_type === "permission_prompt" ? "permission" : "idle",
@@ -850,7 +861,7 @@
 <div
   class="grid"
   data-tauri-drag-region
-  style="height: 100vh; background: var(--bg-editor); padding: 6px; grid-template-columns: {leftVisible && !ui.zenMode
+  style="height: 100vh; background: var(--bg-editor); padding: 12px 6px 6px 6px; grid-template-columns: {leftVisible && !ui.zenMode
     ? `${leftWidth}px 6px`
     : '0px 0px'} minmax(0,1fr) {rightVisible && !ui.zenMode
     ? `6px ${rightWidth}px`
