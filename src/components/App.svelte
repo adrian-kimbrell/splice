@@ -510,7 +510,7 @@
     // Reposition native macOS traffic lights to match the scaled UI
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
       import("../lib/ipc/commands").then(({ setTrafficLightPosition }) => {
-        setTrafficLightPosition(Math.round(14 * scale), Math.round(29 * scale)).catch(() => {});
+        setTrafficLightPosition(Math.round(14 * scale), Math.round(26 * scale)).catch(() => {});
       });
     }
   });
