@@ -239,8 +239,8 @@
   const rightVisible = $derived(explorerOnLeft ? ui.workspacesVisible : ui.explorerVisible);
   const leftWidth = $derived(explorerOnLeft ? ui.explorerWidth : ui.workspacesWidth);
   const rightWidth = $derived(explorerOnLeft ? ui.workspacesWidth : ui.explorerWidth);
-  const leftMinWidth = $derived(explorerOnLeft ? 120 : 115);
-  const rightMinWidth = $derived(explorerOnLeft ? 115 : 120);
+  const leftMinWidth = $derived(explorerOnLeft ? 115 : 62);
+  const rightMinWidth = $derived(explorerOnLeft ? 62 : 115);
   const leftLabel = $derived(explorerOnLeft ? "Explorer" : "Workspaces");
   const rightLabel = $derived(explorerOnLeft ? "Workspaces" : "Explorer");
 
@@ -526,8 +526,8 @@
     // Await settings before initializing workspaces (restore_previous_session check)
     await initSettings();
     // Restore sidebar widths from persisted settings, enforcing minimums
-    ui.explorerWidth = Math.max(120, settings.appearance.explorer_width ?? 240);
-    ui.workspacesWidth = Math.max(115, settings.appearance.workspaces_width ?? 220);
+    ui.explorerWidth = Math.max(115, settings.appearance.explorer_width ?? 240);
+    ui.workspacesWidth = settings.appearance.workspaces_width ?? 220;
 
     let unlistenSettings: (() => void) | null = null;
     let unlistenAttention: (() => void) | null = null;
