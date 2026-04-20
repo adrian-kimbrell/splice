@@ -239,8 +239,8 @@
   const rightVisible = $derived(explorerOnLeft ? ui.workspacesVisible : ui.explorerVisible);
   const leftWidth = $derived(explorerOnLeft ? ui.explorerWidth : ui.workspacesWidth);
   const rightWidth = $derived(explorerOnLeft ? ui.workspacesWidth : ui.explorerWidth);
-  const leftMinWidth = $derived(explorerOnLeft ? 120 : 80);
-  const rightMinWidth = $derived(explorerOnLeft ? 80 : 120);
+  const leftMinWidth = $derived(explorerOnLeft ? 120 : 96);
+  const rightMinWidth = $derived(explorerOnLeft ? 96 : 120);
   const leftLabel = $derived(explorerOnLeft ? "Explorer" : "Workspaces");
   const rightLabel = $derived(explorerOnLeft ? "Workspaces" : "Explorer");
 
