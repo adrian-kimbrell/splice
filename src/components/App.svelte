@@ -525,9 +525,9 @@
     import("../lib/ipc/commands").then(m => { _commands = m; });
     // Await settings before initializing workspaces (restore_previous_session check)
     await initSettings();
-    // Restore sidebar widths from persisted settings
-    ui.explorerWidth = settings.appearance.explorer_width ?? 240;
-    ui.workspacesWidth = settings.appearance.workspaces_width ?? 220;
+    // Restore sidebar widths from persisted settings, enforcing minimums
+    ui.explorerWidth = Math.max(120, settings.appearance.explorer_width ?? 240);
+    ui.workspacesWidth = Math.max(115, settings.appearance.workspaces_width ?? 220);
 
     let unlistenSettings: (() => void) | null = null;
     let unlistenAttention: (() => void) | null = null;
