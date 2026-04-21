@@ -57,6 +57,8 @@ impl PtySession {
         rows: u16,
         scrollback: usize,
         extra_args: &[String],
+        attention_port: Option<u16>,
+        attention_token: Option<String>,
     ) -> Result<Self, String> {
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -85,6 +87,14 @@ impl PtySession {
         // Expose the terminal ID so Claude hook scripts can identify which Splice
         // terminal they're running in without process-tree walking.
         cmd.env("SPLICE_TERMINAL_ID", id.to_string());
+        // Inject this process's attention server address and token so the hook
+        // connects to the correct Splice instance even when multiple are running.
+        if let Some(port) = attention_port {
+            cmd.env("SPLICE_ATTENTION_PORT", port.to_string());
+        }
+        if let Some(token) = attention_token {
+            cmd.env("SPLICE_ATTENTION_TOKEN", token);
+        }
 
         let child = pair.slave
             .spawn_command(cmd)

@@ -10,7 +10,7 @@
   import SshConnectForm from "./overlays/SshConnectForm.svelte";
   import Toasts from "./overlays/Toasts.svelte";
   import SendToClaudeModal from "./overlays/SendToClaudeModal.svelte";
-  import AttentionBar from "./overlays/AttentionBar.svelte";
+  import TitleBar from "./topbar/TitleBar.svelte";
   import { openSettingsWindow } from "../lib/utils/settings-window";
   import { showContextMenu } from "../lib/utils/context-menu";
   import { openNewWindow } from "../lib/utils/new-window";
@@ -504,14 +504,37 @@
     applyTheme(settings.appearance.theme);
   });
 
+  let _trafficLightY = 19;
+  let _trafficRafId: number | null = null;
+
+  function animateTrafficLight(targetY: number, scale: number) {
+    if (_trafficRafId !== null) cancelAnimationFrame(_trafficRafId);
+    const startY = _trafficLightY;
+    const startTime = performance.now();
+    const duration = 150;
+
+    function ease(t: number) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+    function step(now: number) {
+      const t = Math.min((now - startTime) / duration, 1);
+      const y = startY + (targetY - startY) * ease(t);
+      _trafficLightY = y;
+      import("../lib/ipc/commands").then(({ setTrafficLightPosition }) => {
+        setTrafficLightPosition(Math.round(14 * scale), Math.round(y * scale)).catch(() => {});
+      });
+      if (t < 1) _trafficRafId = requestAnimationFrame(step);
+      else { _trafficRafId = null; _trafficLightY = targetY; }
+    }
+    _trafficRafId = requestAnimationFrame(step);
+  }
+
   $effect(() => {
     const scale = settings.appearance.ui_scale / 100;
     document.documentElement.style.zoom = `${scale}`;
-    // Reposition native macOS traffic lights to match the scaled UI
+    const compact = !leftVisible && !rightVisible && !ui.zenMode;
+    const yBase = compact ? 17 : 19;
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-      import("../lib/ipc/commands").then(({ setTrafficLightPosition }) => {
-        setTrafficLightPosition(Math.round(14 * scale), Math.round(19 * scale)).catch(() => {});
-      });
+      animateTrafficLight(yBase, scale);
     }
   });
 
@@ -855,8 +878,7 @@
 
 <svelte:window onfocus={handleWindowFocus} />
 
-<!-- Invisible drag strip — full-width grab zone at the very top of the window -->
-<div style="position: fixed; top: 0; left: 0; right: 0; height: 10px; z-index: 9999;" data-tauri-drag-region></div>
+
 
 <div
   class="grid"
@@ -891,6 +913,8 @@
 
   <!-- CENTER: PANE GRID — render ALL workspaces, hide inactive with display:none -->
   <div class="flex flex-col min-w-0" style="grid-column: 3; grid-row: 1; overflow: hidden;">
+    <TitleBar />
+
     {#each Object.entries(workspaceManager.workspaces) as [wsId, workspace] (wsId)}
       {@const isActive = wsId === workspaceManager.activeWorkspaceId}
       {@const hasContent = workspace.rootPath || workspace.layout !== null || workspace.sshConfig}
@@ -1069,7 +1093,6 @@
         </div>
       </div>
     {/each}
-    <AttentionBar />
   </div>
 
   <!-- RIGHT SIDEBAR -->
@@ -1132,3 +1155,5 @@
     <i class="bi bi-chevron-{rightVisible ? 'right' : 'left'}" style="font-size: var(--ui-sm);"></i>
   </button>
 </div>
+
+

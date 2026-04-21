@@ -159,10 +159,11 @@ pub fn run() {
             let token = attention::load_or_create_token();
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let port = attention::start_server(handle.clone(), token).await;
+                let port = attention::start_server(handle.clone(), token.clone()).await;
                 if port > 0 {
                     if let Ok(mut s) = handle.state::<Mutex<AppState>>().lock() {
                         s.attention_port = Some(port);
+                        s.attention_token = Some(token.clone());
                     }
                     // Install/update Claude hooks now that the server is running.
                     // Do this here (not from the frontend) to avoid a race where
@@ -260,6 +261,7 @@ pub fn run() {
                 commands::workspace::get_secondary_window_labels,
                 commands::settings::get_settings,
                 commands::settings::update_settings,
+                commands::settings::set_traffic_light_position,
                 lsp::lsp_check,
                 lsp::lsp_install,
                 lsp::lsp_start,
@@ -318,6 +320,7 @@ pub fn run() {
                 commands::workspace::get_secondary_window_labels,
                 commands::settings::get_settings,
                 commands::settings::update_settings,
+                commands::settings::set_traffic_light_position,
                 lsp::lsp_check,
                 lsp::lsp_install,
                 lsp::lsp_start,
@@ -376,6 +379,7 @@ pub fn run() {
                 commands::workspace::get_secondary_window_labels,
                 commands::settings::get_settings,
                 commands::settings::update_settings,
+                commands::settings::set_traffic_light_position,
                 lsp::lsp_check,
                 lsp::lsp_install,
                 lsp::lsp_start,

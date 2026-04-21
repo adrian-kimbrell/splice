@@ -7,7 +7,6 @@
   import { diagnosticsStore, getDiagnosticCounts, type LspDiagnostic } from "../../lib/stores/diagnostics.svelte";
   import { lspClient } from "../../lib/lsp/client";
   import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
-  import { openSettingsWindow } from "../../lib/utils/settings-window";
 
   let {
     entries,
@@ -126,9 +125,17 @@
 
 <div class="bg-sidebar flex flex-col overflow-hidden" style="grid-column: {side === 'left' ? 1 : 5}; grid-row: 1; border-radius: var(--radius-lg); box-shadow: 0 4px 24px rgba(0,0,0,0.35); overflow: hidden; position: relative;">
   <!-- Tab strip — also serves as drag region; left padding clears the macOS traffic lights -->
-  <div class="flex items-center border-b border-border shrink-0" style="height: 32px; padding-left: {side === 'left' ? '70px' : '8px'}; padding-right: {side === 'right' ? '80px' : side === 'left' ? '18px' : '8px'};" data-tauri-drag-region>
+  <div class="flex items-center border-b border-border shrink-0" style="height: 32px;" data-tauri-drag-region>
+    <!-- Traffic-light spacer — fixed width, non-interactive drag region -->
+    {#if side === 'left'}
+      <div style="width: 70px; flex-shrink: 0; height: 100%;" data-tauri-drag-region></div>
+    {:else}
+      <div style="width: 8px; flex-shrink: 0; height: 100%;" data-tauri-drag-region></div>
+    {/if}
+    <!-- Icon group — fixed/compact width regardless of sidebar width -->
+    <div class="flex items-center shrink-0" style="height: 100%;">
     <button
-      class="flex items-center justify-center w-8 h-full relative"
+      class="flex items-center justify-center w-6 h-full relative"
       class:text-accent={ui.sidebarMode === "files"}
       class:text-txt-dim={ui.sidebarMode !== "files"}
       title="Files"
@@ -137,7 +144,7 @@
       <i class="bi bi-folder2 text-base"></i>
     </button>
     <button
-      class="flex items-center justify-center w-8 h-full relative"
+      class="flex items-center justify-center w-6 h-full relative"
       class:text-accent={ui.sidebarMode === "search"}
       class:text-txt-dim={ui.sidebarMode !== "search"}
       title="Search (⌘⇧F)"
@@ -146,7 +153,7 @@
       <i class="bi bi-search text-base"></i>
     </button>
     <button
-      class="flex items-center justify-center w-8 h-full relative"
+      class="flex items-center justify-center w-6 h-full relative"
       class:text-accent={ui.sidebarMode === "problems"}
       class:text-txt-dim={ui.sidebarMode !== "problems"}
       title="Problems (⌘⇧M)"
@@ -161,6 +168,12 @@
         </span>
       {/if}
     </button>
+    </div>
+    <!-- Remaining space is draggable -->
+    <div class="flex-1 h-full" data-tauri-drag-region></div>
+    {#if side === 'right'}
+      <div style="width: 80px; flex-shrink: 0; height: 100%;" data-tauri-drag-region></div>
+    {/if}
   </div>
 
   <div class="flex-1 overflow-auto flex flex-col min-h-0" style="{side === 'left' ? 'padding-right: 10px;' : 'padding-left: 10px;'}">
@@ -227,18 +240,4 @@
     <div class="resize-strip" data-side={side} onmousedown={onResizeStart}></div>
   {/if}
 
-  <!-- Pinned footer — outside scroll area -->
-  <div class="shrink-0 flex items-center border-t border-border px-1" style="height: 22px;">
-    <button class="topbar-btn" title="Settings" onclick={openSettingsWindow}>
-      <i class="bi bi-gear"></i>
-    </button>
-    <button class="topbar-btn" title="New Terminal" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
-      <i class="bi bi-terminal"></i>
-    </button>
-    {#if hasWorkspace}
-      <button class="topbar-btn" title="Open Folder" onclick={handleOpenFolder}>
-        <i class="bi bi-folder2-open"></i>
-      </button>
-    {/if}
-  </div>
 </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import type { LayoutNode } from "../../lib/stores/layout.svelte";
   import { computeHandleSegments, findIntersections, type Intersection } from "../../lib/utils/handle-geometry";
   import { beginCornerDrag } from "../../lib/stores/corner-drag.svelte";
@@ -10,6 +11,20 @@
     node: LayoutNode;
     containerEl: HTMLDivElement | undefined;
   } = $props();
+
+  // Bumped by ResizeObserver to invalidate the derived when the container resizes
+  let containerVersion = $state(0);
+
+  let resizeObserver: ResizeObserver | null = null;
+
+  $effect(() => {
+    resizeObserver?.disconnect();
+    if (!containerEl) return;
+    resizeObserver = new ResizeObserver(() => { containerVersion++; });
+    resizeObserver.observe(containerEl);
+  });
+
+  onDestroy(() => { resizeObserver?.disconnect(); });
 
   // Touch all ratios in the tree so $derived tracks them
   function touchRatios(n: LayoutNode): void {
@@ -27,6 +42,7 @@
   }
 
   const relativeIntersections: RelativeIntersection[] = $derived.by(() => {
+    void containerVersion; // track resize invalidations
     if (!containerEl || node.type !== "split") return [];
     touchRatios(node);
     const rect = containerEl.getBoundingClientRect();

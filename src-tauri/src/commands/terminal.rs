@@ -101,9 +101,11 @@ pub fn spawn_terminal(
         .checked_add(1)
         .ok_or_else(|| "Terminal ID overflow".to_string())?;
     let scrollback = state.settings.terminal.scrollback_lines as usize;
+    let attention_port = state.attention_port;
+    let attention_token = state.attention_token.clone();
 
     let session =
-        crate::terminal::pty::PtySession::spawn(app, id, &shell, &canonical_cwd.to_string_lossy(), cols, rows, scrollback, &extra_args)?;
+        crate::terminal::pty::PtySession::spawn(app, id, &shell, &canonical_cwd.to_string_lossy(), cols, rows, scrollback, &extra_args, attention_port, attention_token)?;
     state.terminals.insert(id, session);
 
     info!(id, shell = %shell, cwd = %canonical_cwd.display(), "Spawned terminal");

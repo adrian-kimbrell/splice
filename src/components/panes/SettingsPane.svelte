@@ -36,7 +36,7 @@
 
     // Appearance
     { key: "appearance.theme", category: "Appearance", title: "Theme", description: "The color theme for the editor and UI.", control: { type: "select", options: themeNames } },
-    { key: "appearance.ui_scale", category: "Appearance", title: "UI Scale", description: "Zoom level for the entire interface.", control: { type: "select", options: Array.from({ length: 16 }, (_, i) => { const v = 50 + i * 10; return { label: `${v}%`, value: v }; }) } },
+    { key: "appearance.ui_scale", category: "Appearance", title: "UI Scale", description: "Zoom level for the entire interface.", control: { type: "select", options: Array.from({ length: 13 }, (_, i) => { const v = 80 + i * 10; return { label: `${v}%`, value: v }; }) } },
     { key: "appearance.explorer_side", category: "Appearance", title: "Explorer Side", description: "Which side the file explorer appears on.", control: { type: "select", options: [{ label: "Left", value: "left" }, { label: "Right", value: "right" }] } },
     { key: "appearance.show_status_bar", category: "Appearance", title: "Show Status Bar", description: "Show or hide the bottom status bar.", control: { type: "toggle" } },
 
@@ -292,7 +292,7 @@
                             <button
                               class="settings-select-option"
                               class:active={isActive}
-                              onclick={() => { setValue(def.key, val); closeDropdown(); }}
+                              onclick={() => setValue(def.key, val)}
                             >
                               <span>{label}</span>
                               {#if isActive}

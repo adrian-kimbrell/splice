@@ -178,6 +178,10 @@ export async function updateSettings(settings: Settings): Promise<void> {
   return invoke("update_settings", { settings });
 }
 
+export async function setTrafficLightPosition(x: number, y: number): Promise<void> {
+  return invoke("set_traffic_light_position", { x, y });
+}
+
 export async function installClaudeHook(): Promise<void> {
   return invoke("install_claude_hook");
 }

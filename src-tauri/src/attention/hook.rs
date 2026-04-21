@@ -70,8 +70,8 @@ pub(crate) fn install_hook_entry(
     let existing_idx = arr.iter().position(|entry| entry_command_contains(entry, marker));
 
     if let Some(idx) = existing_idx {
-        // Already installed — check if up-to-date (reads port from .attention_port file)
-        if entry_command_contains(&arr[idx], ".attention_port") {
+        // Already installed — check if up-to-date (uses per-instance SPLICE_ATTENTION_PORT env var)
+        if entry_command_contains(&arr[idx], "SPLICE_ATTENTION_PORT") {
             return;
         }
         // Outdated: remove so we can reinstall below
@@ -79,25 +79,30 @@ pub(crate) fn install_hook_entry(
         info!(hook_key, "Replacing outdated Splice hook");
     }
 
-    // The hook reads the port from .attention_port and token from .attention_token,
-    // both in the Splice config dir (macOS ~/Library/Application Support/Splice/,
-    // Linux ~/.config/Splice/). The # marker comment keeps the already-installed check working.
+    // The hook prefers SPLICE_ATTENTION_PORT / SPLICE_ATTENTION_TOKEN injected by Splice
+    // when spawning the PTY — this guarantees each terminal connects to its own Splice
+    // instance even when multiple instances are running simultaneously.
     //
-    // terminal_id is read directly from the SPLICE_TERMINAL_ID env var that Splice
-    // injects when spawning each PTY — no process-tree walking needed.
-    // claude_pid (os.getppid()) is stored for informational purposes only.
+    // If the env vars are absent (e.g. hook runs outside a Splice terminal), it falls back
+    // to reading the shared config files (.attention_port / .attention_token) so the hook
+    // still works in that edge case.
+    //
+    // terminal_id is read from SPLICE_TERMINAL_ID (also injected by the PTY spawner).
+    // claude_pid (os.getppid()) is sent for informational/session-persistence purposes only.
     let command = format!(
         "python3 -c \"import sys,json,urllib.request,os,os.path as op\n\
          d=json.load(sys.stdin)\n\
          d['terminal_id']=int(os.environ.get('SPLICE_TERMINAL_ID','0'))\n\
          d['claude_pid']=os.getppid()\n\
-         def rf(p):\n\
-         \ttry: return open(p).read().strip()\n\
-         \texcept: return ''\n\
-         t='';port=''\n\
-         for cd in [op.join(op.expanduser('~'),'Library','Application Support','Splice'),op.join(op.expanduser('~'),'.config','Splice')]:\n\
-         \tt=t or rf(op.join(cd,'.attention_token'))\n\
-         \tport=port or rf(op.join(cd,'.attention_port'))\n\
+         t=os.environ.get('SPLICE_ATTENTION_TOKEN','')\n\
+         port=os.environ.get('SPLICE_ATTENTION_PORT','')\n\
+         if not t or not port:\n\
+         \tdef rf(p):\n\
+         \t\ttry: return open(p).read().strip()\n\
+         \t\texcept: return ''\n\
+         \tfor cd in [op.join(op.expanduser('~'),'Library','Application Support','Splice'),op.join(op.expanduser('~'),'.config','Splice')]:\n\
+         \t\tt=t or rf(op.join(cd,'.attention_token'))\n\
+         \t\tport=port or rf(op.join(cd,'.attention_port'))\n\
          if port:\n\
          \tfor _r in range(2):\n\
          \t\ttry: urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:'+port+'/{url_path}',json.dumps(d).encode(),{{'Content-Type':'application/json','X-Splice-Token':t}}),timeout=0.5); break\n\
@@ -169,7 +174,7 @@ pub fn install_hook_at(settings_path: &std::path::Path) -> Result<(), String> {
     remove_hooks_by_marker(hooks_obj, "SessionStart", "malloc-session-hook");
     remove_hooks_by_marker(hooks_obj, "SessionStart", "splice-session-hook");
 
-    install_hook_entry(hooks_obj, "Notification", "attention", "splice-attention-hook-v3");
+    install_hook_entry(hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
     install_hook_entry(hooks_obj, "SessionStart", "session", "splice-session-hook-v4");
     info!("Splice hooks configured in ~/.claude/settings.json");
 
@@ -285,8 +290,8 @@ mod tests {
 
         assert_eq!(count_hooks_with_marker(&root, "malloc-attention-hook"), 0,
             "old malloc-attention-hook marker should be gone after install");
-        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook-v3"), 1,
-            "splice-attention-hook-v3 should be present after install");
+        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook-v4"), 1,
+            "splice-attention-hook-v4 should be present after install");
     }
 
     #[test]
@@ -322,7 +327,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         install_hook_at(&dir.path().join("settings.json")).unwrap();
         let root = read_settings(dir.path());
-        let cmd = find_hook_command(&root, "splice-attention-hook-v3").unwrap();
+        let cmd = find_hook_command(&root, "splice-attention-hook-v4").unwrap();
         assert!(cmd.contains("range(2)"), "hook must retry once on failure");
     }
 
@@ -331,7 +336,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         install_hook_at(&dir.path().join("settings.json")).unwrap();
         let root = read_settings(dir.path());
-        let cmd = find_hook_command(&root, "splice-attention-hook-v3").unwrap();
+        let cmd = find_hook_command(&root, "splice-attention-hook-v4").unwrap();
         assert!(cmd.contains("timeout="), "hook must set a request timeout");
     }
 
@@ -340,7 +345,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         install_hook_at(&dir.path().join("settings.json")).unwrap();
         let root = read_settings(dir.path());
-        let cmd = find_hook_command(&root, "splice-attention-hook-v3").unwrap();
+        let cmd = find_hook_command(&root, "splice-attention-hook-v4").unwrap();
         assert!(
             cmd.contains("Library") || cmd.contains(".config"),
             "hook must search platform config dirs",
@@ -371,7 +376,7 @@ mod tests {
     #[test]
     fn hook_removes_old_splice_attention_hook_v1() {
         // Old installations used "splice-attention-hook" (no version suffix).
-        // After the grandparent-PID fix the hook is "splice-attention-hook-v3".
+        // After the grandparent-PID fix the hook is "splice-attention-hook-v4".
         // The migration must remove the old entry so the new one takes effect.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
@@ -391,8 +396,8 @@ mod tests {
         // The old v1 marker must be gone and the new v2 marker present.
         // Note: count_hooks_with_marker uses contains(), so "splice-attention-hook"
         // matches v1, v2, v3, … entries — use the version-specific suffix to distinguish.
-        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook-v3"), 1,
-            "splice-attention-hook-v3 should be installed");
+        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook-v4"), 1,
+            "splice-attention-hook-v4 should be installed");
         // Verify no entry is the old bare marker (ends exactly without "-v2")
         let hooks = root.get("hooks").and_then(|h| h.as_object()).unwrap();
         let has_bare_marker = hooks.values()
@@ -410,9 +415,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         install_hook_at(&dir.path().join("settings.json")).unwrap();
         let root = read_settings(dir.path());
-        let cmd = find_hook_command(&root, "splice-attention-hook-v3").unwrap();
+        let cmd = find_hook_command(&root, "splice-attention-hook-v4").unwrap();
         assert!(cmd.contains("SPLICE_TERMINAL_ID"), "hook must read SPLICE_TERMINAL_ID env var");
         assert!(!cmd.contains("ps -p"), "hook must not spawn ps (process tree walk eliminated)");
+    }
+
+    #[test]
+    fn hook_script_prefers_env_vars_for_port_and_token() {
+        // Per-instance isolation: the hook must read SPLICE_ATTENTION_PORT and
+        // SPLICE_ATTENTION_TOKEN from the environment first so each terminal
+        // connects to its own Splice instance rather than the shared config files.
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        let cmd = find_hook_command(&root, "splice-attention-hook-v4").unwrap();
+        assert!(cmd.contains("SPLICE_ATTENTION_PORT"), "hook must read SPLICE_ATTENTION_PORT env var");
+        assert!(cmd.contains("SPLICE_ATTENTION_TOKEN"), "hook must read SPLICE_ATTENTION_TOKEN env var");
+        // File fallback must still be present for the edge case where the env vars are absent.
+        assert!(cmd.contains(".attention_port"), "hook must fall back to .attention_port file");
+        assert!(cmd.contains(".attention_token"), "hook must fall back to .attention_token file");
     }
 
     // -----------------------------------------------------------------------
@@ -497,22 +518,22 @@ mod tests {
 
     #[test]
     fn install_hook_entry_replaces_outdated_hook() {
-        // An entry whose command lacks `.attention_port` is considered outdated
-        // (it uses a hardcoded port instead of reading the file at connect time).
+        // An entry whose command lacks `SPLICE_ATTENTION_PORT` is considered outdated
+        // (it doesn't read the per-instance port/token from the injected env vars).
         let mut hooks_obj = serde_json::Map::new();
         let outdated = serde_json::json!({
             "matcher": "",
-            "hooks": [{"type": "command", "command": "python3 hardcoded:19876 # splice-attention-hook-v3"}]
+            "hooks": [{"type": "command", "command": "python3 hardcoded:19876 # splice-attention-hook-v4"}]
         });
         hooks_obj.insert("Notification".to_string(), serde_json::json!([outdated]));
 
-        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v3");
+        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
 
         let arr = hooks_obj["Notification"].as_array().unwrap();
         assert_eq!(arr.len(), 1, "outdated entry should be replaced, not duplicated");
         let cmd = arr[0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(cmd.contains(".attention_port"),
-            "replacement must read port from .attention_port file, not hardcode it");
+        assert!(cmd.contains("SPLICE_ATTENTION_PORT"),
+            "replacement must read port from SPLICE_ATTENTION_PORT env var");
     }
 
     #[test]
@@ -520,7 +541,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         install_hook_at(&dir.path().join("settings.json")).unwrap();
         let root = read_settings(dir.path());
-        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook-v3"), 1,
+        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook-v4"), 1,
             "attention (Notification) hook must be installed");
         assert_eq!(count_hooks_with_marker(&root, "splice-session-hook-v4"), 1,
             "session (SessionStart) hook must be installed");
@@ -528,11 +549,11 @@ mod tests {
 
     #[test]
     fn install_hook_entry_up_to_date_is_noop() {
-        // Once an up-to-date entry (with .attention_port) is present, a second
+        // Once an up-to-date entry (with SPLICE_ATTENTION_PORT) is present, a second
         // call to install_hook_entry must not add a duplicate.
         let mut hooks_obj = serde_json::Map::new();
-        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v3");
-        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v3");
+        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
+        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
         let arr = hooks_obj["Notification"].as_array().unwrap();
         assert_eq!(arr.len(), 1, "calling install_hook_entry twice must not duplicate the entry");
     }

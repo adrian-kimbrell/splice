@@ -28,6 +28,9 @@ pub struct AppState {
     pub settings_loaded: bool,
     pub allowed_roots: Vec<PathBuf>,
     pub attention_port: Option<u16>,
+    /// Auth token for this process's attention server — injected into each terminal's
+    /// environment as `SPLICE_ATTENTION_TOKEN` so hooks know which instance to call.
+    pub attention_token: Option<String>,
     pub watchers: HashMap<String, RecommendedWatcher>,
     /// terminal_id → (session_id, claude_pid)
     /// claude_pid lets us verify Claude is still running at persist time.
@@ -58,6 +61,7 @@ impl AppState {
             settings_loaded: false,
             allowed_roots,
             attention_port: None,
+            attention_token: None,
             watchers: HashMap::new(),
             terminal_claude_sessions: HashMap::new(),
             lsp_sessions: HashMap::new(),

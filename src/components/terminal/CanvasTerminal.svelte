@@ -53,6 +53,9 @@
   // Selection state
   let isSelecting = false;
   let dragScrollInterval: ReturnType<typeof setInterval> | null = null;
+  // Set to true when the window regains focus, consumed by the next mousedown so that
+  // clicking to re-focus the app doesn't inadvertently open a URL or start a selection.
+  let focusClickPending = false;
 
   // Frame metadata (updated each time a frame arrives)
   let frameFirstDisplayHistoryRow = 0;
@@ -107,10 +110,18 @@
   // ResizeObserver uses CSS content-box coordinates which don't change when only
   // document.documentElement.style.zoom changes, so it won't fire on zoom.
   // We have to re-measure explicitly.
+  // Double-RAF: WebKit needs two frames to fully apply the CSS zoom and update
+  // layout metrics. Single-RAF can fire before offsetWidth reflects the new zoom.
+  // Force-reset currentCols/currentRows so the PTY always gets a fresh SIGWINCH
+  // even when the computed cols happen to equal the pre-zoom value.
   $effect(() => {
     const _scale = settings.appearance.ui_scale; // subscribe
     if (!renderer || !containerEl) return;
-    requestAnimationFrame(() => handleResize());
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      currentCols = 0;
+      currentRows = 0;
+      handleResize();
+    }));
   });
 
   // Re-fit when pane zoom is toggled.
@@ -121,7 +132,11 @@
   $effect(() => {
     const _zoomed = ui.zoomedPaneId; // subscribe
     if (!renderer || !containerEl) return;
-    requestAnimationFrame(() => handleResize());
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      currentCols = 0;
+      currentRows = 0;
+      handleResize();
+    }));
   });
 
   // Toggle cursor blink based on settings
@@ -142,13 +157,23 @@
     return '"\'()[]{}|<>'.includes(String.fromCodePoint(cp));
   }
 
+  // Padding applied to the container (must match CSS: 0 8px 4px 8px)
+  const CANVAS_PAD_X = 16; // 8px left + 8px right
+  const CANVAS_PAD_Y = 4;  // 4px bottom
+
   function handleResize() {
     if (!containerEl || !canvasEl || !renderer || !cachedResizeTerminal) return;
-    const rect = canvasEl.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
+    // Use offsetWidth/offsetHeight (CSS layout dimensions) rather than
+    // getBoundingClientRect() (viewport coordinates). getBCR is scaled by
+    // document.documentElement.style.zoom, but canvas.style.width is set in
+    // CSS element coordinates — using getBCR here causes the canvas to be
+    // incorrectly sized and the PTY to get wrong col/row counts when zoomed.
+    const w = Math.max(1, containerEl.offsetWidth - CANVAS_PAD_X);
+    const h = Math.max(1, containerEl.offsetHeight - CANVAS_PAD_Y);
+    if (w <= 1 || h <= 1) return;
 
-    renderer.updateCanvasSize(rect.width, rect.height);
-    const { cols, rows } = renderer.calculateGridSize(rect.width, rect.height);
+    renderer.updateCanvasSize(w, h);
+    const { cols, rows } = renderer.calculateGridSize(w, h);
     if (cols > 0 && rows > 0 && (cols !== currentCols || rows !== currentRows)) {
       currentCols = cols;
       currentRows = rows;
@@ -215,9 +240,17 @@
 
     // Force full repaint when the app window regains OS focus — the GPU compositor
     // may have cleared the canvas backing store while the window was backgrounded.
-    const onWindowFocus = () => { if (renderer) renderer.rerender(); };
+    // Also set focusClickPending so the first click after refocus doesn't trigger
+    // a stale URL open (hoveredUrl may still point at the link from before blur).
+    const onWindowFocus = () => {
+      if (renderer) renderer.rerender();
+      focusClickPending = true;
+    };
+    const onWindowBlur = () => { focusClickPending = false; };
     window.addEventListener('focus', onWindowFocus);
+    window.addEventListener('blur', onWindowBlur);
     cleanupFns.push(() => window.removeEventListener('focus', onWindowFocus));
+    cleanupFns.push(() => window.removeEventListener('blur', onWindowBlur));
 
     // Listen for grid updates, throttle rendering to RAF
     let pendingFrame: Uint8Array | null = null;
@@ -404,6 +437,13 @@
       // Explicitly focus the canvas so Cmd+C keydown fires here (WKWebView doesn't
       // always auto-focus non-input elements on click even with tabindex="0").
       canvasEl!.focus();
+
+      // Consume the focus-regain click: when the user clicks to bring this window
+      // back to the front the click-through would otherwise open a stale hoveredUrl.
+      if (focusClickPending) {
+        focusClickPending = false;
+        return;
+      }
 
       const mouseMode = (modeFlags >> 3) & 0x3;
 

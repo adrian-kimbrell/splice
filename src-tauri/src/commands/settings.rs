@@ -4,6 +4,49 @@ use std::sync::Mutex;
 use tauri::State;
 use tracing::{error, info};
 
+/// Repositions the macOS traffic-light buttons to match the current UI scale.
+/// Mirrors the logic in wry's `inset_traffic_lights`.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn set_traffic_light_position(
+    window: tauri::WebviewWindow,
+    x: f64,
+    y: f64,
+) -> Result<(), String> {
+    use objc2_app_kit::{NSView, NSWindow, NSWindowButton};
+    window
+        .with_webview(move |webview| unsafe {
+            let ns_window: &NSWindow = &*webview.ns_window().cast();
+            let Some(close) = ns_window.standardWindowButton(NSWindowButton::CloseButton) else { return; };
+            let Some(miniaturize) = ns_window.standardWindowButton(NSWindowButton::MiniaturizeButton) else { return; };
+            let zoom = ns_window.standardWindowButton(NSWindowButton::ZoomButton);
+
+            let container = close.superview().unwrap().superview().unwrap();
+            let close_rect = NSView::frame(&close);
+            let bar_height = close_rect.size.height + y;
+            let mut bar_rect = NSView::frame(&container);
+            bar_rect.size.height = bar_height;
+            bar_rect.origin.y = ns_window.frame().size.height - bar_height;
+            container.setFrame(bar_rect);
+
+            let spacing = NSView::frame(&miniaturize).origin.x - close_rect.origin.x;
+            let mut buttons = vec![close, miniaturize];
+            if let Some(z) = zoom { buttons.push(z); }
+            for (i, btn) in buttons.into_iter().enumerate() {
+                let mut r = NSView::frame(&btn);
+                r.origin.x = x + i as f64 * spacing;
+                btn.setFrameOrigin(r.origin);
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub fn set_traffic_light_position(_window: tauri::WebviewWindow, _x: f64, _y: f64) -> Result<(), String> {
+    Ok(())
+}
+
 fn settings_path() -> std::path::PathBuf {
     let dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))

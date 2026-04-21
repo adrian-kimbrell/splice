@@ -40,7 +40,7 @@
   const leftSidebarHidden = $derived(
     !ui.zenMode && (explorerOnLeft ? !ui.explorerVisible : !ui.workspacesVisible)
   );
-  const trafficOffset = $derived(isFirst && leftSidebarHidden ? "68px" : "0px");
+  const trafficOffset = "0px";
 
   let dragging = $state(false);
   let containerEl = $state<HTMLDivElement>();
