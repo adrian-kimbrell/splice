@@ -4,6 +4,7 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { fileClipboard } from "../../lib/stores/file-clipboard.svelte";
+  import { getFileGitStatus, getDirGitStatus, type GitStatusKind } from "../../lib/stores/git.svelte";
   import { untrack, setContext } from "svelte";
 
   // Provide per-workspace expanded-path tracking via context so that FileTreeItem
@@ -12,6 +13,18 @@
     has: (path: string) => workspaceManager.activeWorkspace?.expandedPaths?.has(path) ?? false,
     add: (path: string) => { workspaceManager.activeWorkspace?.expandedPaths?.add(path); },
     delete: (path: string) => { workspaceManager.activeWorkspace?.expandedPaths?.delete(path); },
+  });
+
+  // Provide git status lookups via context so FileTreeItem can color entries.
+  setContext("gitStatus", {
+    getFileStatus: (path: string): GitStatusKind | null => {
+      const wsId = workspaceManager.activeWorkspaceId;
+      return wsId ? getFileGitStatus(wsId, path) : null;
+    },
+    getDirStatus: (path: string): GitStatusKind | null => {
+      const wsId = workspaceManager.activeWorkspaceId;
+      return wsId ? getDirGitStatus(wsId, path) : null;
+    },
   });
 
   let {

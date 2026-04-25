@@ -1,3 +1,27 @@
+/**
+ * Drag-and-drop system for editor tabs and terminal panes across split panes.
+ *
+ * Lifecycle: `beginDrag(data, mouseEvent)` captures the drag payload and installs
+ * global mousemove/mouseup listeners. Movement beyond a 4px threshold activates
+ * the visual drag ghost. During the drag, `findPaneAt` hit-tests registered pane
+ * elements and `computeZone` divides each pane into five drop zones:
+ * - left/right/top/bottom (outer 25% margins) -- split the target pane
+ * - center -- move the tab into the target pane without splitting
+ *
+ * On mouseup, the registered `dropCallback` fires with the drag data, target pane
+ * ID, and computed zone. The callback (set via `setDropCallback`) is responsible
+ * for performing the actual pane/tab rearrangement in the layout store.
+ *
+ * Panes self-register via `registerPane`/`unregisterPane` on mount/destroy.
+ * An optional content element (`registerPaneContent`) allows hit-testing against
+ * the editor area only, excluding the tab bar.
+ *
+ * @exports beginDrag, endDrag - Start/cancel a drag operation
+ * @exports setDropCallback - Register the handler for completed drops
+ * @exports registerPane, unregisterPane - Pane lifecycle for hit testing
+ * @exports getDragActive, getHoverZone, isDragging - Reactive getters for UI overlay rendering
+ */
+
 export interface TabDragData {
   filePath: string;
   fileName: string;

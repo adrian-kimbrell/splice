@@ -117,7 +117,10 @@ fn read_windows_registry() -> WindowsRegistry {
         Ok(d) => d,
         Err(_) => return WindowsRegistry::default(),
     };
-    serde_json::from_str::<WindowsRegistry>(&data).unwrap_or_default()
+    serde_json::from_str::<WindowsRegistry>(&data).unwrap_or_else(|e| {
+        tracing::debug!("Corrupted windows registry JSON, resetting: {}", e);
+        WindowsRegistry::default()
+    })
 }
 
 fn write_windows_registry(registry: &WindowsRegistry) -> Result<(), String> {

@@ -1,3 +1,18 @@
+/**
+ * Recently opened projects (workspace roots) tracking, persisted via Rust IPC commands.
+ *
+ * `loadRecentProjects()` fetches the list from the Rust backend on startup.
+ * `addRecentProject(path)` pushes a project to the front of the list (deduped),
+ * capped at 20 entries, and persists the update to disk via IPC.
+ *
+ * The `recentProjects` array is reactive and consumed by the welcome page
+ * and the "Open Recent" command palette entries.
+ *
+ * @exports recentProjects - Reactive array of recent project paths (most recent first)
+ * @exports loadRecentProjects - Fetch from Rust backend (call once on startup)
+ * @exports addRecentProject - Track a newly opened project
+ */
+
 export const recentProjects = $state<string[]>([]);
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;

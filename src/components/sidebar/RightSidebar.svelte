@@ -131,12 +131,18 @@
     ctxMenuEl.style.left = e.clientX + "px";
     // Position menu away from the sidebar edge
     ctxMenuEl.style.transform = side === "right" ? "translateX(-100%)" : "translateX(0)";
-    ctxMenuEl.innerHTML = items.map(item =>
-      `<button class="split-dropdown-item" data-action="${item.action}">
-        <i class="bi ${item.icon}"></i>
-        <span>${item.label}</span>
-      </button>`
-    ).join("");
+    for (const item of items) {
+      const btn = document.createElement("button");
+      btn.className = "split-dropdown-item";
+      btn.dataset.action = item.action;
+      const icon = document.createElement("i");
+      icon.className = `bi ${item.icon}`;
+      const span = document.createElement("span");
+      span.textContent = item.label;
+      btn.appendChild(icon);
+      btn.appendChild(span);
+      ctxMenuEl.appendChild(btn);
+    }
     ctxMenuEl.addEventListener("click", (ev) => {
       const btn = (ev.target as HTMLElement).closest<HTMLElement>("[data-action]");
       if (!btn) return;
@@ -199,7 +205,7 @@
 
 <div
   class="bg-sidebar flex flex-col overflow-hidden"
-  style="grid-column: {side === 'right' ? 5 : 1}; grid-row: 1; border-radius: var(--radius-lg); box-shadow: 0 4px 24px rgba(0,0,0,0.35); overflow: hidden; position: relative;"
+  style="grid-column: {side === 'right' ? 5 : 1}; grid-row: 1; border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow: hidden; position: relative;"
   role="complementary"
   aria-label="Workspaces"
   oncontextmenu={handleContextMenu}
@@ -214,7 +220,7 @@
     <div class="resize-strip" data-side={side} onmousedown={onResizeStart}></div>
   {/if}
 
-  <div class="flex-1 overflow-y-auto flex flex-col" style="{compact ? '' : side === 'left' ? 'padding-right: 10px;' : 'padding-left: 10px;'}" bind:this={listEl}>
+  <div class="flex-1 overflow-y-auto min-h-0 flex flex-col" style="{compact ? '' : side === 'left' ? 'padding-right: 10px;' : 'padding-left: 10px;'}" bind:this={listEl}>
     {#each wsList as workspace, i (workspace.id)}
       {#if isDraggingActive && dragOverIndex === i}
         <div class="ws-drop-indicator"></div>
@@ -242,6 +248,20 @@
           <p class="text-xs text-txt-dim mb-3">No workspaces open.<br />Click + to create one.</p>
         {/if}
       </div>
+    {/if}
+  </div>
+
+  <!-- Splice logo lockup at bottom -->
+  <div class="shrink-0 flex items-center justify-center gap-1.5 py-2.5 opacity-20">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="14" height="14" fill="none">
+      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2"/>
+      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2" transform="rotate(60 16 16)"/>
+      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2" transform="rotate(-60 16 16)"/>
+      <circle cx="16" cy="16" r="2.5" fill="white"/>
+      <path d="M18 4 L11 15 L15.5 15 L14 28 L21 17 L16.5 17 Z" fill="white"/>
+    </svg>
+    {#if !compact}
+      <span class="text-white text-[11px] font-medium tracking-wide">Splice</span>
     {/if}
   </div>
 </div>
@@ -272,6 +292,6 @@
   .resize-strip[data-side="left"]::after { right: 0; }
 
   .resize-strip:hover::after {
-    background: rgba(255,255,255,0.15);
+    background: var(--overlay-lg);
   }
 </style>

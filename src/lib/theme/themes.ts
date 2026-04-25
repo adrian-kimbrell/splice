@@ -1,3 +1,17 @@
+/**
+ * Theme system with lazy-loaded colour definitions for the Splice editor.
+ *
+ * Themes are split into three Vite chunks (builtin / popular / extended)
+ * via {@link themeGroup}, so only the active chunk is fetched at runtime.
+ * Custom (user-defined) themes from {@link customThemeMap} take priority.
+ *
+ * {@link applyTheme} sets CSS custom properties (`--bg-editor`, `--text`,
+ * etc.) on `document.documentElement` and dispatches a `splice:theme-applied`
+ * event so that canvas-based components (terminal, image viewer) can
+ * synchronise their rendering.
+ */
+import { customThemeMap } from "./custom-themes.svelte";
+
 export interface ThemeColors {
   "bg-editor": string;
   "bg-sidebar": string;
@@ -118,6 +132,22 @@ const themeGroup: Record<string, GroupLoader> = {
 export const themeNames: string[] = Object.keys(themeGroup);
 
 export async function applyTheme(name: string): Promise<void> {
+  // Check custom themes first
+  if (customThemeMap[name]) {
+    const root = document.documentElement;
+    for (const [key, value] of Object.entries(customThemeMap[name])) {
+      root.style.setProperty(`--${key}`, value as string);
+    }
+    window.dispatchEvent(new CustomEvent('splice:theme-applied', {
+      detail: {
+        bg: customThemeMap[name]['bg-editor'],
+        fg: customThemeMap[name]['text'],
+        accent: customThemeMap[name]['accent'],
+      }
+    }));
+    return;
+  }
+
   const loader = themeGroup[name];
   if (!loader) return;
   const group = await loader();

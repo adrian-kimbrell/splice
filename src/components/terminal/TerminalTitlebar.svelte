@@ -122,7 +122,7 @@
   {#if notification}
     <span
       class="attention-bell shrink-0 mr-2 flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
-      style="color: {notification.type === 'permission' ? 'var(--ansi-red)' : 'var(--ansi-yellow)'}; background: {notification.type === 'permission' ? 'rgba(224,108,117,0.12)' : 'rgba(229,192,123,0.12)'};"
+      style="color: {notification.type === 'permission' ? 'var(--ansi-red)' : 'var(--ansi-yellow)'}; background: {notification.type === 'permission' ? 'var(--git-deleted-bg)' : 'var(--git-modified-bg)'};"
     >
       <i class="bi bi-claude" style="font-size: var(--ui-xs);"></i>
       {notification.type === 'permission' ? 'permission' : 'waiting'}

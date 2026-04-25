@@ -240,10 +240,12 @@ class WorkspaceManager {
     // Grant Rust access to this directory, start watching it, then load the tree
     import("../ipc/commands").then(async ({ addAllowedRoot, watchPath }) => {
       await addAllowedRoot(rootPath);
-      watchPath(rootPath).catch(() => {});
-    }).finally(() => {
+      watchPath(rootPath).catch(e => console.warn("Failed to watch path:", rootPath, e));
+    }).finally(async () => {
       this.loadFileTree(wsId);
       this.fetchGitBranch(wsId);
+      const { refreshGitStatus } = await import("./git.svelte");
+      refreshGitStatus(wsId, rootPath);
     });
 
     // Persist so a force-reload keeps the updated root path
@@ -293,10 +295,12 @@ class WorkspaceManager {
     // Grant Rust access to this directory, start watching it, then load file tree and git branch
     import("../ipc/commands").then(async ({ addAllowedRoot, watchPath }) => {
       await addAllowedRoot(rootPath);
-      watchPath(rootPath).catch(() => {});
-    }).finally(() => {
+      watchPath(rootPath).catch(e => console.warn("Failed to watch path:", rootPath, e));
+    }).finally(async () => {
       this.loadFileTree(id);
       this.fetchGitBranch(id);
+      const { refreshGitStatus } = await import("./git.svelte");
+      refreshGitStatus(id, rootPath);
     });
 
     // Persist immediately so a force-reload doesn't lose the workspace
@@ -340,7 +344,7 @@ class WorkspaceManager {
       if (ws2.layout && treeDepth(ws2.layout) >= MAX_SPLIT_DEPTH) {
         console.warn("Split depth limit reached after spawn, killing orphaned terminal");
         const { killTerminal } = await import("../ipc/commands");
-        killTerminal(terminalId).catch(() => {});
+        killTerminal(terminalId).catch(e => console.warn("Failed to kill terminal:", terminalId, e));
         return null;
       }
 
@@ -387,17 +391,17 @@ class WorkspaceManager {
       // Disconnect SSH session if remote
       if (ws.sshConfig) {
         import("../ipc/commands").then(({ sshDisconnect }) => {
-          sshDisconnect(id).catch(() => {});
+          sshDisconnect(id).catch(e => console.warn("Failed to disconnect SSH:", id, e));
         });
       }
 
       // Unwatch the workspace directory and all open file watchers (local only)
       if (!ws.sshConfig && (ws.rootPath || ws.openFiles.length > 0)) {
         import("../ipc/commands").then(({ unwatchPath }) => {
-          if (ws.rootPath) unwatchPath(ws.rootPath!).catch(() => {});
+          if (ws.rootPath) unwatchPath(ws.rootPath!).catch(e => console.warn("Failed to unwatch path:", e));
           for (const file of ws.openFiles) {
             if (!file.path.startsWith("untitled-")) {
-              unwatchPath(file.path).catch(() => {});
+              unwatchPath(file.path).catch(e => console.warn("Failed to unwatch file:", file.path, e));
             }
           }
         });
@@ -416,9 +420,9 @@ class WorkspaceManager {
         try {
           const { killTerminal, deleteWorkspace } = await import("../ipc/commands");
           for (const tid of ws.terminalIds) {
-            killTerminal(tid).catch(() => {});
+            killTerminal(tid).catch(e => console.warn("Failed to kill terminal:", tid, e));
           }
-          await deleteWorkspace(id).catch(() => {});
+          await deleteWorkspace(id).catch(e => console.warn("Failed to delete workspace config:", id, e));
         } catch (_) {}
       }
     }
@@ -444,6 +448,65 @@ class WorkspaceManager {
     const ws = this.activeWorkspace;
     if (!ws) return "";
     return ensureEditorPane(ws, paneId, filePaths);
+  }
+
+  openDiffInWorkspace(filePath: string, oldContent: string, newContent: string, staged: boolean): void {
+    const ws = this.activeWorkspace;
+    if (!ws) return;
+
+    const fileName = filePath.split("/").pop() ?? filePath;
+
+    // Reuse existing diff pane for the same file+staged combination
+    for (const [id, pane] of Object.entries(ws.panes)) {
+      if (pane.kind === "diff" && pane.diffFilePath === filePath && pane.diffStaged === staged) {
+        pane.diffOldContent = oldContent;
+        pane.diffNewContent = newContent;
+        pane.diffPreview = false;
+        ws.activePaneId = id;
+        return;
+      }
+    }
+
+    // Reuse preview diff pane if one exists — replace its content in-place
+    for (const [id, pane] of Object.entries(ws.panes)) {
+      if (pane.kind === "diff" && pane.diffPreview) {
+        pane.title = fileName;
+        pane.diffFilePath = filePath;
+        pane.diffOldContent = oldContent;
+        pane.diffNewContent = newContent;
+        pane.diffStaged = staged;
+        pane.diffPreview = true;
+        ws.activePaneId = id;
+        return;
+      }
+    }
+
+    // Create new preview diff pane
+    const paneId = `diff-${crypto.randomUUID().slice(0, 8)}`;
+    const config: PaneConfig = {
+      id: paneId,
+      kind: "diff",
+      title: fileName,
+      diffFilePath: filePath,
+      diffOldContent: oldContent,
+      diffNewContent: newContent,
+      diffStaged: staged,
+      diffPreview: true,
+    };
+    ws.panes[paneId] = config;
+
+    // Add to layout — split next to active pane, or any leaf if active is unavailable
+    if (!ws.layout) {
+      ws.layout = { type: "leaf", paneId };
+    } else {
+      const splitTarget = ws.activePaneId ?? findFirstLeaf(ws.layout);
+      if (splitTarget) {
+        const result = splitNodeInTree(ws.layout, splitTarget, paneId, "horizontal");
+        if (result.found) ws.layout = result.tree;
+      }
+    }
+    ws.activePaneId = paneId;
+    if (this.activeWorkspaceId) this.debouncedPersistWorkspace(this.activeWorkspaceId);
   }
 
   closeFileInWorkspace(path: string, paneId?: string): void {
@@ -930,7 +993,8 @@ class WorkspaceManager {
       this.loadFileTree(ws.id);
       this.fetchGitBranch(ws.id);
       if (ws.rootPath) {
-        import("../ipc/commands").then(({ watchPath }) => watchPath(ws.rootPath!).catch(() => {}));
+        import("../ipc/commands").then(({ watchPath }) => watchPath(ws.rootPath!).catch(e => console.warn("Failed to watch restored path:", ws.rootPath, e)));
+        import("./git.svelte").then(({ refreshGitStatus }) => refreshGitStatus(ws.id, ws.rootPath!));
       }
     }
     return result.resumeCount;
@@ -942,10 +1006,18 @@ class WorkspaceManager {
     await fetchGitBranchImpl(ws);
   }
 
-  startGitBranchPolling(): () => void {
-    const interval = setInterval(() => {
+  startGitPolling(): () => void {
+    const interval = setInterval(async () => {
+      if (document.hidden) return;
       const wsId = this.activeWorkspaceId;
-      if (wsId) this.fetchGitBranch(wsId);
+      if (wsId) {
+        this.fetchGitBranch(wsId);
+        const ws = this.workspaces[wsId];
+        if (ws?.rootPath) {
+          const { refreshGitStatus } = await import("./git.svelte");
+          refreshGitStatus(wsId, ws.rootPath);
+        }
+      }
     }, 10000);
     return () => clearInterval(interval);
   }

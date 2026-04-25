@@ -1,3 +1,17 @@
+/**
+ * Global keyboard shortcut handler for the Splice editor.
+ *
+ * Registers a single `keydown` listener on `document` that routes shortcuts
+ * to workspace, UI, and editor actions. Supports chord bindings (Cmd+K -> X),
+ * spatial pane navigation via a tree-walking algorithm ({@link findNeighbor},
+ * {@link nearestLeaf}), zen mode with fullscreen toggle, pane zoom, tab
+ * cycling by index, UI scale adjustment, and dev-only screenshot utilities.
+ *
+ * Inside terminal panes only `Cmd` (metaKey) activates shortcuts so that
+ * `Ctrl+key` passes through to the shell.
+ *
+ * {@link initKeybindings} returns a cleanup function that removes the listener.
+ */
 import { ui } from "../stores/ui.svelte";
 import { workspaceManager } from "../stores/workspace.svelte";
 import { settings, debouncedSaveSettings } from "../stores/settings.svelte";
@@ -45,8 +59,10 @@ function buildPath(node: LayoutNode, paneId: string, path: number[]): boolean {
   return false;
 }
 
-/** Walk into a subtree, picking the leaf nearest to the edge we're coming from. */
-export function nearestLeaf(node: LayoutNode, dir: NavDirection): string {
+/** Walk into a subtree, picking the leaf nearest to the edge we're coming from.
+ *  `hint` provides the source pane's remaining path indices so perpendicular
+ *  splits prefer the child at the same vertical/horizontal level as the source. */
+export function nearestLeaf(node: LayoutNode, dir: NavDirection, hint?: number[]): string {
   if (node.type === "leaf") return node.paneId;
   const isHoriz = dir === "left" || dir === "right";
   const splitIsAligned = (isHoriz && node.direction === "horizontal") ||
@@ -54,10 +70,12 @@ export function nearestLeaf(node: LayoutNode, dir: NavDirection): string {
   if (splitIsAligned) {
     // Pick the near side: entering from right→take children[1], from left→take children[0], etc.
     const nearChild = (dir === "right" || dir === "down") ? 0 : 1;
-    return nearestLeaf(node.children[nearChild], dir);
+    return nearestLeaf(node.children[nearChild], dir, hint);
   }
-  // Perpendicular split — pick first child (consistent default)
-  return nearestLeaf(node.children[0], dir);
+  // Perpendicular split — use hint to stay at the same level as the source pane
+  const pick = hint?.length ? hint.shift()! : 0;
+  const child = Math.min(pick, 1);
+  return nearestLeaf(node.children[child], dir, hint);
 }
 
 /** Find the spatial neighbor of a pane in the given direction. */
@@ -83,7 +101,8 @@ export function findNeighbor(root: LayoutNode, paneId: string, dir: NavDirection
   for (let i = ancestors.length - 1; i >= 0; i--) {
     const { node: split, childIdx } = ancestors[i];
     if (split.direction === splitDir && childIdx === fromChild) {
-      return nearestLeaf(split.children[1 - fromChild], dir);
+      const hint = path.slice(i + 1);
+      return nearestLeaf(split.children[1 - fromChild], dir, hint);
     }
   }
 

@@ -1,3 +1,19 @@
+/**
+ * Recently opened files tracking, persisted via Rust IPC commands.
+ *
+ * `loadRecentFiles()` fetches the list from the Rust backend on startup.
+ * `addRecentFile(path)` pushes a file to the front of the list (deduped),
+ * capped at 50 entries, and persists the update to disk via IPC.
+ * Untitled (unsaved) buffers are excluded from tracking.
+ *
+ * The `recentFiles` array is reactive and consumed by the welcome page
+ * and command palette.
+ *
+ * @exports recentFiles - Reactive array of recent file paths (most recent first)
+ * @exports loadRecentFiles - Fetch from Rust backend (call once on startup)
+ * @exports addRecentFile - Track a newly opened file
+ */
+
 export const recentFiles = $state<string[]>([]);
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;

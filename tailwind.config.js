@@ -19,6 +19,24 @@ export default {
         "txt-bright": "var(--text-bright)",
         accent: "var(--accent)",
         "tab-indicator": "var(--tab-indicator)",
+        "git-added": "var(--git-added)",
+        "git-modified": "var(--git-modified)",
+        "git-deleted": "var(--git-deleted)",
+      },
+      boxShadow: {
+        // Intentionally override Tailwind defaults with our design tokens
+        sm: "var(--shadow-sm)",
+        md: "var(--shadow-md)",
+        lg: "var(--shadow-lg)",
+        xl: "var(--shadow-xl)",
+      },
+      transitionDuration: {
+        fast: "var(--duration-fast)",
+        base: "var(--duration-base)",
+        slow: "var(--duration-slow)",
+      },
+      transitionTimingFunction: {
+        default: "var(--ease-default)",
       },
     },
   },

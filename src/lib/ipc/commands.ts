@@ -178,6 +178,23 @@ export async function updateSettings(settings: Settings): Promise<void> {
   return invoke("update_settings", { settings });
 }
 
+export interface CustomTheme {
+  name: string;
+  colors: Record<string, string>;
+}
+
+export async function listCustomThemes(): Promise<CustomTheme[]> {
+  return invoke<CustomTheme[]>("list_custom_themes");
+}
+
+export async function importTheme(filePath: string): Promise<CustomTheme> {
+  return invoke<CustomTheme>("import_theme", { filePath });
+}
+
+export async function deleteCustomTheme(name: string): Promise<void> {
+  return invoke<void>("delete_custom_theme", { name });
+}
+
 export async function setTrafficLightPosition(x: number, y: number): Promise<void> {
   return invoke("set_traffic_light_position", { x, y });
 }
@@ -202,6 +219,59 @@ export interface SearchResult {
 
 export async function getGitBranch(path: string): Promise<string> {
   return invoke("get_git_branch", { path });
+}
+
+// --- Git commands ---
+
+export interface GitFileStatus {
+  path: string;
+  index_status: string;
+  worktree_status: string;
+}
+
+export interface GitDiffContents {
+  old_content: string;
+  new_content: string;
+  is_new: boolean;
+  is_deleted: boolean;
+}
+
+export interface GitLogEntry {
+  hash: string;
+  short_hash: string;
+  author: string;
+  timestamp: number;
+  message: string;
+  parents: string[];
+  refs: string;
+}
+
+export async function gitStatus(path: string): Promise<GitFileStatus[]> {
+  return invoke("git_status", { path });
+}
+
+export async function gitStage(path: string, filePaths: string[]): Promise<void> {
+  return invoke("git_stage", { path, filePaths });
+}
+
+export async function gitUnstage(path: string, filePaths: string[]): Promise<void> {
+  return invoke("git_unstage", { path, filePaths });
+}
+
+export async function gitCommit(path: string, message: string): Promise<string> {
+  return invoke("git_commit", { path, message });
+}
+
+export async function gitDiscard(path: string, filePaths: string[]): Promise<void> {
+  return invoke("git_discard", { path, filePaths });
+}
+
+export async function gitDiffFile(path: string, filePath: string, staged: boolean): Promise<GitDiffContents> {
+  return invoke("git_diff_file", { path, filePath, staged });
+}
+
+export async function gitLog(path: string, maxCount?: number): Promise<GitLogEntry[]> {
+  return invoke("git_log", { path, maxCount: maxCount ?? null });
 }
 
 export async function readFileBase64(path: string): Promise<string> {

@@ -75,7 +75,7 @@
   <!-- Backdrop -->
   <div
     class="fixed inset-0 z-50 flex items-center justify-center"
-    style="background: rgba(0,0,0,0.5)"
+    style="background: var(--backdrop-sm)"
     role="dialog"
     aria-modal="true"
     aria-label="Send to Claude"

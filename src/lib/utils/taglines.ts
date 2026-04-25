@@ -1,3 +1,9 @@
+/**
+ * Collection of humorous taglines displayed on the welcome screen.
+ *
+ * {@link getRandomTagline} selects one at random each time the welcome
+ * view mounts. Taglines are developer-culture jokes and editor in-jokes.
+ */
 export const taglines: string[] = [
   "A modern code editor",
   "Where bugs go to die",

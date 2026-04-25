@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 use tracing::{info, warn};
 
 use crate::state::AppState;
@@ -43,11 +44,40 @@ pub(crate) async fn handle_attention_request(app: &AppHandle, json: serde_json::
         };
     }
 
-    let event = AttentionEvent { terminal_id, notification_type, message };
+    let event = AttentionEvent { terminal_id, notification_type: notification_type.clone(), message: message.clone() };
     if let Err(e) = app.emit("attention:notify", &event) {
         warn!("Failed to emit attention:notify: {}", e);
     } else {
         info!(terminal_id, "Emitted attention:notify");
+    }
+
+    // Fire a macOS notification when the window is not focused and the setting is enabled
+    let notifications_enabled = {
+        let state = app.state::<Mutex<AppState>>();
+        state.lock().map(|s| s.settings.general.claude_notifications).unwrap_or(false)
+    };
+    if notifications_enabled {
+        let window_focused = app
+            .get_webview_window("main")
+            .and_then(|w| w.is_focused().ok())
+            .unwrap_or(false);
+        if !window_focused {
+            let body = if message.is_empty() {
+                match notification_type.as_str() {
+                    "idle" => "Claude is waiting for your input.".to_string(),
+                    _ => format!("Claude needs your attention ({notification_type})."),
+                }
+            } else {
+                message.clone()
+            };
+            if let Err(e) = app.notification().builder()
+                .title("Claude")
+                .body(&body)
+                .show()
+            {
+                warn!("Failed to send notification: {}", e);
+            }
+        }
     }
 }
 

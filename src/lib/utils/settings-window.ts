@@ -1,4 +1,12 @@
-/** Opens the settings window (singleton — focuses if already open). */
+/**
+ * Opens a singleton Tauri WebviewWindow for the Settings UI.
+ *
+ * If the "settings" window already exists it is focused rather than
+ * duplicated. The window loads `/settings.html` as a separate entry point.
+ * No-ops gracefully outside a Tauri environment (e.g. during SSR or tests).
+ */
+
+/** Opens the settings window (singleton -- focuses if already open). */
 export async function openSettingsWindow(): Promise<void> {
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   if (!isTauri) return;

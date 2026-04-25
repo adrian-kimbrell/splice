@@ -1,3 +1,15 @@
+//! Tauri commands for reading and writing application settings.
+//!
+//! Settings are persisted to `~/.config/Splice/settings.json` (or the platform
+//! equivalent via `dirs::config_dir`). The file is loaded lazily on the first
+//! `get_settings` call and cached in [`AppState`] for subsequent reads.
+//! `update_settings` writes through to disk using atomic rename to prevent
+//! corruption on crash.
+//!
+//! Also exposes `set_traffic_light_position` for repositioning the macOS
+//! window-control buttons (close/minimize/zoom) to match the editor's custom
+//! title bar layout. This is a no-op on non-macOS platforms.
+
 use crate::state::AppState;
 use crate::workspace::layout::Settings;
 use std::sync::Mutex;
@@ -21,7 +33,7 @@ pub fn set_traffic_light_position(
             let Some(miniaturize) = ns_window.standardWindowButton(NSWindowButton::MiniaturizeButton) else { return; };
             let zoom = ns_window.standardWindowButton(NSWindowButton::ZoomButton);
 
-            let container = close.superview().unwrap().superview().unwrap();
+            let Some(container) = close.superview().and_then(|v| v.superview()) else { return; };
             let close_rect = NSView::frame(&close);
             let bar_height = close_rect.size.height + y;
             let mut bar_rect = NSView::frame(&container);

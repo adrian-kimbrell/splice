@@ -1,3 +1,20 @@
+/**
+ * Toast notification system for transient user-facing messages.
+ *
+ * Call `pushToast(message, kind)` to display a notification. Toasts auto-dismiss
+ * after 4 seconds by default. Passing an `action` (button label + callback) disables
+ * auto-dismiss so the user can interact. A custom `duration` overrides both defaults;
+ * use -1 for indefinite toasts.
+ *
+ * The `toasts` array is reactive (Svelte 5 $state) and rendered by the ToastContainer
+ * component. Each toast gets a unique sequential ID for removal targeting.
+ *
+ * @exports toasts - Reactive array of active toast notifications
+ * @exports pushToast - Add a toast (auto-generates ID and schedules removal)
+ * @exports removeToast - Manually dismiss a toast by ID
+ * @exports Toast - Toast data interface
+ */
+
 export interface Toast {
   id: string;
   message: string;

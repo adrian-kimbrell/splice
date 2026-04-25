@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { FileEntry } from "../../lib/stores/files.svelte";
+  import type { GitStatusKind } from "../../lib/stores/git.svelte";
   import { getFileIcon } from "../../lib/utils/file-icons";
   import FileTreeItem from "./FileTreeItem.svelte";
   import { getContext } from "svelte";
@@ -8,6 +9,9 @@
 
   interface ExpandedCtx { has(p: string): boolean; add(p: string): void; delete(p: string): void; }
   const expandedCtx = getContext<ExpandedCtx | undefined>("expandedPaths");
+
+  interface GitStatusCtx { getFileStatus(p: string): GitStatusKind | null; getDirStatus(p: string): GitStatusKind | null; }
+  const gitStatusCtx = getContext<GitStatusCtx | undefined>("gitStatus");
 
   let {
     entry,
@@ -72,6 +76,22 @@
   const icon = $derived(entry.is_dir ? null : getFileIcon(entry.name));
   const isSelected = $derived(selectedPath === entry.path);
   const isFocused = $derived(focusedPath === entry.path);
+
+  const GIT_COLOR_MAP: Record<string, string> = {
+    modified: "git-modified",
+    added: "git-added",
+    deleted: "git-deleted",
+    untracked: "git-untracked",
+    renamed: "git-added",
+    conflict: "git-conflict",
+  };
+  const gitColorClass = $derived.by(() => {
+    if (!gitStatusCtx) return "";
+    const status = entry.is_dir
+      ? gitStatusCtx.getDirStatus(entry.path)
+      : gitStatusCtx.getFileStatus(entry.path);
+    return status ? GIT_COLOR_MAP[status] ?? "" : "";
+  });
 
   let hasAutoExpanded = false;
   $effect(() => {
@@ -229,7 +249,7 @@
       class:bi-folder2-open={expanded}
       class:bi-folder2={!expanded}
     ></i>
-    <span class="text-txt-bright font-medium whitespace-nowrap" title={entry.name}>{entry.name}</span>
+    <span class="font-medium whitespace-nowrap {gitColorClass || 'text-txt-bright'}" title={entry.name}>{entry.name}</span>
     {#if loading}
       <span class="text-txt-dim text-[10px] ml-1">...</span>
     {/if}
@@ -238,7 +258,7 @@
     <i
       class="bi {icon?.icon} tree-file-icon {icon?.cls} text-lg mr-1.5 shrink-0"
     ></i>
-    <span class="whitespace-nowrap" title={entry.name}>{entry.name}</span>
+    <span class="whitespace-nowrap {gitColorClass}" title={entry.name}>{entry.name}</span>
   {/if}
 </div>
 

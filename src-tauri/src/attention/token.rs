@@ -56,6 +56,24 @@ pub fn load_or_create_token() -> String {
     if let Some(parent) = token_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
+    // Write token with restrictive permissions (owner-only) to prevent
+    // other local users from reading the authentication secret.
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt;
+        if let Ok(mut f) = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&token_path)
+        {
+            let _ = f.write_all(token.as_bytes());
+        }
+    }
+    #[cfg(not(unix))]
     std::fs::write(&token_path, &token).ok();
     token
 }

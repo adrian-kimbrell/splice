@@ -1,4 +1,31 @@
 <script lang="ts">
+  /**
+   * CanvasTerminal.svelte -- HTML5 Canvas-based terminal emulator frontend.
+   *
+   * Receives binary frames from the Rust backend via the onTerminalGrid event. Each frame
+   * has a 20-byte header (cols, rows, cursor pos, mode flags, scroll metadata) followed by
+   * a flat array of cells (CELL_SIZE bytes each: codepoint + fg/bg/attrs). Frames are
+   * rendered at most once per requestAnimationFrame via TerminalRenderer.
+   *
+   * Font/DPI: TerminalRenderer handles devicePixelRatio scaling and font measurement.
+   * Font family and size come from settings.terminal.*. The canvas CSS size uses
+   * offsetWidth/offsetHeight (not getBoundingClientRect) to stay correct under UI zoom.
+   *
+   * Resize: A ResizeObserver (RAF-batched) calls handleResize(), which updates the canvas
+   * dimensions and sends a PTY resize IPC when cols/rows change. Extra $effects force
+   * remeasure on UI zoom change and pane zoom toggle (ResizeObserver misses those).
+   *
+   * Selection: mousedown starts tracking, mousemove extends, mouseup finalizes. Double-click
+   * selects a word (scanning across soft-wrapped rows via frame cell data). Triple-click
+   * selects the full line. Shift+click extends. Drag past edges auto-scrolls.
+   * extractSelectionText() fetches the actual text from Rust for clipboard copy.
+   *
+   * Mouse protocol: When the running program enables mouse reporting (mode flags bits 3-4),
+   * mouse events are forwarded as SGR or X10 escape sequences instead of doing selection.
+   *
+   * Scroll: Wheel events accumulate fractional deltas and flush whole-line scrolls per RAF.
+   * In mouse-protocol mode, wheel events become button 64/65 sequences.
+   */
   import { onMount, onDestroy } from "svelte";
   import { TerminalRenderer, HEADER_SIZE, CELL_SIZE } from "../../lib/terminal/renderer";
   import type { TerminalSearchMatch } from "../../lib/ipc/commands";
@@ -8,6 +35,7 @@
   import { keyToBytes } from "../../lib/terminal/keyboard";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { showContextMenu } from "../../lib/utils/context-menu";
+  import { savedPrompts } from "../../lib/stores/prompts.svelte";
 
   function parseHexColor(hex: string): [number, number, number] | null {
     const h = hex.trim().replace('#', '');
@@ -759,6 +787,18 @@
       const hasSelection = !!(renderer?.selectionStart && renderer?.selectionEnd);
 
       showContextMenu([
+        {
+          label: "Prompts",
+          submenu: [
+            ...savedPrompts.map(p => ({
+              label: p.name,
+              action: () => writeToTerminal(terminalId, new TextEncoder().encode(p.text)),
+            })),
+            ...(savedPrompts.length > 0 ? ["sep" as const] : []),
+            { label: "Add Prompt...", action: () => { ui.addPromptModal = true; } },
+          ],
+        },
+        "sep",
         { label: "New Terminal", shortcut: "⌘N", action: () =>
             workspaceManager.spawnTerminalInWorkspace()
         },

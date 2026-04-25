@@ -1,8 +1,33 @@
+/**
+ * Settings persistence bridge between Svelte 5 reactive state and Rust-side file I/O.
+ *
+ * On startup, `initSettings()` loads settings from the Rust backend via the
+ * `getSettings` IPC command and defensively merges each category into the
+ * reactive `settings` object (handles older settings files missing new keys).
+ *
+ * When the UI mutates `settings`, call `debouncedSaveSettings()` to write
+ * changes back to disk after a 500ms debounce. `flushSettingsSave()` forces
+ * an immediate write (used before window close).
+ *
+ * Settings are organized into four categories:
+ * - `general` -- auto-save behavior, session restore, Claude notification prefs
+ * - `editor` -- font, tab size, word wrap, minimap, bracket matching, etc.
+ * - `appearance` -- theme, UI scale, status bar, explorer/workspaces widths
+ * - `terminal` -- shell, font, cursor style, scrollback
+ *
+ * @exports Settings - Full settings interface
+ * @exports settings - Svelte 5 reactive state (mutate directly, then call debouncedSaveSettings)
+ * @exports initSettings - One-shot loader, safe to call multiple times (deduped)
+ * @exports debouncedSaveSettings - Debounced write-back to Rust
+ * @exports flushSettingsSave - Immediate write-back for shutdown paths
+ */
+
 export interface Settings {
   general: {
     auto_save: "off" | "onFocusChange" | "afterDelay";
     auto_save_delay: number;
     restore_previous_session: boolean;
+    claude_notifications: boolean;
   };
   editor: {
     font_family: string;
@@ -43,6 +68,7 @@ const defaultSettings: Settings = {
     auto_save: "off",
     auto_save_delay: 1000,
     restore_previous_session: true,
+    claude_notifications: true,
   },
   editor: {
     font_family: "Menlo",
@@ -114,7 +140,7 @@ export function debouncedSaveSettings(): void {
     saveTimer = null;
     try {
       const { updateSettings } = await import("../ipc/commands");
-      await updateSettings(settings as Settings);
+      await updateSettings(JSON.parse(JSON.stringify(settings)));
     } catch (e) {
       console.error("Failed to save settings:", e);
     }
@@ -128,6 +154,6 @@ export function flushSettingsSave(): void {
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   if (!isTauri || !settingsInitPromise) return;
   import("../ipc/commands").then(({ updateSettings }) =>
-    updateSettings(settings as Settings)
+    updateSettings(JSON.parse(JSON.stringify(settings)))
   ).catch((e) => console.error("Failed to flush settings:", e));
 }

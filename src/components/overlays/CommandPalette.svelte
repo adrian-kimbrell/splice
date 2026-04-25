@@ -115,7 +115,7 @@
   <div
     transition:fade={{ duration: 150 }}
     class="fixed inset-0 z-100 flex justify-center pt-[15vh]"
-    style="background: rgba(0,0,0,0.55); backdrop-filter: blur(3px);"
+    style="background: var(--backdrop-md); backdrop-filter: blur(3px);"
     role="dialog"
     tabindex="-1"
     aria-modal="true"
@@ -126,7 +126,7 @@
     <div
       transition:fly={{ y: -10, duration: 200, easing: cubicOut }}
       class="bg-palette border border-border w-[500px] max-h-[340px] flex flex-col self-start"
-      style="border-radius: 6px; box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 4px 16px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04);"
+      style="border-radius: 6px; box-shadow: var(--shadow-xl), 0 0 0 1px var(--overlay-xs);"
     >
       <input
         bind:this={inputEl}

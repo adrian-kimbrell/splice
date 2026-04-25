@@ -1,3 +1,8 @@
+/**
+ * Maps file extensions to human-readable language names for the status bar.
+ *
+ * Falls back to "Plain Text" for unrecognised or missing extensions.
+ */
 const EXT_MAP: Record<string, string> = {
   ".rs": "Rust",
   ".ts": "TypeScript",

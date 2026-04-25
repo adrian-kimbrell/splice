@@ -1,5 +1,6 @@
 <script lang="ts">
   import { marked } from "marked";
+  import DOMPurify from "dompurify";
 
   let {
     content,
@@ -10,7 +11,7 @@
   let html = $state("");
 
   $effect(() => {
-    html = marked.parse(content, { async: false }) as string;
+    html = DOMPurify.sanitize(marked.parse(content, { async: false }) as string);
   });
 </script>
 
@@ -65,14 +66,14 @@
     text-decoration: underline;
   }
   .markdown-preview :global(code) {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--overlay-sm);
     padding: 2px 5px;
     border-radius: 3px;
     font-family: var(--font-family);
     font-size: 0.9em;
   }
   .markdown-preview :global(pre) {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--overlay-xs);
     padding: 12px 16px;
     border-radius: 6px;
     overflow-x: auto;
@@ -113,7 +114,7 @@
     text-align: left;
   }
   .markdown-preview :global(th) {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--overlay-xs);
     font-weight: 600;
   }
   .markdown-preview :global(img) {

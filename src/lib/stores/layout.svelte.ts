@@ -36,13 +36,19 @@ export type LayoutNode =
 
 export interface PaneConfig {
   id: string;
-  kind: "editor" | "terminal";
+  kind: "editor" | "terminal" | "diff";
   title: string;
   terminalId?: number;
   filePaths?: string[];
   activeFilePath?: string | null;
   claudeSessionId?: string | null;
   claudePid?: number | null;
+  // Diff pane fields
+  diffFilePath?: string;
+  diffOldContent?: string;
+  diffNewContent?: string;
+  diffStaged?: boolean;
+  diffPreview?: boolean; // true = single-click preview; replaced by next diff click
 }
 
 export const MAX_SPLIT_DEPTH = 10;

@@ -202,11 +202,11 @@
   }
   @keyframes sidebar-pulse-permission {
     0%, 100% { background: transparent; }
-    50% { background: rgba(224, 108, 117, 0.12); }
+    50% { background: var(--git-deleted-bg); }
   }
   @keyframes sidebar-pulse-idle {
     0%, 100% { background: transparent; }
-    50% { background: rgba(229, 192, 123, 0.10); }
+    50% { background: var(--git-modified-bg); }
   }
   @keyframes bell-throb {
     0%, 100% { opacity: 1; }

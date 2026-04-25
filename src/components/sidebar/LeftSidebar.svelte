@@ -1,10 +1,12 @@
 <script lang="ts">
   import FileTree from "./FileTree.svelte";
   import SearchPanel from "./SearchPanel.svelte";
+  import GitPanel from "./GitPanel.svelte";
   import type { FileEntry } from "../../lib/stores/files.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { diagnosticsStore, getDiagnosticCounts, type LspDiagnostic } from "../../lib/stores/diagnostics.svelte";
+  import { getTotalChangedCount } from "../../lib/stores/git.svelte";
   import { lspClient } from "../../lib/lsp/client";
   import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
 
@@ -35,6 +37,7 @@
   } = $props();
 
   const counts = $derived(getDiagnosticCounts());
+  const gitChangedCount = $derived(getTotalChangedCount(workspaceManager.activeWorkspaceId ?? ""));
 
   // Group diagnostics by file path (derived from store)
   const groupedDiagnostics = $derived.by(() => {
@@ -119,11 +122,11 @@
   .resize-strip[data-side="right"]::after { left: 0; }
 
   .resize-strip:hover::after {
-    background: rgba(255,255,255,0.15);
+    background: var(--overlay-lg);
   }
 </style>
 
-<div class="bg-sidebar flex flex-col overflow-hidden" style="grid-column: {side === 'left' ? 1 : 5}; grid-row: 1; border-radius: var(--radius-lg); box-shadow: 0 4px 24px rgba(0,0,0,0.35); overflow: hidden; position: relative;">
+<div class="bg-sidebar flex flex-col overflow-hidden" style="grid-column: {side === 'left' ? 1 : 5}; grid-row: 1; border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow: hidden; position: relative;">
   <!-- Tab strip — also serves as drag region; left padding clears the macOS traffic lights -->
   <div class="flex items-center border-b border-border shrink-0" style="height: 32px;" data-tauri-drag-region>
     <!-- Traffic-light spacer — fixed width, non-interactive drag region -->
@@ -168,6 +171,20 @@
         </span>
       {/if}
     </button>
+    <button
+      class="flex items-center justify-center w-6 h-full relative"
+      class:text-accent={ui.sidebarMode === "git"}
+      class:text-txt-dim={ui.sidebarMode !== "git"}
+      title="Source Control"
+      onclick={() => { ui.sidebarMode = "git"; }}
+    >
+      <i class="bi bi-diagram-3 text-base"></i>
+      {#if gitChangedCount > 0}
+        <span class="absolute top-1 right-0.5 text-[8px] leading-none font-bold text-accent">
+          {gitChangedCount}
+        </span>
+      {/if}
+    </button>
     </div>
     <!-- Remaining space is draggable -->
     <div class="flex-1 h-full" data-tauri-drag-region></div>
@@ -179,6 +196,8 @@
   <div class="flex-1 overflow-auto flex flex-col min-h-0" style="{side === 'left' ? 'padding-right: 10px;' : 'padding-left: 10px;'}">
     {#if ui.sidebarMode === "search"}
       <SearchPanel />
+    {:else if ui.sidebarMode === "git"}
+      <GitPanel />
     {:else if ui.sidebarMode === "problems"}
       <!-- Problems panel -->
       <div class="flex flex-col h-full overflow-y-auto text-xs">

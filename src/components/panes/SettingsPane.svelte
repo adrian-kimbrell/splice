@@ -1,6 +1,7 @@
 <script lang="ts">
   import { settings, debouncedSaveSettings } from "../../lib/stores/settings.svelte";
   import { themeNames } from "../../lib/theme/themes";
+  import { customThemeMap, loadCustomThemes, registerCustomTheme, unregisterCustomTheme } from "../../lib/theme/custom-themes.svelte";
   import { onMount } from "svelte";
 
   // --- Data-driven settings definitions ---
@@ -20,6 +21,8 @@
 
   const categories = ["General", "Appearance", "Editor", "Terminal", "Keymap"];
 
+  const allThemeNames = $derived([...themeNames, ...Object.keys(customThemeMap)]);
+
   const categoryIcons: Record<string, string> = {
     General: "bi-sliders",
     Appearance: "bi-palette",
@@ -33,6 +36,7 @@
     { key: "general.auto_save", category: "General", title: "Auto Save", description: "Controls whether files are saved automatically.", control: { type: "select", options: [{ label: "Off", value: "off" }, { label: "On Focus Change", value: "onFocusChange" }, { label: "After Delay", value: "afterDelay" }] } },
     { key: "general.auto_save_delay", category: "General", title: "Auto Save Delay", description: "Delay in milliseconds before auto-saving after a change.", control: { type: "number", min: 100, max: 10000, step: 100 } },
     { key: "general.restore_previous_session", category: "General", title: "Restore Previous Session", description: "Reopen the previous workspace on startup.", control: { type: "toggle" } },
+    { key: "general.claude_notifications", category: "General", title: "Claude Notifications", description: "Send a macOS notification when Claude is waiting for input and Splice is in the background.", control: { type: "toggle" } },
 
     // Appearance
     { key: "appearance.theme", category: "Appearance", title: "Theme", description: "The color theme for the editor and UI.", control: { type: "select", options: themeNames } },
@@ -191,6 +195,49 @@
       await emit("settings-changed", JSON.parse(JSON.stringify(settings)));
     } catch (_) {}
   }
+
+  // --- Theme import/delete handlers ---
+  async function handleImportTheme() {
+    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+    if (!isTauri) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const filePath = await open({
+        filters: [{ name: "Theme", extensions: ["json"] }],
+        multiple: false,
+      });
+      if (!filePath) return;
+      const { importTheme } = await import("../../lib/ipc/commands");
+      const { applyTheme } = await import("../../lib/theme/themes");
+      const theme = await importTheme(filePath as string);
+      registerCustomTheme(theme.name, theme.colors as any);
+      setValue("appearance.theme", theme.name);
+      await applyTheme(theme.name);
+    } catch (e: any) {
+      console.error("Import failed:", e);
+      alert("Failed to import theme: " + (e?.message ?? e));
+    }
+  }
+
+  async function handleDeleteCustomTheme(name: string) {
+    try {
+      const { deleteCustomTheme } = await import("../../lib/ipc/commands");
+      await deleteCustomTheme(name);
+      unregisterCustomTheme(name);
+      // If this was the active theme, switch to default
+      if (getValue("appearance.theme") === name) {
+        const { applyTheme } = await import("../../lib/theme/themes");
+        setValue("appearance.theme", "Splice Default");
+        await applyTheme("Splice Default");
+      }
+    } catch (e) {
+      console.error("Failed to delete custom theme:", e);
+    }
+  }
+
+  onMount(() => {
+    loadCustomThemes();
+  });
 </script>
 
 <div class="settings-root">
@@ -280,32 +327,66 @@
                         class="settings-select-trigger"
                         onclick={() => toggleDropdown(def.key)}
                       >
-                        <span class="truncate">{getDisplayLabel(def)}</span>
+                        <span class="truncate">{def.key === "appearance.theme" ? String(getValue(def.key)) : getDisplayLabel(def)}</span>
                         <i class="bi bi-chevron-down chevron" class:open={openDropdownKey === def.key}></i>
                       </button>
                       {#if openDropdownKey === def.key}
                         <div class="settings-select-menu">
-                          {#each def.control.options as opt}
-                            {@const val = getOptionValue(opt)}
-                            {@const label = getOptionLabel(opt)}
-                            {@const isActive = getValue(def.key) === val}
-                            <button
-                              class="settings-select-option"
-                              class:active={isActive}
-                              onclick={() => setValue(def.key, val)}
-                            >
-                              <span>{label}</span>
-                              {#if isActive}
-                                <i class="bi bi-check2 check-icon"></i>
-                              {/if}
-                            </button>
-                          {/each}
+                          {#if def.key === "appearance.theme"}
+                            {#each allThemeNames as opt}
+                              {@const isActive = getValue(def.key) === opt}
+                              <button
+                                class="settings-select-option"
+                                class:active={isActive}
+                                onclick={() => { setValue(def.key, opt); import("../../lib/theme/themes").then(({ applyTheme }) => applyTheme(opt)); closeDropdown(); }}
+                              >
+                                <span>{opt}</span>
+                                {#if isActive}
+                                  <i class="bi bi-check2 check-icon"></i>
+                                {/if}
+                              </button>
+                            {/each}
+                          {:else}
+                            {#each def.control.options as opt}
+                              {@const val = getOptionValue(opt)}
+                              {@const label = getOptionLabel(opt)}
+                              {@const isActive = getValue(def.key) === val}
+                              <button
+                                class="settings-select-option"
+                                class:active={isActive}
+                                onclick={() => setValue(def.key, val)}
+                              >
+                                <span>{label}</span>
+                                {#if isActive}
+                                  <i class="bi bi-check2 check-icon"></i>
+                                {/if}
+                              </button>
+                            {/each}
+                          {/if}
                         </div>
                       {/if}
                     </div>
                   {/if}
                 </div>
               </div>
+              {#if def.key === "appearance.theme"}
+                <div class="import-theme-row">
+                  <button class="import-theme-btn" onclick={handleImportTheme}>
+                    <i class="bi bi-upload"></i>
+                    Import Theme
+                  </button>
+                  {#if Object.keys(customThemeMap).length > 0}
+                    <div class="custom-theme-chips">
+                      {#each Object.keys(customThemeMap) as cname}
+                        <span class="custom-theme-chip">
+                          {cname}
+                          <button class="chip-delete" onclick={() => handleDeleteCustomTheme(cname)} title="Remove theme">×</button>
+                        </span>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             {/each}
           </div>
         {/if}
@@ -552,7 +633,7 @@
     border-radius: 8px;
     padding: 4px;
     z-index: 50;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-lg);
   }
 
   .settings-select-option {
@@ -626,5 +707,66 @@
     padding: 3px 8px;
     white-space: nowrap;
     flex-shrink: 0;
+  }
+
+  .import-theme-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 6px 16px 10px;
+  }
+
+  .import-theme-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    font-size: var(--ui-body);
+    cursor: pointer;
+    font-family: var(--ui-font);
+    width: fit-content;
+  }
+
+  .import-theme-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+
+  .custom-theme-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .custom-theme-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px 2px 10px;
+    background: var(--bg-tab);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    font-size: var(--ui-label);
+    color: var(--text-dim);
+  }
+
+  .chip-delete {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 13px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+  }
+
+  .chip-delete:hover {
+    color: var(--ansi-red);
   }
 </style>

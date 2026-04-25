@@ -2,7 +2,7 @@ import type { Workspace } from "./workspace-types";
 import type { RustWorkspace } from "../ipc/commands";
 import { validateLayout } from "./workspace-tab-ops";
 import { remapLayout, findFirstLeaf, frontendToRustLayout } from "./workspace-types";
-import { collectLeafIds } from "./layout.svelte";
+import { collectLeafIds, removeNodeFromTree } from "./layout.svelte";
 import { settings } from "./settings.svelte";
 
 interface PendingResume {
@@ -187,21 +187,26 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
         })
     );
 
-    // Only persist panes that are referenced in the layout tree.
+    // Persist all panes referenced in the layout tree.
+    // Diff panes have no Rust PaneType so they're stored as a special sentinel in file_paths:
+    // ["diff-pane-v1", "<staged|unstaged>", "<filePath>"]
+    // This lets restore re-fetch the git diff and recreate the pane.
     const panes = Object.values(panesSnapshot)
       .filter(pane => layoutLeafIds.has(pane.id))
       .map((pane) => {
         const claudeSessionId = pane.kind === "terminal" ? (pane.claudeSessionId ?? null) : null;
         const claudePid = pane.kind === "terminal" ? (pane.claudePid ?? null) : null;
+        const isDiff = pane.kind === "diff";
         return {
           id: pane.id,
-          pane_type:
-            pane.kind === "terminal"
-              ? { Terminal: { shell: settings.terminal.default_shell, cwd: terminalCwdMap.get(pane.id) ?? ws.rootPath } }
-              : { Editor: { file_path: pane.activeFilePath ?? "" } },
+          pane_type: pane.kind === "terminal"
+            ? { Terminal: { shell: settings.terminal.default_shell, cwd: terminalCwdMap.get(pane.id) ?? ws.rootPath } }
+            : { Editor: { file_path: isDiff ? "" : (pane.activeFilePath ?? "") } },
           title: pane.title,
-          file_paths: pane.filePaths ?? [],
-          active_file_path: pane.activeFilePath ?? null,
+          file_paths: isDiff
+            ? ["diff-pane-v1", pane.diffStaged ? "staged" : "unstaged", pane.diffFilePath ?? ""]
+            : (pane.filePaths ?? []),
+          active_file_path: isDiff ? null : (pane.activeFilePath ?? null),
           claude_session_id: claudeSessionId,
           claude_pid: claudePid,
         };
@@ -347,6 +352,33 @@ export async function restoreWorkspaceImpl(
       } catch (e) {
         console.error("Failed to spawn terminal during restore:", e);
       }
+    } else if (
+      paneInfo.file_paths.length === 3 &&
+      paneInfo.file_paths[0] === "diff-pane-v1"
+    ) {
+      // Diff pane: re-fetch from git and restore
+      const staged = paneInfo.file_paths[1] === "staged";
+      const filePath = paneInfo.file_paths[2];
+      const paneId = `diff-${crypto.randomUUID().slice(0, 8)}`;
+      idMap.set(paneInfo.id, paneId);
+      try {
+        const { gitDiffFile } = await import("../ipc/commands");
+        const diff = await gitDiffFile(rws.root_path, filePath, staged);
+        ws.panes[paneId] = {
+          id: paneId,
+          kind: "diff",
+          title: filePath.split("/").pop() ?? filePath,
+          diffFilePath: filePath,
+          diffOldContent: diff.old_content,
+          diffNewContent: diff.new_content,
+          diffStaged: staged,
+          diffPreview: false,
+        };
+      } catch (e) {
+        // File may have been committed/discarded — drop this pane from the layout
+        console.warn(`Failed to restore diff pane for "${filePath}":`, e);
+        idMap.delete(paneInfo.id);
+      }
     } else {
       // Editor pane: restore open files
       const paneId = `editor-${crypto.randomUUID().slice(0, 8)}`;
@@ -377,6 +409,14 @@ export async function restoreWorkspaceImpl(
         }
       }
 
+      // Skip blank editor panes — these are artifacts from diff panes that were
+      // erroneously persisted as empty Editor entries before the diff-pane filter
+      // was added. A real editor pane always has at least one file.
+      if (filePaths.length === 0) {
+        idMap.delete(paneInfo.id); // remove from map so layout remapping treats it as missing
+        continue;
+      }
+
       const activeFilePath =
         paneInfo.active_file_path && filePaths.includes(paneInfo.active_file_path)
           ? paneInfo.active_file_path
@@ -402,6 +442,17 @@ export async function restoreWorkspaceImpl(
       // Fall back to first pane as leaf if layout is corrupt
       const firstPaneId = Object.keys(ws.panes)[0];
       if (firstPaneId) ws.layout = { type: "leaf", paneId: firstPaneId };
+    }
+
+    // Strip any layout leaves that have no corresponding pane (e.g. blank editor
+    // panes that were skipped above, or stale IDs from removed pane types).
+    if (ws.layout) {
+      const paneIds = new Set(Object.keys(ws.panes));
+      const danglingLeaves = [...collectLeafIds(ws.layout)].filter(id => !paneIds.has(id));
+      for (const leafId of danglingLeaves) {
+        const result = removeNodeFromTree(ws.layout!, leafId);
+        ws.layout = result.tree; // may become null if all panes were stripped
+      }
     }
   }
 

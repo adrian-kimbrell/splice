@@ -1,3 +1,20 @@
+//! Manages Claude Code hook script installation in `~/.claude/settings.json`.
+//!
+//! Splice registers two hooks: `Notification` (attention alerts) and
+//! `SessionStart` (session tracking). Each hook is an inline Python one-liner
+//! that POSTs JSON to the local attention server via `urllib.request`.
+//!
+//! Hook entries are identified by a trailing marker comment (e.g.
+//! `splice-attention-hook-v4`). On install, old markers from previous versions
+//! (`malloc-*`, `splice-*-v1` through `v3`) are removed before writing the
+//! current version. Idempotent: re-running install with an up-to-date hook
+//! already present is a no-op.
+//!
+//! The hook script prefers per-instance env vars (`SPLICE_ATTENTION_PORT`,
+//! `SPLICE_ATTENTION_TOKEN`) injected by the PTY spawner, falling back to
+//! shared config files for out-of-terminal usage. Writes use atomic
+//! rename (`settings.json.tmp` -> `settings.json`) to avoid racing with Claude.
+
 use tracing::{info, warn};
 
 /// Remove all hook entries under `hooks_obj[hook_key]` whose command contains `marker`.

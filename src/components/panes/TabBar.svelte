@@ -249,7 +249,7 @@
   <div class="shrink-0 transition-all duration-150" style="width: var(--header-traffic-offset, 0px);"></div>
   <div
     bind:this={tabBarEl}
-    class="flex flex-1 overflow-x-auto min-w-0 relative"
+    class="flex flex-1 overflow-x-auto min-w-0 relative tab-scroll"
     onmousemove={handleTabBarDragOver}
     onmouseleave={handleTabBarDragLeave}
     onmouseup={handleTabBarDrop}
@@ -325,3 +325,10 @@
     {/if}
   </div>
 </div>
+
+<style>
+  .tab-scroll {
+    mask-image: linear-gradient(to right, black calc(100% - 20px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent 100%);
+  }
+</style>

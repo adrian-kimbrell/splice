@@ -1,4 +1,21 @@
 <script lang="ts">
+  /**
+   * TerminalPane.svelte -- Wraps a CanvasTerminal with its titlebar and search overlay.
+   *
+   * Composes three sub-components:
+   *   - TerminalTitlebar: split/close controls, pane title, git branch display
+   *   - TerminalSearch: Cmd+F find-in-terminal with match navigation
+   *   - CanvasTerminal: the actual HTML5 Canvas terminal renderer
+   *
+   * Attention notifications: Derives the current notification for this terminal from
+   * attentionStore. When a Claude "permission" or "idle" notification is active, the
+   * pane container plays a CSS pulse animation (red for permission, yellow for idle)
+   * to draw the user's eye.
+   *
+   * Search: Cmd+F toggles searchVisible. Matches from TerminalSearch are passed down
+   * to CanvasTerminal as searchMatches/searchActiveIndex for highlight rendering.
+   * handleSearchNavigate scrolls the terminal to the matched row via setTerminalScrollOffset.
+   */
   import TerminalTitlebar from "../terminal/TerminalTitlebar.svelte";
   import CanvasTerminal from "../terminal/CanvasTerminal.svelte";
   import TerminalSearch from "../terminal/TerminalSearch.svelte";
@@ -97,10 +114,10 @@
   }
   @keyframes pulse-permission {
     0%, 100% { background-color: var(--bg-editor); }
-    50% { background-color: rgba(224, 108, 117, 0.06); }
+    50% { background-color: var(--git-deleted-bg); }
   }
   @keyframes pulse-idle {
     0%, 100% { background-color: var(--bg-editor); }
-    50% { background-color: rgba(229, 192, 123, 0.05); }
+    50% { background-color: var(--git-modified-bg); }
   }
 </style>

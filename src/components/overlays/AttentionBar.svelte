@@ -63,7 +63,7 @@
     border-radius: var(--radius-lg);
     border: 1px solid color-mix(in srgb, var(--text-dim) 22%, transparent);
     background: var(--bg-sidebar);
-    box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+    box-shadow: var(--shadow-md);
     overflow: hidden;
     flex-shrink: 0;
   }

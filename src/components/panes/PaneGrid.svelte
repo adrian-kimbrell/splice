@@ -125,8 +125,9 @@
     <div
       bind:this={leafEl}
       data-pane-id={node.paneId}
-      class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative"
-      style="contain: layout style paint; border-radius: var(--radius-lg); transition: border-color 150ms cubic-bezier(0.4,0,0.2,1), box-shadow 150ms cubic-bezier(0.4,0,0.2,1); border: {node.paneId === activePaneId ? '1px solid rgba(0,255,136,0.35)' : '1px solid color-mix(in srgb, var(--text-dim) 22%, transparent)'}; {node.paneId === activePaneId ? 'box-shadow: 0 0 0 1px rgba(0,255,136,0.08), inset 0 0 24px rgba(0,255,136,0.03);' : ''} --header-traffic-offset: {trafficOffset};"
+      class="pane-leaf flex-1 flex overflow-hidden min-w-0 min-h-0 relative"
+      class:pane-leaf--active={node.paneId === activePaneId}
+      style="--header-traffic-offset: {trafficOffset};"
       role="group"
       onclick={() => {
         onPaneClick?.(node.paneId);
@@ -164,18 +165,17 @@
     </div>
 
     <div
-      class="shrink-0 transition-colors duration-150"
+      class="pane-splitter shrink-0 transition-colors duration-150"
+      class:pane-splitter--dragging={dragging}
       class:cursor-col-resize={node.direction === "horizontal"}
       class:cursor-row-resize={node.direction === "vertical"}
       style="{node.direction === 'horizontal'
         ? 'width: 5px; min-width: 5px;'
-        : 'height: 5px; min-height: 5px;'} background: {dragging ? 'rgba(0,255,136,0.4)' : 'transparent'};"
+        : 'height: 5px; min-height: 5px;'}"
       role="separator"
       tabindex="0"
       aria-orientation={node.direction === "horizontal" ? "vertical" : "horizontal"}
       onmousedown={handleMouseDown}
-      onmouseenter={(e) => { if (!dragging) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
-      onmouseleave={(e) => { if (!dragging) e.currentTarget.style.background = 'transparent'; }}
       onkeydown={(e) => {
         if (node.type !== "split") return;
         const step = 0.02;
@@ -209,3 +209,30 @@
     {ghostLabel}
   </div>
 {/if}
+
+<style>
+  .pane-leaf {
+    contain: layout style paint;
+    border-radius: var(--radius-lg);
+    border: 1px solid color-mix(in srgb, var(--text-dim) 22%, transparent);
+    transition: border-color var(--duration-slow) var(--ease-default),
+                outline-color var(--duration-slow) var(--ease-default);
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+  }
+  .pane-leaf--active {
+    border-color: var(--accent-border);
+    outline-color: var(--accent-subtle);
+  }
+
+  .pane-splitter {
+    background: transparent;
+    transition: background var(--duration-slow) var(--ease-default);
+  }
+  .pane-splitter:hover {
+    background: var(--overlay-md);
+  }
+  .pane-splitter--dragging {
+    background: color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+</style>

@@ -10,6 +10,7 @@
   import { search, searchKeymap, highlightSelectionMatches, gotoLine, openSearchPanel } from "@codemirror/search";
   import { cursorMatchingBracket } from "@codemirror/commands";
   import { editorTheme, editorHighlighting } from "../../lib/theme/editor-theme";
+  import { conflictExtension, conflictTheme } from "../../lib/editor/conflict-extension";
   import { settings } from "../../lib/stores/settings.svelte";
   import { editorActions, dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
@@ -285,6 +286,8 @@
         scrollPastEndCompartment.of(s.scroll_past_end ? scrollPastEnd() : []),
         wordWrapCompartment.of(s.word_wrap ? EditorView.lineWrapping : []),
         placeholder("Start typing…"),
+        conflictExtension,
+        conflictTheme,
         history(),
         tabSizeCompartment.of(EditorState.tabSize.of(s.tab_size)),
         EditorState.allowMultipleSelections.of(true),
@@ -791,3 +794,15 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .lsp-references-panel { position: absolute; bottom: 0; left: 0; right: 0; max-height: 220px; overflow-y: auto; background: var(--bg-palette); border-top: 1px solid var(--border); z-index: 50; font-size: var(--ui-body); }
+  .lsp-references-panel :global(.lsp-ref-header) { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; background: var(--bg-tab); font-size: var(--ui-label); color: var(--text-dim); }
+  .lsp-references-panel :global(.lsp-ref-header button) { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 0 4px; }
+  .lsp-references-panel :global(.lsp-ref-file) { padding: 3px 10px 1px; color: var(--text-dim); font-size: var(--ui-label); font-weight: 600; }
+  .lsp-references-panel :global(button) { display: block; width: 100%; text-align: left; padding: 2px 22px; font-size: var(--ui-body); color: var(--text); background: none; border: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lsp-references-panel :global(button:hover) { background: var(--bg-hover); color: var(--text-bright); }
+  .lsp-references-panel :global(.lsp-ref-empty) { padding: 6px 12px; color: var(--text-dim); font-size: var(--ui-body); font-style: italic; }
+  .rename-overlay { z-index: 200; box-shadow: var(--shadow-md); border-radius: var(--radius-md); }
+  .rename-input { background: var(--bg-palette); color: var(--text-bright); border: 1px solid var(--accent); padding: 3px 8px; font-size: var(--ui-md); font-family: inherit; outline: none; min-width: 160px; border-radius: var(--radius-md); }
+</style>

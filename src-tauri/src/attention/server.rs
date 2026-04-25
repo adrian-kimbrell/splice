@@ -1,11 +1,59 @@
+//! Lightweight HTTP server that receives hook notifications from Claude Code.
+//!
+//! Listens on `127.0.0.1` and tries ports 19876, 19877, 19878 in order, binding
+//! to the first available one. The chosen port is written to
+//! `~/.config/Splice/.attention_port` so hook scripts can discover it.
+//!
+//! Each connection is handled as a minimal HTTP/1.1 request: the server reads
+//! until the `\r\n\r\n` header boundary, extracts `Content-Length`, then reads
+//! exactly that many body bytes (with a 5-second timeout to prevent slow-loris
+//! hangs). Requests are authenticated via the `X-Splice-Token` header against a
+//! per-instance random token. Valid JSON payloads are dispatched to
+//! [`handle_attention_request`] or [`handle_session_request`] based on the URL
+//! path (`/attention` or `/session`), which emit Tauri events to the frontend.
+
+use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::AppHandle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::attention::handlers::{handle_attention_request, handle_session_request};
 use crate::attention::http::{find_header_end, parse_content_length};
+
+/// Simple per-IP rate limiter that allows up to `max_per_second` requests per
+/// one-second window. The window resets once a full second has elapsed since the
+/// first request in the current window.
+struct RateLimiter {
+    requests: HashMap<IpAddr, (Instant, u32)>,
+    max_per_second: u32,
+}
+
+impl RateLimiter {
+    fn new(max_per_second: u32) -> Self {
+        Self {
+            requests: HashMap::new(),
+            max_per_second,
+        }
+    }
+
+    /// Returns `true` if the request is allowed, `false` if rate-limited.
+    fn check(&mut self, addr: IpAddr) -> bool {
+        let now = Instant::now();
+        let entry = self.requests.entry(addr).or_insert((now, 0));
+        if now.duration_since(entry.0).as_secs() >= 1 {
+            *entry = (now, 1);
+            true
+        } else {
+            entry.1 += 1;
+            entry.1 <= self.max_per_second
+        }
+    }
+}
 
 /// Write the bound port to a file next to the token so hooks know where to connect.
 fn write_port_file(port: u16) {
@@ -28,13 +76,15 @@ pub async fn start_server(app: AppHandle, token: String) -> u16 {
                 write_port_file(port);
                 let app_clone = app.clone();
                 let token_clone = Arc::clone(&token);
+                let rate_limiter = Arc::new(Mutex::new(RateLimiter::new(10)));
                 tokio::spawn(async move {
                     loop {
                         match listener.accept().await {
-                            Ok((stream, _)) => {
+                            Ok((stream, addr)) => {
                                 let app = app_clone.clone();
                                 let tok = Arc::clone(&token_clone);
-                                tokio::spawn(handle_connection(stream, app, tok));
+                                let rl = Arc::clone(&rate_limiter);
+                                tokio::spawn(handle_connection(stream, addr.ip(), app, tok, rl));
                             }
                             Err(e) => {
                                 // continue, not break — transient errors like ECONNABORTED are
@@ -53,7 +103,25 @@ pub async fn start_server(app: AppHandle, token: String) -> u16 {
     0
 }
 
-async fn handle_connection(mut stream: TcpStream, app: AppHandle, token: Arc<String>) {
+async fn handle_connection(
+    mut stream: TcpStream,
+    peer_ip: IpAddr,
+    app: AppHandle,
+    token: Arc<String>,
+    rate_limiter: Arc<Mutex<RateLimiter>>,
+) {
+    // Check rate limit before doing any work
+    {
+        let mut rl = rate_limiter.lock().await;
+        if !rl.check(peer_ip) {
+            warn!("attention: rate-limited request from {}", peer_ip);
+            let _ = stream
+                .write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n")
+                .await;
+            return;
+        }
+    }
+
     // Read until \r\n\r\n to get headers
     let mut buf = Vec::new();
     let mut tmp = [0u8; 1024];

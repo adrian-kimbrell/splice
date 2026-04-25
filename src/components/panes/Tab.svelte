@@ -42,7 +42,7 @@
 </script>
 
 <div
-  class="group flex items-center px-4 h-full text-xs cursor-pointer border-r border-border border-b-2 whitespace-nowrap select-none"
+  class="group flex items-center px-4 h-full text-xs cursor-pointer border-r border-border border-b-2 whitespace-nowrap select-none min-w-0"
   style="transition: background 120ms cubic-bezier(0.4,0,0.2,1), color 120ms cubic-bezier(0.4,0,0.2,1), border-bottom-color 120ms cubic-bezier(0.4,0,0.2,1), opacity 100ms;"
   role="tab"
   tabindex={active ? 0 : -1}
@@ -64,7 +64,7 @@
   {#if pinned}
     <i class="bi bi-pin-fill" style="font-size: var(--ui-sm); color: var(--text-dim); margin-right: 2px;"></i>
   {/if}
-  <span class="mr-1" style:font-style={preview ? "italic" : "normal"}>{name}</span>
+  <span class="mr-1 overflow-hidden text-ellipsis" style:font-style={preview ? "italic" : "normal"}>{name}</span>
   {#if onclose && !pinned}
     {#if dirty}
       <span

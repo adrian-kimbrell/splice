@@ -38,7 +38,10 @@ unsafe fn inject_dock_menu() {
             target_class_name.as_ptr(),
             0,
         );
-        assert!(!new_cls.is_null(), "Failed to allocate SpliceDockTarget class");
+        if new_cls.is_null() {
+            tracing::warn!("Failed to allocate SpliceDockTarget ObjC class; dock menu unavailable");
+            return;
+        }
 
         // `newWindowFromDock:` — called when the user clicks "New Window" in the dock menu
         extern "C" fn new_window_from_dock(_self: *mut AnyObject, _cmd: Sel, _sender: *mut AnyObject) {

@@ -17,6 +17,15 @@
 import { lspStart, lspNotify, lspRequest, lspCheck, lspInstall } from "../ipc/commands";
 import { pushToast } from "../stores/toasts.svelte";
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`LSP ${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 export interface LspCompletionItem {
   label: string;
   detail?: string;
@@ -241,9 +250,12 @@ export class LspClient {
     const langId = this.getLanguageId(filePath);
     if (!langId) return [];
     try {
-      const result = await lspRequest(langId, "textDocument/definition", this._textDocPos(filePath, line, char));
+      const result = await withTimeout(lspRequest(langId, "textDocument/definition", this._textDocPos(filePath, line, char)), 5000, "gotoDefinition");
       return this._normalizeLocations(result);
     } catch (err) {
+      if (err instanceof Error && err.message.includes("timed out")) {
+        this.runningLanguages.delete(langId);
+      }
       console.error("[LSP] definition error:", err);
       return [];
     }
@@ -252,34 +264,61 @@ export class LspClient {
   async gotoDeclaration(filePath: string, line: number, char: number): Promise<LspLocation[]> {
     const langId = this.getLanguageId(filePath);
     if (!langId) return [];
-    const result = await lspRequest(langId, "textDocument/declaration", this._textDocPos(filePath, line, char));
-    return this._normalizeLocations(result);
+    try {
+      const result = await withTimeout(lspRequest(langId, "textDocument/declaration", this._textDocPos(filePath, line, char)), 5000, "gotoDeclaration");
+      return this._normalizeLocations(result);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("timed out")) {
+        this.runningLanguages.delete(langId);
+      }
+      console.error("[LSP] declaration error:", err);
+      return [];
+    }
   }
 
   async gotoTypeDefinition(filePath: string, line: number, char: number): Promise<LspLocation[]> {
     const langId = this.getLanguageId(filePath);
     if (!langId) return [];
-    const result = await lspRequest(langId, "textDocument/typeDefinition", this._textDocPos(filePath, line, char));
-    return this._normalizeLocations(result);
+    try {
+      const result = await withTimeout(lspRequest(langId, "textDocument/typeDefinition", this._textDocPos(filePath, line, char)), 5000, "gotoTypeDefinition");
+      return this._normalizeLocations(result);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("timed out")) {
+        this.runningLanguages.delete(langId);
+      }
+      console.error("[LSP] typeDefinition error:", err);
+      return [];
+    }
   }
 
   async gotoImplementation(filePath: string, line: number, char: number): Promise<LspLocation[]> {
     const langId = this.getLanguageId(filePath);
     if (!langId) return [];
-    const result = await lspRequest(langId, "textDocument/implementation", this._textDocPos(filePath, line, char));
-    return this._normalizeLocations(result);
+    try {
+      const result = await withTimeout(lspRequest(langId, "textDocument/implementation", this._textDocPos(filePath, line, char)), 5000, "gotoImplementation");
+      return this._normalizeLocations(result);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("timed out")) {
+        this.runningLanguages.delete(langId);
+      }
+      console.error("[LSP] implementation error:", err);
+      return [];
+    }
   }
 
   async findReferences(filePath: string, line: number, char: number): Promise<LspLocation[]> {
     const langId = this.getLanguageId(filePath);
     if (!langId) return [];
     try {
-      const result = await lspRequest(langId, "textDocument/references", {
+      const result = await withTimeout(lspRequest(langId, "textDocument/references", {
         ...this._textDocPos(filePath, line, char),
         context: { includeDeclaration: true },
-      });
+      }), 5000, "findReferences");
       return this._normalizeLocations(result);
     } catch (err) {
+      if (err instanceof Error && err.message.includes("timed out")) {
+        this.runningLanguages.delete(langId);
+      }
       console.error("[LSP] references error:", err);
       return [];
     }
@@ -289,12 +328,15 @@ export class LspClient {
     const langId = this.getLanguageId(filePath);
     if (!langId) return null;
     try {
-      const result = await lspRequest(langId, "textDocument/prepareRename", this._textDocPos(filePath, line, char));
+      const result = await withTimeout(lspRequest(langId, "textDocument/prepareRename", this._textDocPos(filePath, line, char)), 5000, "prepareRename");
       if (!result) return null;
       const r = result as Record<string, unknown>;
       const placeholder = (r.placeholder as string) ?? (r.defaultBehavior ? "" : "");
       return { placeholder };
-    } catch {
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("timed out")) {
+        this.runningLanguages.delete(langId);
+      }
       return null;
     }
   }
@@ -303,12 +345,15 @@ export class LspClient {
     const langId = this.getLanguageId(filePath);
     if (!langId) return null;
     try {
-      const result = await lspRequest(langId, "textDocument/rename", {
+      const result = await withTimeout(lspRequest(langId, "textDocument/rename", {
         ...this._textDocPos(filePath, line, char),
         newName,
-      });
+      }), 5000, "rename");
       return (result as WorkspaceEdit) ?? null;
-    } catch {
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("timed out")) {
+        this.runningLanguages.delete(langId);
+      }
       return null;
     }
   }
@@ -317,10 +362,10 @@ export class LspClient {
     const langId = this.getLanguageId(filePath);
     if (!langId) return null;
     try {
-      const result = await lspRequest(langId, "textDocument/hover", {
+      const result = await withTimeout(lspRequest(langId, "textDocument/hover", {
         textDocument: { uri: this.fileUri(filePath) },
         position,
-      });
+      }), 5000, "hover");
       if (!result) return null;
       const contents = (result as { contents?: unknown }).contents;
       if (!contents) return null;
@@ -332,7 +377,10 @@ export class LspClient {
           .map((c: unknown) => (typeof c === "string" ? c : (c as { value: string }).value))
           .join("\n---\n");
       return null;
-    } catch {
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("timed out")) {
+        this.runningLanguages.delete(langId);
+      }
       return null;
     }
   }
@@ -341,17 +389,20 @@ export class LspClient {
     const langId = this.getLanguageId(filePath);
     if (!langId) return [];
     try {
-      const result = await lspRequest(langId, "textDocument/completion", {
+      const result = await withTimeout(lspRequest(langId, "textDocument/completion", {
         textDocument: { uri: this.fileUri(filePath) },
         position,
         context: { triggerKind },
-      });
+      }), 5000, "complete");
       if (!result) return [];
       const items = Array.isArray(result)
         ? result
         : ((result as { items?: LspCompletionItem[] }).items ?? []);
       return items as LspCompletionItem[];
-    } catch {
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("timed out")) {
+        this.runningLanguages.delete(langId);
+      }
       return [];
     }
   }
@@ -360,13 +411,16 @@ export class LspClient {
     const langId = this.getLanguageId(filePath);
     if (!langId) return [];
     try {
-      const result = await lspRequest(langId, "textDocument/codeAction", {
+      const result = await withTimeout(lspRequest(langId, "textDocument/codeAction", {
         textDocument: { uri: this.fileUri(filePath) },
         range: { start: { line, character: char }, end: { line, character: char } },
         context: { diagnostics: [] },
-      });
+      }), 5000, "codeActions");
       return (result as CodeAction[]) ?? [];
-    } catch {
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("timed out")) {
+        this.runningLanguages.delete(langId);
+      }
       return [];
     }
   }

@@ -1,15 +1,48 @@
 <script lang="ts">
+  /**
+   * App.svelte -- Root component for the Splice editor.
+   *
+   * Startup sequence (onMount):
+   *   1. Init keybindings + eagerly pre-import IPC commands module
+   *   2. Await initSettings() so workspace restore can check restore_previous_session
+   *   3. Register Claude session listener (before workspace restore to avoid missing events)
+   *   4. workspaceManager.initializeWorkspaces() -- restores persisted workspaces/terminals
+   *   5. Wire Tauri event listeners: settings-changed, menu-event, attention notifications,
+   *      file watcher (file:changed, tree:changed), native drag-drop, window close
+   *   6. Start git status polling
+   *
+   * Sidebar layout: The explorer and workspaces panels are "logical" sidebars. The user
+   * can swap which physical side (left/right) the explorer appears on via
+   * settings.appearance.explorer_side. All width/visibility/toggle functions go through
+   * a physical-to-logical indirection layer (explorerOnLeft derived + setLeftWidth, etc.).
+   *
+   * Sidebar resize: mousedown on the gutter captures mousemove/mouseup on window,
+   * clamping width to [minWidth, 500px] and persisting to settings on mouseup.
+   *
+   * Menu routing: Tauri native menu items emit "menu-event" strings; the listener in
+   * onMount maps each string to the corresponding action (save, find, zoom, zen mode, etc.).
+   *
+   * Traffic lights: macOS window controls are repositioned via setTrafficLightPosition IPC.
+   * animateTrafficLight() uses requestAnimationFrame with an ease-in-out curve to smoothly
+   * transition the Y offset when the compact title bar toggles (both sidebars hidden).
+   *
+   * Pane wiring: The PaneGrid receives a Svelte snippet (paneSnippet) that renders
+   * EditorPane, TerminalPane, or DiffPane based on PaneConfig.kind. All file/tab
+   * callbacks (open, close, save, dirty-check) are defined here and passed as props.
+   */
   import { onMount } from "svelte";
   import LeftSidebar from "./sidebar/LeftSidebar.svelte";
   import RightSidebar from "./sidebar/RightSidebar.svelte";
   import EditorPane from "./panes/EditorPane.svelte";
   import TerminalPane from "./panes/TerminalPane.svelte";
+  import DiffPane from "./panes/DiffPane.svelte";
   import PaneGrid from "./panes/PaneGrid.svelte";
   import TopBar from "./topbar/TopBar.svelte";
   import CommandPalette from "./overlays/CommandPalette.svelte";
   import SshConnectForm from "./overlays/SshConnectForm.svelte";
   import Toasts from "./overlays/Toasts.svelte";
   import SendToClaudeModal from "./overlays/SendToClaudeModal.svelte";
+  import AddPromptModal from "./overlays/AddPromptModal.svelte";
   import TitleBar from "./topbar/TitleBar.svelte";
   import { openSettingsWindow } from "../lib/utils/settings-window";
   import { showContextMenu } from "../lib/utils/context-menu";
@@ -25,6 +58,7 @@
   import { settings, initSettings, debouncedSaveSettings, flushSettingsSave } from "../lib/stores/settings.svelte";
   import type { Settings } from "../lib/stores/settings.svelte";
   import { applyTheme } from "../lib/theme/themes";
+  import { loadCustomThemes } from "../lib/theme/custom-themes.svelte";
   import { dispatchEditorAction } from "../lib/stores/editor-actions.svelte";
   import { recentFiles, loadRecentFiles, addRecentFile } from "../lib/stores/recent-files.svelte";
   import { recentProjects, loadRecentProjects } from "../lib/stores/recent-projects.svelte";
@@ -548,6 +582,8 @@
     import("../lib/ipc/commands").then(m => { _commands = m; });
     // Await settings before initializing workspaces (restore_previous_session check)
     await initSettings();
+    // Load any user-installed custom themes so they're available immediately
+    loadCustomThemes();
     // Restore sidebar widths from persisted settings, enforcing minimums
     ui.explorerWidth = Math.max(150, settings.appearance.explorer_width ?? 240);
     ui.workspacesWidth = settings.appearance.workspaces_width ?? 220;
@@ -606,7 +642,7 @@
       }
     }
 
-    const stopGitPolling = workspaceManager.startGitBranchPolling();
+    const stopGitPolling = workspaceManager.startGitPolling();
 
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
       import("@tauri-apps/api/event").then(({ listen }) => {
@@ -777,12 +813,14 @@
       let treeChangeTimer: ReturnType<typeof setTimeout> | null = null;
       listen<string>("tree:changed", (event) => {
         if (treeChangeTimer) clearTimeout(treeChangeTimer);
-        treeChangeTimer = setTimeout(() => {
+        treeChangeTimer = setTimeout(async () => {
           treeChangeTimer = null;
           const changedPath = event.payload;
+          const { refreshGitStatus } = await import("../lib/stores/git.svelte");
           for (const [wsId, w] of Object.entries(workspaceManager.workspaces)) {
             if (w.rootPath && isUnderRoot(changedPath, w.rootPath)) {
               workspaceManager.loadFileTree(wsId);
+              refreshGitStatus(wsId, w.rootPath);
             }
           }
         }, 50);
@@ -954,6 +992,17 @@
                   }
                 }}
               />
+            {:else if config.kind === "diff"}
+              <DiffPane
+                filePath={config.diffFilePath ?? ""}
+                oldContent={config.diffOldContent ?? ""}
+                newContent={config.diffNewContent ?? ""}
+                staged={config.diffStaged ?? false}
+                rootPath={workspace.rootPath ?? ""}
+                preview={config.diffPreview ?? false}
+                paneId={config.id}
+                onClose={() => handleClosePane(config.id)}
+              />
             {:else}
               <TerminalPane
                 title={config.title}
@@ -1123,6 +1172,7 @@
   <CommandPalette />
   <Toasts />
   <SendToClaudeModal />
+  <AddPromptModal />
   {#if showSshForm && workspaceManager.activeWorkspace}
     <SshConnectForm workspace={workspaceManager.activeWorkspace} onclose={() => showSshForm = false} />
   {/if}
@@ -1131,7 +1181,7 @@
 <!-- Left edge drawer trigger -->
 <div
   class="sidebar-drawer-zone"
-  style="left: {leftVisible ? `${leftWidth + 2}px` : '3px'}"
+  style="transform: translateX({leftVisible ? `${leftWidth + 2}px` : '3px'})"
 >
   <button
     class="sidebar-drawer-btn"
@@ -1145,7 +1195,7 @@
 <!-- Right edge drawer trigger -->
 <div
   class="sidebar-drawer-zone right"
-  style="right: {rightVisible ? `${rightWidth + 2}px` : '3px'}"
+  style="transform: translateX(-{rightVisible ? `${rightWidth + 2}px` : '3px'})"
 >
   <button
     class="sidebar-drawer-btn"
@@ -1156,4 +1206,82 @@
   </button>
 </div>
 
-
+<style>
+  @keyframes welcome-in {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .welcome-container {
+    width: 380px;
+    animation: welcome-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .welcome-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+  .welcome-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 6px 0;
+    margin: 0 0 16px 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .welcome-legend {
+    font-size: var(--ui-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    padding: 0 8px;
+    margin-left: 8px;
+  }
+  .welcome-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+    padding: 7px 16px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: var(--ui-body);
+    cursor: pointer;
+    transition: background var(--duration-base) var(--ease-default),
+                color var(--duration-base) var(--ease-default);
+    overflow: hidden;
+  }
+  .welcome-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-bright);
+  }
+  :global(.welcome-item i) {
+    font-size: var(--ui-btn);
+    width: 18px;
+    text-align: center;
+    color: var(--text-dim);
+  }
+  :global(.welcome-item:hover i) {
+    color: var(--text-bright);
+  }
+  :global(.welcome-item span) {
+    flex: 1;
+    text-align: left;
+  }
+  :global(.welcome-item kbd) {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    font-family: var(--ui-font);
+  }
+  .welcome-item-compact {
+    justify-content: center;
+    width: auto;
+    padding: 6px 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+  }
+</style>

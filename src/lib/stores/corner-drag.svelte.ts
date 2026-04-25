@@ -1,3 +1,13 @@
+/**
+ * Corner-drag system for resizing the pane grid at split intersections.
+ *
+ * When the user drags a corner where two or more resize handles meet,
+ * {@link beginCornerDrag} snapshots the container rects of all affected
+ * handles and adjusts their split ratios simultaneously on `mousemove`.
+ * This avoids feedback loops from layout reflows during the drag.
+ *
+ * Exposes reactive {@link isCornerDragActive} for cursor styling.
+ */
 import type { HandleSegment, Intersection, Rect } from "../utils/handle-geometry";
 
 interface HandleContext {

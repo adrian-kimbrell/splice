@@ -1,3 +1,12 @@
+/**
+ * Creates a new independent Splice editor window via the Tauri WebviewWindow API.
+ *
+ * Each window gets a unique random label and its own workspace config file,
+ * registered on the Rust side before the webview is spawned. The new window
+ * loads the root `/` entry point with default 1280x800 dimensions.
+ * No-ops gracefully outside a Tauri environment.
+ */
+
 /** Opens a fresh, independent app window with its own workspace file. */
 export async function openNewWindow(): Promise<void> {
   if (!("__TAURI_INTERNALS__" in window)) return;
