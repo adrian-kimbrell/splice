@@ -565,8 +565,7 @@
   $effect(() => {
     const scale = settings.appearance.ui_scale / 100;
     document.documentElement.style.zoom = `${scale}`;
-    const compact = !leftVisible && !rightVisible && !ui.zenMode;
-    const yBase = compact ? 17 : 19;
+    const yBase = 19;
     if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
       animateTrafficLight(yBase, scale);
     }

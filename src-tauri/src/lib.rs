@@ -137,7 +137,8 @@ pub fn run() {
     #[cfg_attr(not(feature = "e2e"), allow(unused_mut))]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init());
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init());
 
     #[cfg(feature = "e2e")]
     {
@@ -238,6 +239,13 @@ pub fn run() {
                 commands::fs::reveal_in_file_manager,
                 commands::fs::save_temp_image,
                 commands::fs::write_to_clipboard,
+                commands::git::git_status,
+                commands::git::git_stage,
+                commands::git::git_unstage,
+                commands::git::git_commit,
+                commands::git::git_discard,
+                commands::git::git_diff_file,
+                commands::git::git_log,
                 commands::terminal::spawn_terminal,
                 commands::terminal::write_to_terminal,
                 commands::terminal::resize_terminal,
@@ -262,6 +270,9 @@ pub fn run() {
                 commands::settings::get_settings,
                 commands::settings::update_settings,
                 commands::settings::set_traffic_light_position,
+                commands::themes::import_theme,
+                commands::themes::list_custom_themes,
+                commands::themes::delete_custom_theme,
                 lsp::lsp_check,
                 lsp::lsp_install,
                 lsp::lsp_start,
@@ -297,6 +308,13 @@ pub fn run() {
                 commands::fs::reveal_in_file_manager,
                 commands::fs::save_temp_image,
                 commands::fs::write_to_clipboard,
+                commands::git::git_status,
+                commands::git::git_stage,
+                commands::git::git_unstage,
+                commands::git::git_commit,
+                commands::git::git_discard,
+                commands::git::git_diff_file,
+                commands::git::git_log,
                 commands::terminal::spawn_terminal,
                 commands::terminal::write_to_terminal,
                 commands::terminal::resize_terminal,
@@ -321,6 +339,9 @@ pub fn run() {
                 commands::settings::get_settings,
                 commands::settings::update_settings,
                 commands::settings::set_traffic_light_position,
+                commands::themes::import_theme,
+                commands::themes::list_custom_themes,
+                commands::themes::delete_custom_theme,
                 lsp::lsp_check,
                 lsp::lsp_install,
                 lsp::lsp_start,
@@ -356,6 +377,13 @@ pub fn run() {
                 commands::fs::reveal_in_file_manager,
                 commands::fs::save_temp_image,
                 commands::fs::write_to_clipboard,
+                commands::git::git_status,
+                commands::git::git_stage,
+                commands::git::git_unstage,
+                commands::git::git_commit,
+                commands::git::git_discard,
+                commands::git::git_diff_file,
+                commands::git::git_log,
                 commands::terminal::spawn_terminal,
                 commands::terminal::write_to_terminal,
                 commands::terminal::resize_terminal,
@@ -380,6 +408,9 @@ pub fn run() {
                 commands::settings::get_settings,
                 commands::settings::update_settings,
                 commands::settings::set_traffic_light_position,
+                commands::themes::import_theme,
+                commands::themes::list_custom_themes,
+                commands::themes::delete_custom_theme,
                 lsp::lsp_check,
                 lsp::lsp_install,
                 lsp::lsp_start,

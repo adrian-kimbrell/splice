@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Theme Builder — Splice</title>
+  <meta name="description" content="Create and export custom themes for Splice. Customize every color and import directly into the app." />
+  <link rel="canonical" href="https://www.spliceditor.xyz/themes" />
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="../apple-touch-icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="../tailwind.css">
+  <style>
+    :root { --accent: #00ff88; }
+    body { background: #1e1e1e; font-family: 'JetBrains Mono', monospace; }
+    .btn-orange { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
+    .btn-orange:hover { background: rgba(0,255,136,0.1); }
+    .text-orange { color: #00ff88; }
+    .border-orange { border-color: #00ff88; }
+    .bg-card { background: #252526; }
+    .bg-raised { background: #2d2d30; }
+    .border-dim { border-color: #3c3c3c; }
+    body { opacity: 0; animation: fadein 0.15s ease forwards; }
+    @keyframes fadein { to { opacity: 1; } }
+
+    /* ── Page layout ── */
+    .editor-layout {
+      display: grid;
+      grid-template-columns: 272px 1fr;
+      height: calc(100vh - 57px - 48px);
+      overflow: hidden;
+    }
+
+    /* ── Left color panel ── */
+    .color-panel {
+      background: #181819;
+      border-right: 1px solid #2a2a2a;
+      overflow-y: auto;
+      padding-bottom: 40px;
+    }
+    .color-panel::-webkit-scrollbar { width: 5px; }
+    .color-panel::-webkit-scrollbar-track { background: transparent; }
+    .color-panel::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+    .group-header {
+      position: sticky;
+      top: 0;
+      background: #181819;
+      padding: 9px 14px 5px;
+      font-size: 9.5px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #444;
+      border-bottom: 1px solid #222;
+      z-index: 1;
+    }
+
+    .color-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 14px;
+      cursor: default;
+      transition: background 0.1s;
+    }
+    .color-row:hover { background: rgba(255,255,255,0.025); }
+
+    .swatch-wrap {
+      position: relative;
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.1);
+      cursor: pointer;
+    }
+    .swatch-fill {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .swatch-picker {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+      padding: 0;
+      border: none;
+    }
+
+    .color-meta {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .color-name {
+      font-size: 11px;
+      color: #bbb;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+    .color-desc {
+      font-size: 9.5px;
+      color: #444;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.4;
+    }
+
+    .hex-input {
+      width: 72px;
+      background: #1e1e1e;
+      border: 1px solid #2a2a2a;
+      border-radius: 3px;
+      color: #999;
+      font-size: 10.5px;
+      font-family: inherit;
+      padding: 3px 6px;
+      outline: none;
+      letter-spacing: 0.03em;
+      transition: border-color 0.1s, color 0.1s;
+      flex-shrink: 0;
+    }
+    .hex-input:focus { border-color: #00ff88; color: #fff; }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      height: 48px;
+      background: #1a1a1b;
+      border-bottom: 1px solid #2a2a2a;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .t-label { font-size: 10px; color: #444; white-space: nowrap; }
+    .t-name-input {
+      background: #111;
+      border: 1px solid #2a2a2a;
+      border-radius: 4px;
+      color: #ccc;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 4px 9px;
+      outline: none;
+      width: 180px;
+      transition: border-color 0.1s;
+    }
+    .t-name-input:focus { border-color: #00ff88; color: #fff; }
+    .t-select {
+      background: #111;
+      border: 1px solid #2a2a2a;
+      border-radius: 4px;
+      color: #888;
+      font-family: inherit;
+      font-size: 10.5px;
+      padding: 4px 22px 4px 8px;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23555' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 7px center;
+    }
+    .t-select:focus { border-color: #00ff88; }
+    .t-btn {
+      background: transparent;
+      border: 1px solid #2a2a2a;
+      border-radius: 4px;
+      color: #666;
+      font-family: inherit;
+      font-size: 10.5px;
+      padding: 4px 11px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 0.1s, color 0.1s, border-color 0.1s;
+      white-space: nowrap;
+    }
+    .t-btn:hover { background: rgba(255,255,255,0.05); color: #ccc; border-color: #444; }
+    .t-btn.primary { color: #00ff88; border-color: rgba(0,255,136,0.4); }
+    .t-btn.primary:hover { background: rgba(0,255,136,0.08); border-color: #00ff88; }
+    .t-sep { width: 1px; height: 20px; background: #2a2a2a; margin: 0 2px; flex-shrink: 0; }
+    .t-spacer { flex: 1; }
+
+    /* ── Preview wrap ── */
+    .preview-wrap {
+      background: #111;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow: auto;
+    }
+
+    /* ═════════════════════════════════════════════════════════════
+       SPLICE APP PREVIEW — var-proxy + real app CSS classes
+       ═════════════════════════════════════════════════════════════ */
+
+    /* ── Window shell + color var-proxy ── */
+    #preview {
+      /* JS calls updatePreview() which sets --p-{key}; re-expose as real app var names */
+      --bg-editor:     var(--p-bg-editor);
+      --bg-sidebar:    var(--p-bg-sidebar);
+      --bg-statusbar:  var(--p-bg-statusbar, var(--p-bg-sidebar));
+      --bg-tab:        var(--p-bg-tab);
+      --bg-tab-active: var(--p-bg-tab-active);
+      --bg-hover:      var(--p-bg-hover);
+      --bg-selected:   var(--p-bg-selected);
+      --bg-input:      var(--p-bg-input);
+      --bg-palette:    var(--p-bg-palette);
+      --border:        var(--p-border);
+      --text:          var(--p-text);
+      --text-dim:      var(--p-text-dim);
+      --text-bright:   var(--p-text-bright);
+      --accent:        var(--p-accent);
+      --tab-indicator: var(--p-tab-indicator);
+      --syn-kw:        var(--p-syn-kw);
+      --syn-fn:        var(--p-syn-fn);
+      --syn-str:       var(--p-syn-str);
+      --syn-ty:        var(--p-syn-ty);
+      --syn-num:       var(--p-syn-num);
+      --syn-cm:        var(--p-syn-cm);
+      --syn-mac:       var(--p-syn-mac);
+      --syn-attr:      var(--p-syn-attr);
+      --ansi-red:      var(--p-ansi-red);
+      --ansi-yellow:   var(--p-ansi-yellow);
+      --tree-line:     var(--p-text-dim);
+      /* size tokens (match app.css :root) */
+      --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px;
+      --ui-body: 12px; --ui-label: 11px; --ui-btn: 14px; --ui-icon: 16px;
+      --row-sm: 22px; --row-md: 24px; --btn-sm: 24px; --btn-md: 28px;
+      /* window shell */
+      width: 100%; max-width: 1100px;
+      border-radius: 12px; overflow: hidden;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06);
+      background: var(--bg-editor);
+      padding: 6px;
+      display: grid;
+      grid-template-columns: 220px 6px 1fr 6px 140px;
+      grid-template-rows: 1fr;
+      height: 560px;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12px;
+    }
+
+    /* Tailwind layout utilities missing from docs tailwind.css */
+    #preview .flex-col      { flex-direction: column; }
+    #preview .flex-1        { flex: 1 1 0%; }
+    #preview .min-h-0       { min-height: 0; }
+    #preview .min-w-0       { min-width: 0; }
+    #preview .overflow-hidden { overflow: hidden; }
+    #preview .overflow-auto { overflow: auto; }
+    #preview .border-b      { border-bottom-width: 1px; border-bottom-style: solid; }
+
+    /* App-specific color utilities missing from docs tailwind.css */
+    #preview .bg-editor     { background-color: var(--bg-editor); }
+    #preview .bg-sidebar    { background-color: var(--bg-sidebar); }
+    #preview .bg-tab        { background-color: var(--bg-tab); }
+    #preview .bg-tab-active { background-color: var(--bg-tab-active); }
+    #preview .border-border { border-color: var(--border); }
+    #preview .text-txt-dim  { color: var(--text-dim); }
+    #preview .text-txt-bright { color: var(--text-bright); }
+    #preview .text-accent   { color: var(--accent); }
+    #preview .border-b-tab-indicator { border-bottom-color: var(--tab-indicator); }
+
+    /* ── TitleBar.svelte ── */
+    #preview .title-bar {
+      flex-shrink: 0; height: 32px; margin-bottom: 6px;
+      background: var(--bg-sidebar);
+      border-radius: var(--radius-lg);
+      border: 1px solid color-mix(in srgb, var(--text-dim) 22%, transparent);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+      display: flex; flex-direction: row; align-items: stretch; overflow: hidden;
+    }
+    #preview .title-center { flex: 1; min-width: 0; }
+    #preview .title-actions { display: flex; align-items: center; flex-shrink: 0; padding: 0 4px; }
+    #preview .title-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; border-radius: 5px; border: none;
+      background: none; color: var(--text-dim); cursor: pointer; font-size: 13px;
+    }
+
+    /* ── Shared button styles (app.css) ── */
+    #preview .topbar-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border: none; background: transparent;
+      color: var(--text-dim); font-size: 14px; cursor: pointer; border-radius: 6px;
+    }
+    #preview .pane-action-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 24px; height: 24px; border: none; background: transparent;
+      color: var(--text-dim); font-size: 14px; cursor: pointer; border-radius: 6px;
+    }
+
+    /* ── File tree items ── */
+    #preview .tree-item {
+      height: 24px; display: flex; align-items: center;
+      font-size: 12px; cursor: default; white-space: nowrap; overflow: hidden;
+      margin: 1px 4px; border-radius: 4px; position: relative;
+      color: var(--text-dim);
+    }
+    #preview .tree-item.active { background: var(--bg-selected); color: var(--text-bright); }
+
+    /* ── Workspace groups ── */
+    #preview .workspace-group { margin-bottom: 4px; }
+    #preview .workspace-group:last-child { margin-bottom: 0; }
+    #preview .workspace-header {
+      padding: 8px 8px 4px 8px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 4px;
+      display: flex; align-items: center;
+    }
+    #preview .workspace-title {
+      font-size: 11px; color: var(--text-dim); font-weight: 500;
+      letter-spacing: 0.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #preview .session-list { display: flex; flex-direction: column; padding: 8px 0 0 0; }
+    #preview .session-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 2px 8px; cursor: default; position: relative;
+      height: 22px; margin: 1px 4px; border-radius: 4px;
+    }
+    #preview .session-item.active { background-color: var(--bg-selected); }
+    #preview .session-tree-bar { position: relative; width: 12px; height: 22px; flex-shrink: 0; }
+    #preview .tree-vertical-line {
+      position: absolute; left: 5px; top: 0; bottom: 0;
+      width: 1px; background-color: var(--tree-line); opacity: 0.25;
+    }
+    #preview .tree-horizontal-line {
+      position: absolute; left: 5px; top: 11px; width: 7px; height: 1px;
+      background-color: var(--tree-line); opacity: 0.25;
+    }
+    #preview .session-item.first .tree-vertical-line { top: 11px; }
+    #preview .session-item.last  .tree-vertical-line { bottom: 11px; }
+    #preview .session-item.active .tree-vertical-line,
+    #preview .session-item.active .tree-horizontal-line {
+      background-color: var(--accent); opacity: 1;
+    }
+    #preview .session-icon {
+      display: flex; align-items: center; justify-content: center;
+      width: 18px; height: 18px; flex-shrink: 0;
+      color: var(--text-dim); font-size: 16px;
+    }
+    #preview .session-item.active .session-icon { color: var(--text-bright); }
+    #preview .session-info { flex: 1; min-width: 0; overflow: hidden; }
+    #preview .session-title {
+      font-size: 12px; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%;
+    }
+    #preview .session-item.active .session-title { color: var(--text-bright); }
+
+    /* ── Code area ── */
+    .sp-code-area {
+      flex: 1; min-height: 0; background: var(--bg-editor);
+      display: flex; overflow: hidden;
+    }
+    .sp-gutter { padding: 8px 0; flex-shrink: 0; width: 44px; text-align: right; }
+    .sp-ln {
+      display: block; font-size: 11px; font-family: 'Menlo','Consolas',monospace;
+      color: var(--text-dim); line-height: 1.7; padding: 0 10px 0 0; opacity: 0.45;
+    }
+    .sp-ln.active { color: var(--text); opacity: 1; }
+    .sp-lines { flex: 1; padding: 8px 0 8px 2px; overflow: hidden; }
+    .sp-line {
+      display: block; font-size: 11.5px; font-family: 'Menlo','Consolas',monospace;
+      color: var(--text); line-height: 1.7; white-space: pre;
+    }
+    .sp-line.active { background: rgba(255,255,255,0.03); }
+
+    /* Syntax tokens for code preview */
+    .t-kw   { color: var(--syn-kw); }
+    .t-fn   { color: var(--syn-fn); }
+    .t-str  { color: var(--syn-str); }
+    .t-ty   { color: var(--syn-ty); }
+    .t-num  { color: var(--syn-num); }
+    .t-cm   { color: var(--syn-cm); font-style: italic; }
+    .t-mac  { color: var(--syn-mac); }
+    .t-attr { color: var(--syn-attr); }
+    .t-dim  { color: var(--text-dim); }
+    .t-acc  { color: var(--accent); }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: #00ff88; color: #000;
+      font-size: 12px; padding: 7px 14px;
+      border-radius: 4px; font-family: 'JetBrains Mono', monospace;
+      opacity: 0; transform: translateY(6px);
+      transition: opacity 0.18s, transform 0.18s;
+      pointer-events: none; z-index: 100;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body class="text-zinc-100 antialiased" style="background:#1e1e1e">
+
+  <!-- Nav -->
+  <header style="border-bottom:1px solid #2a2a2a">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2">
+        <img src="../logo.png" alt="Splice" class="w-9 h-9" style="filter:brightness(0) invert(1)" />
+        <span class="font-mono text-sm font-medium tracking-widest uppercase text-orange">Splice</span>
+      </a>
+      <nav class="flex items-center gap-8 text-sm text-zinc-500">
+        <a href="/" class="hover:text-zinc-200 transition-colors">Home</a>
+        <a href="/blog" class="hover:text-zinc-200 transition-colors">Blog</a>
+        <a href="/releases" class="hover:text-zinc-200 transition-colors">Releases</a>
+        <a href="/themes" class="text-zinc-200">Themes</a>
+        <a href="https://github.com/adrian-kimbrell/splice" class="hover:text-zinc-200 transition-colors font-mono text-xs">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <span class="t-label">Name</span>
+    <input type="text" id="theme-name" class="t-name-input" value="My Theme" placeholder="Theme name…" />
+    <div class="t-sep"></div>
+    <span class="t-label">Start from</span>
+    <select id="base-theme" class="t-select" onchange="loadBaseTheme(this.value)">
+      <option value="">— blank —</option>
+      <option value="Splice Default" selected>Splice Default</option>
+      <option value="Dark">Dark (VS Code)</option>
+      <option value="Dracula">Dracula</option>
+      <option value="Nord">Nord</option>
+      <option value="Tokyo Night">Tokyo Night</option>
+      <option value="Catppuccin Mocha">Catppuccin Mocha</option>
+      <option value="Monokai">Monokai</option>
+      <option value="Gruvbox Dark">Gruvbox Dark</option>
+      <option value="One Dark">One Dark</option>
+      <option value="Light">Light</option>
+    </select>
+    <div class="t-spacer"></div>
+    <button class="t-btn" onclick="importTheme()"><i class="bi bi-upload"></i> Import JSON</button>
+    <button class="t-btn primary" onclick="exportTheme()"><i class="bi bi-download"></i> Export Theme</button>
+  </div>
+
+  <!-- Main -->
+  <div class="editor-layout">
+
+    <!-- Left: color panel -->
+    <div class="color-panel" id="color-panel"></div>
+
+    <!-- Right: Splice preview -->
+    <div class="preview-wrap">
+
+      <div id="preview">
+
+        <!-- ── Left sidebar: Explorer ── -->
+        <div class="bg-sidebar"
+          style="grid-column: 1; grid-row: 1; border-radius: var(--radius-lg); box-shadow: 0 4px 24px rgba(0,0,0,0.35); overflow: hidden; display: flex; flex-direction: column;">
+          <!-- 32px header: 70px traffic-light spacer + icon buttons -->
+          <div style="height: 32px; display: flex; align-items: center; border-bottom: 1px solid var(--border); flex-shrink: 0;">
+            <div style="width: 70px; flex-shrink: 0; height: 100%; display: flex; align-items: center; padding-left: 14px; gap: 6px;">
+              <span style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; flex-shrink: 0; display: inline-block;"></span>
+              <span style="width: 12px; height: 12px; border-radius: 50%; background: #ffbd2e; flex-shrink: 0; display: inline-block;"></span>
+              <span style="width: 12px; height: 12px; border-radius: 50%; background: #28c840; flex-shrink: 0; display: inline-block;"></span>
+            </div>
+            <div class="flex items-center shrink-0">
+              <button class="topbar-btn text-accent"><i class="bi bi-folder2"></i></button>
+              <button class="topbar-btn text-txt-dim"><i class="bi bi-search"></i></button>
+              <button class="topbar-btn text-txt-dim"><i class="bi bi-exclamation-triangle"></i></button>
+              <button class="topbar-btn text-txt-dim"><i class="bi bi-diagram-3"></i></button>
+            </div>
+          </div>
+          <!-- file tree -->
+          <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; padding-right: 10px;">
+            <div style="padding: 6px 0; overflow: hidden;">
+              <!-- malloc root (expanded) -->
+              <div class="tree-item" style="padding-left: 8px; gap: 4px; color: var(--text-bright);">
+                <i class="bi bi-chevron-down" style="font-size: 9px; width: 10px; flex-shrink: 0; opacity: 0.5; margin-right: 2px;"></i>
+                <i class="bi bi-folder2-open" style="font-size: 12px; width: 16px; flex-shrink: 0; color: var(--syn-ty); margin-right: 4px;"></i>
+                <span>malloc</span>
+              </div>
+              <!-- docs (git-modified, expanded) -->
+              <div class="tree-item" style="padding-left: 24px; gap: 4px;">
+                <span style="position: absolute; left: 16px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-chevron-down" style="font-size: 9px; width: 10px; flex-shrink: 0; opacity: 0.5; margin-right: 2px;"></i>
+                <i class="bi bi-folder2-open" style="font-size: 12px; width: 16px; flex-shrink: 0; color: var(--syn-ty); margin-right: 4px;"></i>
+                <span style="color: var(--ansi-yellow);">docs</span>
+              </div>
+              <!-- docs/themes -->
+              <div class="tree-item" style="padding-left: 40px; gap: 4px;">
+                <span style="position: absolute; left: 32px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-chevron-right" style="font-size: 9px; width: 10px; flex-shrink: 0; opacity: 0.5; margin-right: 2px;"></i>
+                <i class="bi bi-folder2" style="font-size: 12px; width: 16px; flex-shrink: 0; margin-right: 4px;"></i>
+                <span>themes</span>
+              </div>
+              <!-- docs/index.html (git-modified) -->
+              <div class="tree-item" style="padding-left: 40px; gap: 4px;">
+                <span style="position: absolute; left: 32px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-filetype-html" style="font-size: 12px; width: 16px; flex-shrink: 0; color: var(--syn-num); margin-left: 14px; margin-right: 4px;"></i>
+                <span style="color: var(--ansi-yellow);">index.html</span>
+              </div>
+              <!-- src (expanded) -->
+              <div class="tree-item" style="padding-left: 24px; gap: 4px;">
+                <span style="position: absolute; left: 16px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-chevron-down" style="font-size: 9px; width: 10px; flex-shrink: 0; opacity: 0.5; margin-right: 2px;"></i>
+                <i class="bi bi-folder2-open" style="font-size: 12px; width: 16px; flex-shrink: 0; color: var(--syn-ty); margin-right: 4px;"></i>
+                <span>src</span>
+              </div>
+              <!-- src/components -->
+              <div class="tree-item" style="padding-left: 40px; gap: 4px;">
+                <span style="position: absolute; left: 32px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-chevron-right" style="font-size: 9px; width: 10px; flex-shrink: 0; opacity: 0.5; margin-right: 2px;"></i>
+                <i class="bi bi-folder2" style="font-size: 12px; width: 16px; flex-shrink: 0; margin-right: 4px;"></i>
+                <span>components</span>
+              </div>
+              <!-- src/lib -->
+              <div class="tree-item" style="padding-left: 40px; gap: 4px;">
+                <span style="position: absolute; left: 32px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-chevron-right" style="font-size: 9px; width: 10px; flex-shrink: 0; opacity: 0.5; margin-right: 2px;"></i>
+                <i class="bi bi-folder2" style="font-size: 12px; width: 16px; flex-shrink: 0; margin-right: 4px;"></i>
+                <span>lib</span>
+              </div>
+              <!-- src/App.svelte -->
+              <div class="tree-item" style="padding-left: 40px; gap: 4px;">
+                <span style="position: absolute; left: 32px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-file-earmark-code" style="font-size: 12px; width: 16px; flex-shrink: 0; color: var(--syn-fn); margin-left: 14px; margin-right: 4px;"></i>
+                <span>App.svelte</span>
+              </div>
+              <!-- src/app.css -->
+              <div class="tree-item" style="padding-left: 40px; gap: 4px;">
+                <span style="position: absolute; left: 32px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-file-earmark-code" style="font-size: 12px; width: 16px; flex-shrink: 0; color: var(--syn-mac); margin-left: 14px; margin-right: 4px;"></i>
+                <span>app.css</span>
+              </div>
+              <!-- src-tauri -->
+              <div class="tree-item" style="padding-left: 24px; gap: 4px;">
+                <span style="position: absolute; left: 16px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-chevron-right" style="font-size: 9px; width: 10px; flex-shrink: 0; opacity: 0.5; margin-right: 2px;"></i>
+                <i class="bi bi-folder2" style="font-size: 12px; width: 16px; flex-shrink: 0; margin-right: 4px;"></i>
+                <span>src-tauri</span>
+              </div>
+              <!-- package.json -->
+              <div class="tree-item" style="padding-left: 24px; gap: 4px;">
+                <span style="position: absolute; left: 16px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-filetype-json" style="font-size: 12px; width: 16px; flex-shrink: 0; color: var(--syn-ty); margin-left: 14px; margin-right: 4px;"></i>
+                <span>package.json</span>
+              </div>
+              <!-- Cargo.toml -->
+              <div class="tree-item" style="padding-left: 24px; gap: 4px;">
+                <span style="position: absolute; left: 16px; top: 0; bottom: 0; width: 1px; background: var(--tree-line); opacity: 0.25;"></span>
+                <i class="bi bi-file-earmark-text" style="font-size: 12px; width: 16px; flex-shrink: 0; color: var(--ansi-red); margin-left: 14px; margin-right: 4px;"></i>
+                <span>Cargo.toml</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- gap col 2 -->
+        <div style="grid-column: 2; grid-row: 1;"></div>
+
+        <!-- ── Center column: TitleBar + Editor pane ── -->
+        <div style="grid-column: 3; grid-row: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;">
+
+          <!-- TitleBar.svelte -->
+          <div class="title-bar">
+            <div class="title-center"></div>
+            <div class="title-actions">
+              <button class="title-btn"><i class="bi bi-folder2-open"></i></button>
+              <button class="title-btn"><i class="bi bi-terminal"></i></button>
+              <button class="title-btn"><i class="bi bi-gear"></i></button>
+            </div>
+          </div>
+
+          <!-- Editor pane (active — accent border) -->
+          <div style="flex: 1; min-height: 0; border-radius: var(--radius-lg);
+              border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+              box-shadow: color-mix(in srgb, var(--accent) 8%, transparent) 0 0 0 1px,
+                          color-mix(in srgb, var(--accent) 3%, transparent) 0 0 24px inset;
+              overflow: hidden; display: flex; flex-direction: column;
+              background-color: var(--bg-tab);">
+            <!-- Tab bar -->
+            <div style="height: 32px; background-color: var(--bg-tab); border-bottom: 1px solid var(--border); display: flex; align-items: stretch; flex-shrink: 0; overflow: hidden;">
+              <!-- active tab: main.py -->
+              <div style="display: flex; align-items: center; gap: 5px; padding: 0 14px; font-size: 11px;
+                  color: var(--text-bright); background-color: var(--bg-tab-active);
+                  border-bottom: 2px solid var(--tab-indicator); border-right: 1px solid var(--border);
+                  white-space: nowrap; cursor: default; flex-shrink: 0;">
+                <i class="bi bi-file-earmark-code" style="font-size: 12px; color: var(--accent);"></i>
+                <span>main.py</span>
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0.7; flex-shrink: 0; display: inline-block;"></span>
+              </div>
+              <!-- inactive tab: settings.rs -->
+              <div style="display: flex; align-items: center; gap: 5px; padding: 0 14px; font-size: 11px;
+                  color: var(--text-dim); border-right: 1px solid var(--border);
+                  white-space: nowrap; cursor: default; flex-shrink: 0;">
+                <i class="bi bi-file-earmark-code" style="font-size: 12px;"></i>
+                <span>settings.rs</span>
+              </div>
+              <div style="flex: 1;"></div>
+              <div style="display: flex; align-items: center; padding: 0 6px; gap: 2px; border-left: 1px solid var(--border); flex-shrink: 0;">
+                <button class="topbar-btn"><i class="bi bi-layout-split"></i></button>
+                <button class="topbar-btn"><i class="bi bi-plus"></i></button>
+              </div>
+            </div>
+            <!-- Breadcrumb -->
+            <div style="display: flex; align-items: center; height: 24px; padding: 0 12px;
+                background-color: var(--bg-editor); border-bottom: 1px solid var(--border);
+                font-size: 11px; color: var(--text-dim); flex-shrink: 0;">
+              <span>tree_gen</span>
+              <i class="bi bi-chevron-right" style="font-size: 9px; margin: 0 3px;"></i>
+              <span>main.py</span>
+            </div>
+            <!-- Code area -->
+            <div class="sp-code-area">
+              <div class="sp-gutter" id="sp-gutter"></div>
+              <div class="sp-lines" id="sp-lines"></div>
+            </div>
+          </div>
+
+        </div><!-- /center -->
+
+        <!-- gap col 4 -->
+        <div style="grid-column: 4; grid-row: 1;"></div>
+
+        <!-- ── Right sidebar: Workspaces ── -->
+        <div class="bg-sidebar"
+          style="grid-column: 5; grid-row: 1; border-radius: var(--radius-lg); box-shadow: 0 4px 24px rgba(0,0,0,0.35); overflow: hidden; display: flex; flex-direction: column;">
+          <!-- padding-left: 10px per RightSidebar.svelte -->
+          <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; padding-left: 10px; min-height: 0;">
+
+            <!-- workspace-a: 3 terminals -->
+            <div class="workspace-group">
+              <div class="workspace-header" style="display: flex; align-items: center;">
+                <div style="flex: 1; min-width: 0;"><div class="workspace-title">workspace-a</div></div>
+                <button class="pane-action-btn" style="opacity:0;"><i class="bi bi-x"></i></button>
+              </div>
+              <div class="session-list">
+                <div class="session-item first">
+                  <div class="session-tree-bar"><div class="tree-vertical-line"></div><div class="tree-horizontal-line"></div></div>
+                  <div class="session-icon"><i class="bi bi-terminal"></i></div>
+                  <div class="session-info"><div class="session-title">Terminal 1</div></div>
+                </div>
+                <div class="session-item">
+                  <div class="session-tree-bar"><div class="tree-vertical-line"></div><div class="tree-horizontal-line"></div></div>
+                  <div class="session-icon"><i class="bi bi-terminal"></i></div>
+                  <div class="session-info"><div class="session-title">Terminal 2</div></div>
+                </div>
+                <div class="session-item last">
+                  <div class="session-tree-bar"><div class="tree-vertical-line"></div><div class="tree-horizontal-line"></div></div>
+                  <div class="session-icon"><i class="bi bi-terminal"></i></div>
+                  <div class="session-info"><div class="session-title">Terminal 3</div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- workspace-b: 1 terminal -->
+            <div class="workspace-group">
+              <div class="workspace-header" style="display: flex; align-items: center;">
+                <div style="flex: 1; min-width: 0;"><div class="workspace-title">workspace-b</div></div>
+                <button class="pane-action-btn" style="opacity:0;"><i class="bi bi-x"></i></button>
+              </div>
+              <div class="session-list">
+                <div class="session-item first last">
+                  <div class="session-tree-bar"><div class="tree-vertical-line"></div><div class="tree-horizontal-line"></div></div>
+                  <div class="session-icon"><i class="bi bi-terminal"></i></div>
+                  <div class="session-info"><div class="session-title">Terminal 1</div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- workspace-c: 1 file (active) -->
+            <div class="workspace-group">
+              <div class="workspace-header" style="display: flex; align-items: center;">
+                <div style="flex: 1; min-width: 0;"><div class="workspace-title" style="color: var(--text-bright);">workspace-c</div></div>
+                <button class="pane-action-btn" style="opacity:0;"><i class="bi bi-x"></i></button>
+              </div>
+              <div class="session-list">
+                <div class="session-item first last active">
+                  <div class="session-tree-bar"><div class="tree-vertical-line"></div><div class="tree-horizontal-line"></div></div>
+                  <div class="session-icon"><i class="bi bi-file-earmark-code"></i></div>
+                  <div class="session-info"><div class="session-title">main.py</div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- workspace-d: empty -->
+            <div class="workspace-group">
+              <div class="workspace-header" style="display: flex; align-items: center;">
+                <div style="flex: 1; min-width: 0;"><div class="workspace-title">workspace-d</div></div>
+                <button class="pane-action-btn" style="opacity:0;"><i class="bi bi-x"></i></button>
+              </div>
+            </div>
+
+          </div>
+          <!-- Splice logo lockup — margin-top: auto pushes to bottom of flex column -->
+          <div style="margin-top: auto; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 0; opacity: 0.2;">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="14" height="14" fill="none">
+              <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2"/>
+              <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2" transform="rotate(60 16 16)"/>
+              <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2" transform="rotate(-60 16 16)"/>
+              <circle cx="16" cy="16" r="2.5" fill="white"/>
+              <path d="M18 4 L11 15 L15.5 15 L14 28 L21 17 L16.5 17 Z" fill="white"/>
+            </svg>
+            <span style="color: white; font-size: 11px; font-weight: 500; letter-spacing: 0.04em;">Splice</span>
+          </div>
+        </div><!-- /right sidebar -->
+
+      </div><!-- /#preview -->
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+<script>
+// ── Base themes ───────────────────────────────────────────────────────────────
+const BASE_THEMES = {
+  "Splice Default": {"bg-editor":"#1e1e1e","bg-sidebar":"#252526","bg-statusbar":"#252526","bg-tab":"#252526","bg-tab-active":"#2d2d30","bg-hover":"#2a2d2e","bg-selected":"#37373d","bg-input":"#3c3c3c","bg-palette":"#252526","border":"#2e2e2e","text":"#cccccc","text-dim":"#737373","text-bright":"#ffffff","accent":"#00ff88","tab-indicator":"#00ff88","syn-kw":"#c678dd","syn-fn":"#61afef","syn-str":"#98c379","syn-ty":"#e5c07b","syn-num":"#d19a66","syn-cm":"#5c6370","syn-mac":"#56b6c2","syn-attr":"#d19a66","ansi-red":"#e06c75","ansi-yellow":"#e5c07b"},
+  "Dark": {"bg-editor":"#181818","bg-sidebar":"#252525","bg-statusbar":"#252525","bg-tab":"#252525","bg-tab-active":"#2d2d2d","bg-hover":"#2a2d2e","bg-selected":"#37373d","bg-input":"#333333","bg-palette":"#252525","border":"#3c3c3c","text":"#cccccc","text-dim":"#848484","text-bright":"#ffffff","accent":"#2472c8","tab-indicator":"#2472c8","syn-kw":"#569cd6","syn-fn":"#dcdcaa","syn-str":"#ce9178","syn-ty":"#4ec9b0","syn-num":"#b5cea8","syn-cm":"#6a9955","syn-mac":"#c586c0","syn-attr":"#9cdcfe","ansi-red":"#f44747","ansi-yellow":"#cca700"},
+  "Dracula": {"bg-editor":"#15161d","bg-sidebar":"#21222c","bg-statusbar":"#21222c","bg-tab":"#21222c","bg-tab-active":"#44475a","bg-hover":"#2c2e3a","bg-selected":"#44475a","bg-input":"#3a3c4e","bg-palette":"#21222c","border":"#44475a","text":"#f8f8f2","text-dim":"#6272a4","text-bright":"#ffffff","accent":"#bd93f9","tab-indicator":"#bd93f9","syn-kw":"#ff79c6","syn-fn":"#50fa7b","syn-str":"#f1fa8c","syn-ty":"#8be9fd","syn-num":"#bd93f9","syn-cm":"#6272a4","syn-mac":"#ff79c6","syn-attr":"#50fa7b","ansi-red":"#ff5555","ansi-yellow":"#f1fa8c"},
+  "Nord": {"bg-editor":"#1e222a","bg-sidebar":"#2e3440","bg-statusbar":"#2e3440","bg-tab":"#2e3440","bg-tab-active":"#3b4252","bg-hover":"#3b4252","bg-selected":"#434c5e","bg-input":"#3b4252","bg-palette":"#2e3440","border":"#3b4252","text":"#d8dee9","text-dim":"#6d7a90","text-bright":"#eceff4","accent":"#88c0d0","tab-indicator":"#88c0d0","syn-kw":"#81a1c1","syn-fn":"#88c0d0","syn-str":"#a3be8c","syn-ty":"#ebcb8b","syn-num":"#b48ead","syn-cm":"#616e88","syn-mac":"#d08770","syn-attr":"#8fbcbb","ansi-red":"#bf616a","ansi-yellow":"#ebcb8b"},
+  "Tokyo Night": {"bg-editor":"#0e0e14","bg-sidebar":"#16161e","bg-statusbar":"#16161e","bg-tab":"#16161e","bg-tab-active":"#24283b","bg-hover":"#24283b","bg-selected":"#2f3549","bg-input":"#24283b","bg-palette":"#16161e","border":"#24283b","text":"#c0caf5","text-dim":"#5a6490","text-bright":"#c0caf5","accent":"#7aa2f7","tab-indicator":"#7aa2f7","syn-kw":"#bb9af7","syn-fn":"#7aa2f7","syn-str":"#9ece6a","syn-ty":"#e0af68","syn-num":"#ff9e64","syn-cm":"#565f89","syn-mac":"#2ac3de","syn-attr":"#73daca","ansi-red":"#f7768e","ansi-yellow":"#e0af68"},
+  "Catppuccin Mocha": {"bg-editor":"#101018","bg-sidebar":"#181825","bg-statusbar":"#181825","bg-tab":"#181825","bg-tab-active":"#1e1e2e","bg-hover":"#313244","bg-selected":"#45475a","bg-input":"#313244","bg-palette":"#181825","border":"#313244","text":"#cdd6f4","text-dim":"#7f849c","text-bright":"#cdd6f4","accent":"#89b4fa","tab-indicator":"#89b4fa","syn-kw":"#cba6f7","syn-fn":"#89b4fa","syn-str":"#a6e3a1","syn-ty":"#f9e2af","syn-num":"#fab387","syn-cm":"#6c7086","syn-mac":"#94e2d5","syn-attr":"#f5c2e7","ansi-red":"#f38ba8","ansi-yellow":"#f9e2af"},
+  "Monokai": {"bg-editor":"#1e1e1e","bg-sidebar":"#2e2e2e","bg-statusbar":"#2e2e2e","bg-tab":"#2e2e2e","bg-tab-active":"#3e3d32","bg-hover":"#3e3d32","bg-selected":"#49483e","bg-input":"#3e3d32","bg-palette":"#2e2e2e","border":"#3e3d32","text":"#f8f8f2","text-dim":"#75715e","text-bright":"#f9f8f5","accent":"#f92672","tab-indicator":"#f92672","syn-kw":"#f92672","syn-fn":"#a6e22e","syn-str":"#e6db74","syn-ty":"#66d9ef","syn-num":"#ae81ff","syn-cm":"#75715e","syn-mac":"#f92672","syn-attr":"#a6e22e","ansi-red":"#f92672","ansi-yellow":"#e6db74"},
+  "Gruvbox Dark": {"bg-editor":"#131515","bg-sidebar":"#1d2021","bg-statusbar":"#1d2021","bg-tab":"#1d2021","bg-tab-active":"#3c3836","bg-hover":"#3c3836","bg-selected":"#504945","bg-input":"#3c3836","bg-palette":"#1d2021","border":"#3c3836","text":"#ebdbb2","text-dim":"#928374","text-bright":"#ebdbb2","accent":"#83a598","tab-indicator":"#83a598","syn-kw":"#fb4934","syn-fn":"#b8bb26","syn-str":"#b8bb26","syn-ty":"#fabd2f","syn-num":"#d3869b","syn-cm":"#928374","syn-mac":"#fe8019","syn-attr":"#8ec07c","ansi-red":"#fb4934","ansi-yellow":"#fabd2f"},
+  "One Dark": {"bg-editor":"#15181c","bg-sidebar":"#21252b","bg-statusbar":"#21252b","bg-tab":"#2c313c","bg-tab-active":"#282c34","bg-hover":"#2c313a","bg-selected":"#3e4451","bg-input":"#1b1d23","bg-palette":"#21252b","border":"#181a1f","text":"#abb2bf","text-dim":"#7a8190","text-bright":"#d7dae0","accent":"#528bff","tab-indicator":"#528bff","syn-kw":"#c678dd","syn-fn":"#61afef","syn-str":"#98c379","syn-ty":"#e5c07b","syn-num":"#d19a66","syn-cm":"#5c6370","syn-mac":"#56b6c2","syn-attr":"#d19a66","ansi-red":"#e06c75","ansi-yellow":"#e5c07b"},
+  "Light": {"bg-editor":"#ffffff","bg-sidebar":"#e8e8e8","bg-statusbar":"#e8e8e8","bg-tab":"#e8e8e8","bg-tab-active":"#f3f3f3","bg-hover":"#e0e0e0","bg-selected":"#d6d6d6","bg-input":"#f0f0f0","bg-palette":"#e8e8e8","border":"#e5e5e5","text":"#333333","text-dim":"#666666","text-bright":"#000000","accent":"#0451a5","tab-indicator":"#0451a5","syn-kw":"#0000ff","syn-fn":"#795e26","syn-str":"#a31515","syn-ty":"#267f99","syn-num":"#098658","syn-cm":"#008000","syn-mac":"#af00db","syn-attr":"#e50000","ansi-red":"#cd3131","ansi-yellow":"#949800"},
+};
+
+// ── Color groups ──────────────────────────────────────────────────────────────
+const COLOR_GROUPS = [
+  { label: "Surface", items: [
+    { key: "bg-editor",     label: "Editor",       desc: "Main editor background" },
+    { key: "bg-sidebar",    label: "Sidebar",      desc: "Explorer & workspace panels" },
+    { key: "bg-statusbar",  label: "Status Bar",   desc: "Bottom bar" },
+    { key: "bg-tab",        label: "Tab Bar",      desc: "Inactive tab background" },
+    { key: "bg-tab-active", label: "Active Tab",   desc: "Selected tab background" },
+    { key: "bg-palette",    label: "Palette",      desc: "Command palette & menus" },
+  ]},
+  { label: "Interactive", items: [
+    { key: "bg-hover",    label: "Hover",    desc: "Row hover state" },
+    { key: "bg-selected", label: "Selected", desc: "Active selection highlight" },
+    { key: "bg-input",    label: "Input",    desc: "Text field background" },
+    { key: "border",      label: "Border",   desc: "Panel & element borders" },
+  ]},
+  { label: "Text & Accent", items: [
+    { key: "text",          label: "Text",          desc: "Primary text" },
+    { key: "text-dim",      label: "Dim Text",      desc: "Secondary / muted text" },
+    { key: "text-bright",   label: "Bright Text",   desc: "Emphasized text" },
+    { key: "accent",        label: "Accent",        desc: "Primary accent color" },
+    { key: "tab-indicator", label: "Tab Indicator", desc: "Active tab underline" },
+  ]},
+  { label: "Syntax", items: [
+    { key: "syn-kw",   label: "Keyword",   desc: "if, return, const, import…" },
+    { key: "syn-fn",   label: "Function",  desc: "Function names & calls" },
+    { key: "syn-str",  label: "String",    desc: "String literals" },
+    { key: "syn-ty",   label: "Type",      desc: "Type names & classes" },
+    { key: "syn-num",  label: "Number",    desc: "Numeric literals & booleans" },
+    { key: "syn-cm",   label: "Comment",   desc: "Line & block comments" },
+    { key: "syn-mac",  label: "Macro",     desc: "Macros & decorators" },
+    { key: "syn-attr", label: "Attribute", desc: "Attributes & properties" },
+  ]},
+  { label: "Terminal", items: [
+    { key: "ansi-red",    label: "Error Red",       desc: "Errors & ANSI red" },
+    { key: "ansi-yellow", label: "Warning Yellow",  desc: "Warnings & ANSI yellow" },
+  ]},
+];
+
+// ── Code lines for preview ────────────────────────────────────────────────────
+const LINES = [
+  `<span class="t-kw">import</span> <span class="t-dim">{</span> <span class="t-fn">invoke</span> <span class="t-dim">}</span> <span class="t-kw">from</span> <span class="t-str">"@tauri-apps/api/core"</span><span class="t-dim">;</span>`,
+  `<span class="t-kw">import type</span> <span class="t-dim">{</span> <span class="t-ty">ThemeColors</span> <span class="t-dim">}</span> <span class="t-kw">from</span> <span class="t-str">"./types"</span><span class="t-dim">;</span>`,
+  ``,
+  `<span class="t-cm">// Apply a named theme to the document root</span>`,
+  `<span class="t-kw">export async function</span> <span class="t-fn">applyTheme</span><span class="t-dim">(</span>`,
+  `  name<span class="t-dim">:</span> <span class="t-ty">string</span>`,
+  `<span class="t-dim">):</span> <span class="t-ty">Promise</span><span class="t-dim">&lt;</span><span class="t-ty">void</span><span class="t-dim">&gt; {</span>`,
+  `  <span class="t-kw">const</span> theme <span class="t-dim">=</span> <span class="t-kw">await</span> <span class="t-fn">loadTheme</span><span class="t-dim">(</span>name<span class="t-dim">);</span>`,
+  `  <span class="t-kw">if</span> <span class="t-dim">(!</span>theme<span class="t-dim">)</span> <span class="t-kw">return</span><span class="t-dim">;</span>`,
+  `  <span class="t-kw">const</span> root <span class="t-dim">=</span> document<span class="t-dim">.</span><span class="t-attr">documentElement</span><span class="t-dim">;</span>`,
+  `  <span class="t-kw">for</span> <span class="t-dim">(</span><span class="t-kw">const</span> <span class="t-dim">[</span>key<span class="t-dim">,</span> val<span class="t-dim">]</span> <span class="t-kw">of</span> <span class="t-ty">Object</span><span class="t-dim">.</span><span class="t-fn">entries</span><span class="t-dim">(</span>theme<span class="t-dim">)) {</span>`,
+  `    root<span class="t-dim">.</span><span class="t-fn">style</span><span class="t-dim">.</span><span class="t-fn">setProperty</span><span class="t-dim">(</span><span class="t-str">\`--\${key}\`</span><span class="t-dim">,</span> val<span class="t-dim">);</span>`,
+  `  <span class="t-dim">}</span>`,
+  `<span class="t-dim">}</span>`,
+  ``,
+  `<span class="t-mac">@Injectable</span>`,
+  `<span class="t-kw">class</span> <span class="t-ty">ThemeManager</span> <span class="t-dim">{</span>`,
+  `  <span class="t-kw">private</span> themes<span class="t-dim">:</span> <span class="t-ty">Map</span><span class="t-dim">&lt;</span><span class="t-ty">string</span><span class="t-dim">,</span> <span class="t-ty">ThemeColors</span><span class="t-dim">&gt;;</span>`,
+  `  <span class="t-kw">readonly</span> version <span class="t-dim">=</span> <span class="t-num">3</span><span class="t-dim">;</span>`,
+];
+const ACTIVE_LINE = 8;
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let colors = { ...BASE_THEMES["Splice Default"] };
+
+// ── Build left panel ──────────────────────────────────────────────────────────
+function buildPanel() {
+  const panel = document.getElementById('color-panel');
+  panel.innerHTML = '';
+  for (const group of COLOR_GROUPS) {
+    const hdr = document.createElement('div');
+    hdr.className = 'group-header';
+    hdr.textContent = group.label;
+    panel.appendChild(hdr);
+    for (const item of group.items) {
+      const row = document.createElement('div');
+      row.className = 'color-row';
+      // Swatch + picker
+      const sw = document.createElement('div');
+      sw.className = 'swatch-wrap';
+      const fill = document.createElement('div');
+      fill.className = 'swatch-fill';
+      fill.id = `sw-${item.key}`;
+      fill.style.background = colors[item.key] || '#000';
+      const picker = document.createElement('input');
+      picker.type = 'color';
+      picker.className = 'swatch-picker';
+      picker.value = toHex6(colors[item.key]);
+      picker.addEventListener('input', e => onColor(item.key, e.target.value));
+      sw.appendChild(fill); sw.appendChild(picker);
+      // Label
+      const meta = document.createElement('div');
+      meta.className = 'color-meta';
+      meta.innerHTML = `<div class="color-name">${item.label}</div><div class="color-desc">${item.desc}</div>`;
+      // Hex input
+      const hex = document.createElement('input');
+      hex.type = 'text';
+      hex.className = 'hex-input';
+      hex.id = `hx-${item.key}`;
+      hex.value = colors[item.key] || '#000000';
+      hex.maxLength = 7;
+      hex.spellcheck = false;
+      hex.addEventListener('input', e => {
+        if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) onColor(item.key, e.target.value);
+      });
+      hex.addEventListener('blur', e => { e.target.value = colors[item.key]; });
+      row.appendChild(sw); row.appendChild(meta); row.appendChild(hex);
+      panel.appendChild(row);
+    }
+  }
+}
+
+// ── Build code preview ────────────────────────────────────────────────────────
+function buildCode() {
+  const gutter = document.getElementById('sp-gutter');
+  const lines = document.getElementById('sp-lines');
+  gutter.innerHTML = LINES.map((_, i) => {
+    const n = i + 1;
+    return `<span class="sp-ln${n === ACTIVE_LINE ? ' active' : ''}">${n}</span>`;
+  }).join('');
+  lines.innerHTML = LINES.map((line, i) => {
+    const n = i + 1;
+    return `<span class="sp-line${n === ACTIVE_LINE ? ' active' : ''}">${line || ' '}</span>`;
+  }).join('');
+}
+
+// ── Update preview ────────────────────────────────────────────────────────────
+function updatePreview() {
+  const preview = document.getElementById('preview');
+  for (const [key, val] of Object.entries(colors)) {
+    preview.style.setProperty(`--p-${key}`, val);
+  }
+}
+
+function syncInputs() {
+  for (const group of COLOR_GROUPS) {
+    for (const item of group.items) {
+      const fill = document.getElementById(`sw-${item.key}`);
+      const hex = document.getElementById(`hx-${item.key}`);
+      const picker = fill?.parentElement?.querySelector('input[type=color]');
+      const val = colors[item.key] || '#000000';
+      if (fill) fill.style.background = val;
+      if (hex) hex.value = val;
+      if (picker) picker.value = toHex6(val);
+    }
+  }
+}
+
+function onColor(key, val) {
+  colors[key] = val.toLowerCase();
+  updatePreview();
+  // sync just this row without full rebuild
+  const fill = document.getElementById(`sw-${key}`);
+  const hex = document.getElementById(`hx-${key}`);
+  if (fill) fill.style.background = val;
+  if (hex && document.activeElement !== hex) hex.value = val;
+}
+
+// ── Load base theme ───────────────────────────────────────────────────────────
+function loadBaseTheme(name) {
+  if (!name || !BASE_THEMES[name]) return;
+  colors = { ...BASE_THEMES[name] };
+  updatePreview();
+  syncInputs();
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+function exportTheme() {
+  const name = document.getElementById('theme-name').value.trim() || 'My Theme';
+  const blob = new Blob([JSON.stringify({ name, colors }, null, 2)], { type: 'application/json' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: name.replace(/[^a-zA-Z0-9\-_]/g, '_') + '.json',
+  });
+  a.click(); URL.revokeObjectURL(a.href);
+  showToast('Theme exported!');
+}
+
+// ── Import ────────────────────────────────────────────────────────────────────
+function importTheme() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = async e => {
+    const file = e.target.files[0]; if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (data.name) document.getElementById('theme-name').value = data.name;
+      if (data.colors && typeof data.colors === 'object') {
+        colors = { ...colors, ...data.colors };
+        updatePreview(); syncInputs();
+        showToast('Theme imported!');
+      } else { showToast('Invalid theme file'); }
+    } catch { showToast('Failed to parse JSON'); }
+  };
+  inp.click();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function toHex6(hex) {
+  if (!hex) return '#000000';
+  if (/^#[0-9a-fA-F]{3}$/.test(hex))
+    return '#' + hex[1]+hex[1]+hex[2]+hex[2]+hex[3]+hex[3];
+  return /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : '#000000';
+}
+
+let _toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildPanel();
+buildCode();
+updatePreview();
+</script>
+</body>
+</html>

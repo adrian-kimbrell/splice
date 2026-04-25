@@ -77,7 +77,7 @@
   }
 </script>
 
-<div class="title-bar" class:title-bar--compact={bothHidden}>
+<div class="title-bar">
   <!-- Drag region fills remaining space -->
   <div class="title-center" data-tauri-drag-region></div>
 
