@@ -40,6 +40,40 @@ pub fn save_temp_image(data: Vec<u8>, ext: String) -> Result<String, String> {
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// Save a screenshot PNG to docs/screenshots/ in the project directory.
+/// Filename is timestamp-based to avoid collisions.
+#[tauri::command]
+pub fn save_screenshot(data: Vec<u8>) -> Result<String, String> {
+    let project_dir = std::env::current_dir()
+        .map_err(|e| format!("Failed to get current dir: {}", e))?;
+    let screenshots_dir = project_dir.join("docs").join("screenshots");
+    std::fs::create_dir_all(&screenshots_dir)
+        .map_err(|e| format!("Failed to create screenshots dir: {}", e))?;
+    let ts = chrono_timestamp();
+    let path = screenshots_dir.join(format!("screenshot-{}.png", ts));
+    std::fs::write(&path, &data)
+        .map_err(|e| format!("Failed to save screenshot: {}", e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+fn chrono_timestamp() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs();
+    // Simple ISO-ish timestamp from epoch seconds
+    let s = secs % 60;
+    let m = (secs / 60) % 60;
+    let h = (secs / 3600) % 24;
+    let days = secs / 86400;
+    // Approximate date (good enough for filenames)
+    let y = 1970 + days / 365;
+    let d = days % 365;
+    let mo = d / 30 + 1;
+    let day = d % 30 + 1;
+    format!("{:04}-{:02}-{:02}_{:02}-{:02}-{:02}", y, mo, day, h, m, s)
+}
+
 /// Write text to the system clipboard via `pbcopy`.
 /// Using the OS-level tool bypasses WKWebView's user-gesture requirement that
 /// prevents `navigator.clipboard.writeText` from working after an async IPC call.

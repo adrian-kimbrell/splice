@@ -393,6 +393,11 @@ export async function saveTempImage(data: Uint8Array, ext: string): Promise<stri
   return invoke("save_temp_image", { data, ext });
 }
 
+/** Save a screenshot PNG to docs/screenshots/ in the project directory. */
+export async function saveScreenshot(data: number[]): Promise<string> {
+  return invoke("save_screenshot", { data });
+}
+
 export async function writeToClipboard(text: string): Promise<void> {
   return invoke("write_to_clipboard", { text });
 }

@@ -282,6 +282,7 @@
 
     // Listen for grid updates, throttle rendering to RAF
     let pendingFrame: Uint8Array | null = null;
+    let hasReceivedFrame = false;
 
     unlistenGrid = await onTerminalGrid(
       terminalId,
@@ -296,6 +297,7 @@
         }
         // Update renderer metadata immediately (before RAF) so that rerender()
         // called from mouse events uses the correct history coordinates in isSelected().
+        hasReceivedFrame = true;
         if (renderer) renderer.setLatestFrame(data);
         pendingFrame = data;
         if (!rafId) {
@@ -321,6 +323,16 @@
 
     // Initial resize
     handleResize();
+
+    // Safeguard: if no frame arrives within 500ms, force a resize to trigger
+    // the Rust emitter to re-send the current grid state. This handles the race
+    // condition where initial frames arrive before the event listener registers.
+    const frameCheckTimer = setTimeout(() => {
+      if (!hasReceivedFrame) {
+        handleResize();
+      }
+    }, 500);
+    cleanupFns.push(() => clearTimeout(frameCheckTimer));
 
     /** Extract selected text via the Rust backend (supports cross-scroll selections). */
     async function extractSelectionText(): Promise<string> {

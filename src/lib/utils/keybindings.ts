@@ -234,38 +234,14 @@ export function initKeybindings(): () => void {
     if (mod && e.altKey && (e.key === "i" || e.key === "I")) { e.preventDefault(); return; }
     if (e.key === "F12") { e.preventDefault(); return; }
 
-    // Numpad 2 — take a screenshot and copy to clipboard (dev only)
-    if (import.meta.env.DEV && e.code === "Numpad2") {
+    // Numpad 3 — take a screenshot and save to docs/screenshots/
+    if (e.code === "Numpad3" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
       (async () => {
         try {
           const { toPng } = await import("html-to-image");
-          await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-          const dataUrl = await toPng(document.documentElement, {
-            pixelRatio: window.devicePixelRatio || 1,
-            skipFonts: true,
-          });
-          const res = await fetch(dataUrl);
-          const blob = await res.blob();
-          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-          console.log("[dev] screenshot copied to clipboard");
-        } catch (err) {
-          console.error("[dev] clipboard screenshot failed:", err);
-        }
-      })();
-      return;
-    }
-
-    // Numpad 3 — take a screenshot and save to docs/screenshots/ (dev only)
-    if (import.meta.env.DEV && e.code === "Numpad3") {
-      e.preventDefault();
-      e.stopPropagation();
-      (async () => {
-        try {
-          const { toPng } = await import("html-to-image");
-          const { invoke } = await import("@tauri-apps/api/core");
-          const name = `manual-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
+          const { saveScreenshot } = await import("../ipc/commands");
           await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
           const dataUrl = await toPng(document.documentElement, {
             pixelRatio: window.devicePixelRatio || 1,
@@ -275,14 +251,16 @@ export function initKeybindings(): () => void {
           const binary = atob(base64);
           const bytes = new Uint8Array(binary.length);
           for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-          const path = await invoke<string>("save_screenshot_bytes", {
-            name,
-            requestId: "",
-            bytes: Array.from(bytes),
-          });
-          console.log("[dev] screenshot →", path);
+          // Save to docs/screenshots/
+          const path = await saveScreenshot(Array.from(bytes));
+          console.log("[screenshot] saved →", path);
+          // Also copy to clipboard
+          const res = await fetch(dataUrl);
+          const blob = await res.blob();
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          console.log("[screenshot] copied to clipboard");
         } catch (err) {
-          console.error("[dev] screenshot failed:", err);
+          console.error("[screenshot] failed:", err);
         }
       })();
       return;
@@ -491,34 +469,6 @@ export function initKeybindings(): () => void {
         workspaceManager.switchWorkspace(list[nextIdx].id);
         ui.zoomedPaneId = null;
       }
-    }
-
-    // Dev only — Cmd+Shift+3: take a screenshot via the internal capture API
-    if (import.meta.env.DEV && e.metaKey && e.shiftKey && e.code === "Digit3") {
-      e.preventDefault();
-      (async () => {
-        try {
-          const { toPng } = await import("html-to-image");
-          const { invoke } = await import("@tauri-apps/api/core");
-          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-          const dataUrl = await toPng(document.documentElement, {
-            pixelRatio: window.devicePixelRatio || 1,
-            skipFonts: true,
-          });
-          const base64 = dataUrl.split(",")[1];
-          const binary = atob(base64);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-          const savedPath = await invoke<string>("save_screenshot_bytes", {
-            name: "manual",
-            requestId: "",
-            bytes: Array.from(bytes),
-          });
-          console.log("[dev] screenshot saved →", savedPath);
-        } catch (err: unknown) {
-          console.error("[dev] screenshot failed:", err);
-        }
-      })();
     }
 
     // Dev only — Cmd+Shift+P: toggle PR mode (hides recent files for clean screenshots)

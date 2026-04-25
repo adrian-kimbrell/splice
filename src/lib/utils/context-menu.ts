@@ -1,12 +1,11 @@
 /**
  * Imperative, native-style right-click context menu rendered as a DOM overlay.
  *
- * Submenu behaviour uses the Radix UI "grace polygon" technique: when the cursor
- * leaves a sub-trigger, a pentagon is constructed from the exit point to the
- * submenu's four corners. A pointermove listener watches the document; the
- * submenu stays open as long as the cursor is inside that polygon. The moment
- * the cursor leaves the polygon (or a 300 ms fallback fires), the submenu closes.
- * Sibling items suppress their own activation while the grace period is active.
+ * Submenu behaviour: opens on mouseenter of the trigger item. A safe triangle
+ * (apex = cursor exit point, base = submenu near-edge corners) is tracked via
+ * mousemove so diagonal cursor movement toward the submenu never triggers an
+ * accidental close. The triangle is only set up when the cursor exits the trigger
+ * toward the submenu side; exiting the other way closes immediately.
  */
 
 export interface ContextMenuItem {
@@ -17,111 +16,116 @@ export interface ContextMenuItem {
   submenu?: (ContextMenuItem | "sep")[];
 }
 
-// ---------------------------------------------------------------------------
-// Geometry helpers
-// ---------------------------------------------------------------------------
-
-type Point = { x: number; y: number };
-
-function isPointInPolygon(pt: Point, poly: Point[]): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i].x, yi = poly[i].y;
-    const xj = poly[j].x, yj = poly[j].y;
-    if ((yi > pt.y) !== (yj > pt.y) &&
-        pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi) {
-      inside = !inside;
-    }
-  }
-  return inside;
-}
-
-function isPointInRect(pt: Point, r: DOMRect): boolean {
-  return pt.x >= r.left && pt.x <= r.right && pt.y >= r.top && pt.y <= r.bottom;
-}
-
-/**
- * Pentagon bridging the cursor's exit point to all four corners of the submenu.
- * The bleed extends the apex point BACK toward the parent menu so the polygon
- * covers the full gap between the two menus.
- */
-function buildGracePolygon(exitX: number, exitY: number, sub: DOMRect, side: "right" | "left"): Point[] {
-  // Negative bleed for right-side (extend apex leftward into the gap)
-  const bleed = side === "right" ? -8 : 8;
-  return [
-    { x: exitX + bleed, y: exitY },
-    { x: sub.left,  y: sub.top    },
-    { x: sub.right, y: sub.top    },
-    { x: sub.right, y: sub.bottom },
-    { x: sub.left,  y: sub.bottom },
-  ];
-}
-
-// ---------------------------------------------------------------------------
-// Grace period state
-// ---------------------------------------------------------------------------
-
 let activeSubmenu: HTMLElement | null = null;
-let graceCleanup: (() => void) | null = null;
-let inGracePeriod = false;
+// Safe triangle vertices [ax,ay, bx,by, cx,cy]
+let safeTri: [number, number, number, number, number, number] | null = null;
+let safeTriUnlisten: (() => void) | null = null;
 
-function startGracePeriod(exitX: number, exitY: number, submenuEl: HTMLElement, onClose: () => void) {
-  stopGracePeriod();
-  inGracePeriod = true;
+// ── Triangle math ────────────────────────────────────────────────────────────
 
-  const subRect = submenuEl.getBoundingClientRect();
-  const side: "right" | "left" = exitX <= subRect.left ? "right" : "left";
-  const polygon = buildGracePolygon(exitX, exitY, subRect, side);
-
-  let fallback = setTimeout(() => { stopGracePeriod(); onClose(); }, 300);
-
-  function onMove(e: PointerEvent) {
-    const pt: Point = { x: e.clientX, y: e.clientY };
-    const currentRect = submenuEl.getBoundingClientRect();
-
-    if (isPointInRect(pt, currentRect)) {
-      // Cursor reached the submenu — grace fulfilled
-      stopGracePeriod();
-      return;
-    }
-
-    if (isPointInPolygon(pt, polygon)) {
-      // Still travelling toward submenu — reset fallback
-      clearTimeout(fallback);
-      fallback = setTimeout(() => { stopGracePeriod(); onClose(); }, 300);
-      return;
-    }
-
-    // Outside the safe zone — close immediately
-    stopGracePeriod();
-    onClose();
-  }
-
-  document.addEventListener("pointermove", onMove);
-
-  graceCleanup = () => {
-    clearTimeout(fallback);
-    document.removeEventListener("pointermove", onMove);
-    inGracePeriod = false;
-    graceCleanup = null;
-  };
+function triSign(
+  p1x: number, p1y: number,
+  p2x: number, p2y: number,
+  p3x: number, p3y: number,
+): number {
+  return (p1x - p3x) * (p2y - p3y) - (p2x - p3x) * (p1y - p3y);
 }
 
-function stopGracePeriod() {
-  graceCleanup?.();
+function pointInTri(
+  px: number, py: number,
+  ax: number, ay: number,
+  bx: number, by: number,
+  cx: number, cy: number,
+): boolean {
+  const d1 = triSign(px, py, ax, ay, bx, by);
+  const d2 = triSign(px, py, bx, by, cx, cy);
+  const d3 = triSign(px, py, cx, cy, ax, ay);
+  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(hasNeg && hasPos);
+}
+
+function inSafeTri(x: number, y: number): boolean {
+  if (!safeTri) return false;
+  return pointInTri(x, y, safeTri[0], safeTri[1], safeTri[2], safeTri[3], safeTri[4], safeTri[5]);
+}
+
+// ── Safe-triangle lifecycle ──────────────────────────────────────────────────
+
+function clearSafeTri() {
+  safeTri = null;
+  safeTriUnlisten?.();
+  safeTriUnlisten = null;
 }
 
 function removeSubmenu() {
-  stopGracePeriod();
+  clearSafeTri();
   activeSubmenu?.remove();
   activeSubmenu = null;
 }
 
-// ---------------------------------------------------------------------------
-// Menu builder
-// ---------------------------------------------------------------------------
+/**
+ * Called on mouseleave of a submenu-trigger button.
+ * Sets up a triangle from the cursor's exit position to the submenu's near
+ * edge corners, then tracks mousemove. Any mousemove that exits the triangle
+ * (and isn't inside the submenu itself) closes the submenu.
+ *
+ * Only sets up the triangle when the cursor exits toward the submenu side;
+ * if it exits the other way, the submenu is closed immediately.
+ */
+function setupSafeTriangle(e: MouseEvent, sub: HTMLElement, triggerRect: DOMRect) {
+  const subRect = sub.getBoundingClientRect();
+  const toRight = subRect.left >= triggerRect.right - 2;
 
-function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void): HTMLElement {
+  // Only protect diagonal movement toward the submenu
+  const exitingToward = toRight
+    ? e.clientX >= triggerRect.left + triggerRect.width * 0.4
+    : e.clientX <= triggerRect.left + triggerRect.width * 0.6;
+
+  if (!exitingToward) {
+    removeSubmenu();
+    return;
+  }
+
+  // Apex: cursor exit point shifted slightly away from the submenu so the
+  // triangle has non-zero width even when there is no gap.
+  const ax = toRight ? e.clientX - 10 : e.clientX + 10;
+  const ay = e.clientY;
+
+  // Base: near edge of submenu with a small vertical buffer
+  const bx = toRight ? subRect.left : subRect.right;
+  const by = subRect.top - 5;
+  const cx = bx;
+  const cy = subRect.bottom + 5;
+
+  safeTri = [ax, ay, bx, by, cx, cy];
+
+  const onMove = (ev: MouseEvent) => {
+    if (!sub || !safeTri) { clearSafeTri(); return; }
+
+    // Cursor entered the submenu — stop triangle tracking
+    const sr = sub.getBoundingClientRect();
+    if (
+      ev.clientX >= sr.left - 2 && ev.clientX <= sr.right + 2 &&
+      ev.clientY >= sr.top  - 2 && ev.clientY <= sr.bottom + 2
+    ) {
+      clearSafeTri();
+      return;
+    }
+
+    // Cursor left the safe zone — close submenu
+    if (!inSafeTri(ev.clientX, ev.clientY)) {
+      removeSubmenu();
+    }
+  };
+
+  document.addEventListener("mousemove", onMove, true);
+  safeTriUnlisten = () => document.removeEventListener("mousemove", onMove, true);
+}
+
+// ── Menu builder ─────────────────────────────────────────────────────────────
+
+function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void, depth = 0): HTMLElement {
   const menu = document.createElement("div");
   menu.className = "split-dropdown splice-ctx-menu";
 
@@ -137,7 +141,7 @@ function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void): HT
     const hasSubmenu = !!(item.submenu && item.submenu.length > 0);
     btn.className = "split-dropdown-item" + (item.disabled ? " disabled" : "");
     btn.disabled = (!hasSubmenu && !item.action) || (item.disabled ?? false);
-    btn.tabIndex = -1; // prevent Tab key from navigating into menu buttons
+    btn.tabIndex = -1;
 
     const labelSpan = document.createElement("span");
     labelSpan.textContent = item.label;
@@ -156,43 +160,44 @@ function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void): HT
 
     if (hasSubmenu) {
       btn.addEventListener("mouseenter", () => {
-        stopGracePeriod();
+        // Clear any pending safe triangle from a previous submenu trigger
+        clearSafeTri();
         removeSubmenu();
 
-        const sub = buildMenu(item.submenu!, onRemove);
-        // Render hidden so we can measure before showing
+        const sub = buildMenu(item.submenu!, onRemove, depth + 1);
         sub.style.cssText = "position:fixed;visibility:hidden;z-index:10000;";
         document.body.appendChild(sub);
         activeSubmenu = sub;
 
-        // Measure synchronously (forces layout)
+        // Measure synchronously, then position
         const subW = sub.offsetWidth;
         const subH = sub.offsetHeight;
-        const parentRect = btn.getBoundingClientRect();
+        const r = btn.getBoundingClientRect();
 
-        // Position flush against parent menu — no gap to bridge
-        let left = parentRect.right;
-        let top = parentRect.top;
-        if (left + subW > window.innerWidth) left = parentRect.left - subW;
-        if (top + subH > window.innerHeight) top = window.innerHeight - subH - 4;
+        let left = r.right;
+        let top  = r.top;
+        if (left + subW > window.innerWidth)  left = r.left - subW;
+        if (top  + subH > window.innerHeight) top  = window.innerHeight - subH - 4;
 
         sub.style.left = `${left}px`;
-        sub.style.top = `${top}px`;
+        sub.style.top  = `${top}px`;
         sub.style.visibility = "visible";
       });
 
-      btn.addEventListener("pointerleave", (e) => {
+      btn.addEventListener("mouseleave", (e) => {
         if (!activeSubmenu) return;
-        startGracePeriod(e.clientX, e.clientY, activeSubmenu, () => {
-          removeSubmenu();
-        });
+        setupSafeTriangle(e, activeSubmenu, btn.getBoundingClientRect());
       });
 
     } else {
-      btn.addEventListener("mouseenter", () => {
-        if (inGracePeriod) return; // don't disturb in-flight navigation to submenu
-        removeSubmenu();
-      });
+      // Only top-level items need to close a sibling submenu on hover.
+      // Submenu items must NOT call removeSubmenu — activeSubmenu IS the submenu they live in.
+      if (depth === 0) {
+        btn.addEventListener("mouseenter", (e) => {
+          if (inSafeTri(e.clientX, e.clientY)) return;
+          removeSubmenu();
+        });
+      }
 
       btn.addEventListener("mousedown", (e) => {
         e.preventDefault();
@@ -209,9 +214,7 @@ function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void): HT
   return menu;
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+// ── Public API ───────────────────────────────────────────────────────────────
 
 export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y: number): void {
   document.querySelector(".splice-ctx-menu")?.remove();
@@ -240,7 +243,7 @@ export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") { e.stopPropagation(); remove(); }
-    if (e.key === "Tab") { e.preventDefault(); } // prevent Tab from walking focus out of menu
+    if (e.key === "Tab")    { e.preventDefault(); }
   };
   document.addEventListener("mousedown",   outside, true);
   document.addEventListener("keydown",     onKey,   true);
