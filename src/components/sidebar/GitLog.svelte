@@ -5,6 +5,7 @@
   let entries = $state<GitLogEntry[]>([]);
   let loading = $state(false);
   let error = $state("");
+  let noRepo = $state(false);
 
   const rootPath = $derived(workspaceManager.activeWorkspace?.rootPath ?? "");
 
@@ -23,12 +24,19 @@
     if (!rootPath) return;
     loading = true;
     error = "";
+    noRepo = false;
     try {
       const { gitLog } = await import("../../lib/ipc/commands");
       entries = await gitLog(rootPath, 200);
     } catch (e) {
-      error = String(e);
-      entries = [];
+      const msg = String(e);
+      if (msg.includes("not a git repository")) {
+        noRepo = true;
+        entries = [];
+      } else {
+        error = msg;
+        entries = [];
+      }
     } finally {
       loading = false;
     }
@@ -125,6 +133,8 @@
 <div class="flex flex-col h-full overflow-hidden" style="font-size: 13px;">
   {#if loading}
     <div class="px-3 py-6 text-txt-dim text-center">Loading...</div>
+  {:else if noRepo}
+    <div class="px-3 py-6 text-txt-dim text-center">No git repository</div>
   {:else if error}
     <div class="px-3 py-6 text-txt-dim text-center">{error}</div>
   {:else if graphNodes.length === 0}
