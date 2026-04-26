@@ -157,6 +157,18 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             unsafe { window_swizzle::install(); }
 
+            // Manually position the main window's traffic lights once. The swizzle
+            // catches subsequent layout passes, but in dev mode (and sometimes on
+            // first paint) AppKit may not fire a post-install layout for the main
+            // window — this guarantees the buttons land in the right spot from
+            // the very first frame.
+            #[cfg(target_os = "macos")]
+            if let Some(main_window) = app.get_webview_window("main") {
+                if let Ok(ns_window) = main_window.ns_window() {
+                    unsafe { window_swizzle::apply_to_window(ns_window); }
+                }
+            }
+
             // Set up native menu bar
             let menu = build_menu(app)?;
             app.set_menu(menu)?;

@@ -33,7 +33,6 @@
   import TerminalPane from "./panes/TerminalPane.svelte";
   import DiffPane from "./panes/DiffPane.svelte";
   import PaneGrid from "./panes/PaneGrid.svelte";
-  import TopBar from "./topbar/TopBar.svelte";
   import CommandPalette from "./overlays/CommandPalette.svelte";
   import SshConnectForm from "./overlays/SshConnectForm.svelte";
   import Toasts from "./overlays/Toasts.svelte";
@@ -44,13 +43,12 @@
   import { showContextMenu } from "../lib/utils/context-menu";
   import { openNewWindow } from "../lib/utils/new-window";
   import { ui } from "../lib/stores/ui.svelte";
-  import { initKeybindings, enterZenMode, exitZenMode } from "../lib/utils/keybindings";
+  import { initKeybindings, enterZenMode, exitZenMode, bumpFocusedPaneFont, resetFocusedPaneFont } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
   import type { PaneConfig, SplitDirection } from "../lib/stores/layout.svelte";
   import { type DropZone, setDropCallback } from "../lib/stores/drag.svelte";
   import type { TabDragData } from "../lib/stores/drag.svelte";
   import { workspaceManager } from "../lib/stores/workspace.svelte";
-  import { getLanguageName } from "../lib/utils/language";
   import { settings, initSettings, debouncedSaveSettings, flushSettingsSave } from "../lib/stores/settings.svelte";
   import type { Settings } from "../lib/stores/settings.svelte";
   import { applyTheme } from "../lib/theme/themes";
@@ -338,12 +336,6 @@
       ? activePane.activeFilePath.split("/").pop() ?? null
       : null,
   );
-  const statusLanguage = $derived(
-    activePane?.kind === "editor" && activePane.activeFilePath
-      ? getLanguageName(activePane.activeFilePath)
-      : "",
-  );
-
   function toastFileReadError(path: string, e: unknown): void {
     const name = path.split("/").pop() ?? path;
     const msg = String(e);
@@ -683,16 +675,13 @@
               dispatchEditorAction("toggle-word-wrap");
               break;
             case "zoom-in":
-              settings.appearance.ui_scale = Math.min(200, settings.appearance.ui_scale + 10);
-              debouncedSaveSettings();
+              bumpFocusedPaneFont(1);
               break;
             case "zoom-out":
-              settings.appearance.ui_scale = Math.max(50, settings.appearance.ui_scale - 10);
-              debouncedSaveSettings();
+              bumpFocusedPaneFont(-1);
               break;
             case "zoom-reset":
-              settings.appearance.ui_scale = 100;
-              debouncedSaveSettings();
+              resetFocusedPaneFont();
               break;
             case "new-terminal":
               workspaceManager.spawnTerminalInWorkspace();
@@ -1140,9 +1129,6 @@
       <RightSidebar side="right" onResizeStart={(e) => handleSidebarResizeDown('right', e)} />
     {/if}
   </div>
-
-  <!-- BOTTOM BAR (was top bar + status bar) -->
-  <TopBar workspaceName={ws?.name ?? "Splice"} language={statusLanguage} branch={ws?.gitBranch ?? ""} />
 
   <!-- OVERLAYS -->
   <CommandPalette />

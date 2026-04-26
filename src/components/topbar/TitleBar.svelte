@@ -5,9 +5,6 @@
    *
    * The center area is a Tauri drag region (data-tauri-drag-region) for window movement.
    *
-   * Compact mode: When both sidebars are hidden (and not in zen mode), the bar shrinks
-   * from 32px to 22px via the title-bar--compact class.
-   *
    * Notification display: Claude attention notifications (permission prompts and idle
    * alerts) appear as a collapsible area between the drag region and action buttons.
    * When collapsed, a badge shows the worst severity + count. On hover, it expands
@@ -20,7 +17,6 @@
   import { ui } from '../../lib/stores/ui.svelte';
   import { openSettingsWindow } from '../../lib/utils/settings-window';
 
-  const bothHidden = $derived(!ui.explorerVisible && !ui.workspacesVisible && !ui.zenMode);
 
   const notifList = $derived(
     Object.values(attentionStore.notifications).sort((a, b) => {
@@ -157,7 +153,6 @@
     transition: height 150ms ease;
   }
 
-  .title-bar--compact { height: 22px; }
 
   .title-center {
     flex: 1;

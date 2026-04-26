@@ -15,8 +15,6 @@
   import { isCornerDragActive } from "../../lib/stores/corner-drag.svelte";
   import CornerDragOverlay from "./CornerDragOverlay.svelte";
   import PaneGrid from "./PaneGrid.svelte";
-  import { ui } from "../../lib/stores/ui.svelte";
-  import { settings } from "../../lib/stores/settings.svelte";
 
   let {
     node,
@@ -36,10 +34,6 @@
     onPaneClick?: (paneId: string) => void;
   } = $props();
 
-  const explorerOnLeft = $derived(settings.appearance.explorer_side === "left");
-  const leftSidebarHidden = $derived(
-    !ui.zenMode && (explorerOnLeft ? !ui.explorerVisible : !ui.workspacesVisible)
-  );
   const trafficOffset = "0px";
 
   let dragging = $state(false);

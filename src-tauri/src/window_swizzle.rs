@@ -93,6 +93,15 @@ unsafe fn install_inner() -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Manually position traffic-light buttons on a specific NSWindow.
+/// Use this on startup to guarantee correct placement before AppKit's first
+/// post-install layout pass — needed in dev mode where the natural layout
+/// cycle that would otherwise hit our swizzle may not fire on the main window.
+/// Caller must hold an NSWindow pointer (e.g. via `WebviewWindow::ns_window()`).
+pub unsafe fn apply_to_window(ns_window: *mut std::ffi::c_void) {
+    position_traffic_lights(ns_window);
+}
+
 /// Position the traffic-light buttons at the current TRAFFIC_X / TRAFFIC_Y values.
 unsafe fn position_traffic_lights(ns_window: *mut std::ffi::c_void) {
     use objc2_app_kit::{NSView, NSWindow, NSWindowButton};

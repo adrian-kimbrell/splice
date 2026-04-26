@@ -255,6 +255,32 @@
 
     renderer = new TerminalRenderer(canvasEl, settings.terminal.font_size, `${settings.terminal.font_family}, Consolas, 'Courier New', monospace`);
 
+    // Install resize handlers EARLY — before any awaits — so window resizes during
+    // listener-registration init aren't missed. handleResize() guards on
+    // !renderer || !cachedResizeTerminal, so calls before setup completes are no-ops.
+    // The window.resize listener is a belt-and-suspenders backup: ResizeObserver can
+    // miss the initial fire when the element starts at 0,0 size during HMR/init,
+    // but window.resize fires unconditionally on every window dimension change.
+    resizeObserver = new ResizeObserver(() => {
+      if (!resizeRafId) {
+        resizeRafId = requestAnimationFrame(() => {
+          resizeRafId = 0;
+          handleResize();
+        });
+      }
+    });
+    resizeObserver.observe(containerEl);
+    const onWindowResize = () => {
+      if (!resizeRafId) {
+        resizeRafId = requestAnimationFrame(() => {
+          resizeRafId = 0;
+          handleResize();
+        });
+      }
+    };
+    window.addEventListener("resize", onWindowResize);
+    cleanupFns.push(() => window.removeEventListener("resize", onWindowResize));
+
     // Apply current theme immediately
     {
       const style = getComputedStyle(document.documentElement);
@@ -788,17 +814,6 @@
 
     // Start cursor blink
     resetBlinkTimer();
-
-    // Resize observer, RAF-batched
-    resizeObserver = new ResizeObserver(() => {
-      if (!resizeRafId) {
-        resizeRafId = requestAnimationFrame(() => {
-          resizeRafId = 0;
-          handleResize();
-        });
-      }
-    });
-    resizeObserver.observe(containerEl);
 
     // Context menu
     const onContextMenu = (e: MouseEvent) => {

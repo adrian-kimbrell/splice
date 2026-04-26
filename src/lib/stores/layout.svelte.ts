@@ -10,7 +10,7 @@
  * - Structural (split/remove/swap): return a fresh tree of plain objects to avoid
  *   Svelte 5 proxy reparenting issues (a proxy node must not be moved between parents)
  *
- * `MAX_SPLIT_DEPTH = 5` caps tree depth. `collectLeafIds` is used to garbage-collect
+ * `MAX_SPLIT_DEPTH = 10` caps tree depth. `collectLeafIds` is used to garbage-collect
  * pane configs that are no longer referenced by the tree after a structural change.
  *
  * Layout tree contract:

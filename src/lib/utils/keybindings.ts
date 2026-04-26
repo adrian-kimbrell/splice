@@ -16,7 +16,6 @@ import { ui } from "../stores/ui.svelte";
 import { workspaceManager } from "../stores/workspace.svelte";
 import { settings, debouncedSaveSettings } from "../stores/settings.svelte";
 import { openSettingsWindow } from "./settings-window";
-import { dispatchEditorAction } from "../stores/editor-actions.svelte";
 import type { LayoutNode } from "../stores/layout.svelte";
 
 function isInsideCodeMirror(el: Element | null): boolean {
@@ -25,6 +24,33 @@ function isInsideCodeMirror(el: Element | null): boolean {
 
 function isInsideTerminal(el: Element | null): boolean {
   return el?.tagName === "CANVAS";
+}
+
+const FONT_MIN = 8;
+const FONT_MAX = 32;
+const FONT_DEFAULT = 15;
+
+/** Bump the focused pane's font size. Terminal panes adjust
+ * `settings.terminal.font_size`; everything else (editor / diff /
+ * markdown preview / settings — all of which read `settings.editor.font_size`
+ * via the `--font-size` CSS variable) adjusts `settings.editor.font_size`. */
+export function bumpFocusedPaneFont(delta: number) {
+  if (isInsideTerminal(document.activeElement)) {
+    settings.terminal.font_size = Math.min(FONT_MAX, Math.max(FONT_MIN, settings.terminal.font_size + delta));
+  } else {
+    settings.editor.font_size = Math.min(FONT_MAX, Math.max(FONT_MIN, settings.editor.font_size + delta));
+  }
+  debouncedSaveSettings();
+}
+
+/** Reset the focused pane's font size to the default. */
+export function resetFocusedPaneFont() {
+  if (isInsideTerminal(document.activeElement)) {
+    settings.terminal.font_size = FONT_DEFAULT;
+  } else {
+    settings.editor.font_size = FONT_DEFAULT;
+  }
+  debouncedSaveSettings();
 }
 
 function firstLeaf(node: LayoutNode): string {
@@ -252,13 +278,11 @@ export function initKeybindings(): () => void {
           const bytes = new Uint8Array(binary.length);
           for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
           // Save to docs/screenshots/
-          const path = await saveScreenshot(Array.from(bytes));
-          console.log("[screenshot] saved →", path);
+          await saveScreenshot(Array.from(bytes));
           // Also copy to clipboard
           const res = await fetch(dataUrl);
           const blob = await res.blob();
           await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-          console.log("[screenshot] copied to clipboard");
         } catch (err) {
           console.error("[screenshot] failed:", err);
         }
@@ -337,7 +361,11 @@ export function initKeybindings(): () => void {
     }
 
     // Cmd/Ctrl + Z: Toggle pane zoom (only when NOT inside a CodeMirror editor, where it means Undo)
-    if (mod && !e.shiftKey && e.code === "KeyZ" && !isInsideCodeMirror(document.activeElement)) {
+    // Cmd/Ctrl + \: Toggle pane zoom (works everywhere — no Undo conflict)
+    if (mod && !e.shiftKey && (
+      (e.code === "KeyZ" && !isInsideCodeMirror(document.activeElement)) ||
+      e.code === "Backslash"
+    )) {
       e.preventDefault();
       if (ui.zoomedPaneId) {
         ui.zoomedPaneId = null;
@@ -432,25 +460,22 @@ export function initKeybindings(): () => void {
       }
     }
 
-    // Cmd/Ctrl + =: Zoom in
+    // Cmd/Ctrl + =: Zoom in the focused pane's font
     if (mod && (e.key === "=" || e.key === "+")) {
       e.preventDefault();
-      settings.appearance.ui_scale = Math.min(200, settings.appearance.ui_scale + 10);
-      debouncedSaveSettings();
+      bumpFocusedPaneFont(1);
     }
 
-    // Cmd/Ctrl + -: Zoom out
+    // Cmd/Ctrl + -: Zoom out the focused pane's font
     if (mod && e.key === "-") {
       e.preventDefault();
-      settings.appearance.ui_scale = Math.max(50, settings.appearance.ui_scale - 10);
-      debouncedSaveSettings();
+      bumpFocusedPaneFont(-1);
     }
 
-    // Cmd/Ctrl + 0: Reset zoom
+    // Cmd/Ctrl + 0: Reset focused pane's font
     if (mod && e.key === "0") {
       e.preventDefault();
-      settings.appearance.ui_scale = 100;
-      debouncedSaveSettings();
+      resetFocusedPaneFont();
     }
 
     // Cmd/Ctrl + Option/Alt + Shift + Left/Right: Switch workspace prev/next
