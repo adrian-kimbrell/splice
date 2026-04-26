@@ -125,7 +125,12 @@ fn read_windows_registry() -> WindowsRegistry {
 
 fn write_windows_registry(registry: &WindowsRegistry) -> Result<(), String> {
     let data = serde_json::to_string_pretty(registry).map_err(|e| e.to_string())?;
-    std::fs::write(windows_registry_path(), data).map_err(|e| e.to_string())
+    // Atomic write: write to a temp file then rename to avoid corruption / dropped
+    // labels when multiple windows update the registry concurrently on shutdown.
+    let dest = windows_registry_path();
+    let tmp = dest.with_extension("json.tmp");
+    std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &dest).map_err(|e| e.to_string())
 }
 
 /// Explicitly grant the app read access to a directory chosen by the user.
@@ -388,6 +393,43 @@ pub fn unregister_window(
 #[tauri::command]
 pub fn get_secondary_window_labels() -> Result<Vec<String>, String> {
     Ok(read_windows_registry().labels)
+}
+
+/// Return the union of every known workspace label, sorted and deduplicated.
+///
+/// This combines two sources to recover from crash/race conditions where a
+/// `workspaces-{label}.json` file exists on disk but the corresponding label
+/// was never persisted to (or was lost from) `windows.json`:
+///   1. All labels currently recorded in `windows.json`.
+///   2. All labels parsed from filenames matching `workspaces-*.json` in the
+///      Splice config directory (the substring between `workspaces-` and `.json`).
+///
+/// Used by the main window on startup so orphaned per-window workspace files
+/// (and the Claude sessions they reference) are restored instead of leaked.
+#[tauri::command]
+pub fn get_all_workspace_labels() -> Result<Vec<String>, String> {
+    let mut labels: Vec<String> = read_windows_registry().labels;
+
+    let dir = config_dir();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let name = match entry.file_name().into_string() {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if let Some(rest) = name.strip_prefix("workspaces-") {
+                if let Some(label) = rest.strip_suffix(".json") {
+                    if !label.is_empty() {
+                        labels.push(label.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    labels.sort();
+    labels.dedup();
+    Ok(labels)
 }
 
 #[tauri::command]

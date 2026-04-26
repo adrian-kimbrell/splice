@@ -82,6 +82,19 @@ export function defaultLayout(): LayoutNode {
   return { type: "leaf", paneId: "term-1" };
 }
 
+/** Deep-clone a layout tree into fresh plain objects.
+ *  Use before reparenting subtrees (Svelte 5 $state proxies break when moved between
+ *  parents, and structuredClone() throws on proxy nodes). */
+export function cloneLayout(node: LayoutNode): LayoutNode {
+  if (node.type === "leaf") return { type: "leaf", paneId: node.paneId };
+  return {
+    type: "split",
+    direction: node.direction,
+    ratio: node.ratio,
+    children: [cloneLayout(node.children[0]), cloneLayout(node.children[1])],
+  };
+}
+
 /** Wrap a target leaf in a split node, placing a new pane beside it.
  *  Always returns fresh plain objects to avoid Svelte 5 proxy reparenting issues. */
 export function splitNodeInTree(

@@ -30,8 +30,16 @@ export async function spawnTerminal(
   cols: number,
   rows: number,
   extraArgs?: string[],
+  terminalId?: number,
 ): Promise<number> {
-  return invoke("spawn_terminal", { shell, cwd, cols, rows, extraArgs: extraArgs ?? [] });
+  return invoke("spawn_terminal", {
+    shell,
+    cwd,
+    cols,
+    rows,
+    extraArgs: extraArgs ?? [],
+    terminalId: terminalId ?? null,
+  });
 }
 
 export async function writeToTerminal(
@@ -111,6 +119,7 @@ export interface RustPaneInfo {
   active_file_path: string | null;
   claude_session_id: string | null;
   claude_pid: number | null;
+  terminal_id: number | null;
 }
 
 export interface RustSshConfig {
@@ -193,10 +202,6 @@ export async function importTheme(filePath: string): Promise<CustomTheme> {
 
 export async function deleteCustomTheme(name: string): Promise<void> {
   return invoke<void>("delete_custom_theme", { name });
-}
-
-export async function setTrafficLightPosition(x: number, y: number): Promise<void> {
-  return invoke("set_traffic_light_position", { x, y });
 }
 
 export async function installClaudeHook(): Promise<void> {
@@ -387,6 +392,10 @@ export async function unregisterWindow(label: string): Promise<void> {
 
 export async function getSecondaryWindowLabels(): Promise<string[]> {
   return invoke("get_secondary_window_labels");
+}
+
+export async function getAllWorkspaceLabels(): Promise<string[]> {
+  return invoke<string[]>("get_all_workspace_labels");
 }
 
 export async function saveTempImage(data: Uint8Array, ext: string): Promise<string> {

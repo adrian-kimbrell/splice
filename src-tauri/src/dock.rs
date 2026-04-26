@@ -60,6 +60,7 @@ unsafe fn inject_dock_menu() {
                     .min_inner_size(800.0, 600.0)
                     .decorations(true)
                     .resizable(true)
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
                     .build();
             }
         }

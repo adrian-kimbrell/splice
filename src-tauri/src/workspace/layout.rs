@@ -73,6 +73,8 @@ pub struct PaneInfo {
     pub claude_session_id: Option<String>,
     #[serde(default)]
     pub claude_pid: Option<u32>,
+    #[serde(default)]
+    pub terminal_id: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

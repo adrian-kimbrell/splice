@@ -1,7 +1,7 @@
 import type { Workspace } from "./workspace-types";
 import type { RustWorkspace } from "../ipc/commands";
 import { validateLayout } from "./workspace-tab-ops";
-import { remapLayout, findFirstLeaf, frontendToRustLayout } from "./workspace-types";
+import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs } from "./workspace-types";
 import { collectLeafIds, removeNodeFromTree } from "./layout.svelte";
 import { settings } from "./settings.svelte";
 
@@ -196,6 +196,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
       .map((pane) => {
         const claudeSessionId = pane.kind === "terminal" ? (pane.claudeSessionId ?? null) : null;
         const claudePid = pane.kind === "terminal" ? (pane.claudePid ?? null) : null;
+        const terminalId = pane.kind === "terminal" ? (pane.terminalId ?? null) : null;
         const isDiff = pane.kind === "diff";
         return {
           id: pane.id,
@@ -209,6 +210,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
           active_file_path: isDiff ? null : (pane.activeFilePath ?? null),
           claude_session_id: claudeSessionId,
           claude_pid: claudePid,
+          terminal_id: terminalId,
         };
       });
 
@@ -280,9 +282,9 @@ export async function restoreWorkspaceImpl(
   };
 
   for (const paneInfo of rws.panes) {
-    // SSH workspaces: skip pane restoration — terminals will be spawned as SSH
-    // terminals after sshConnect, and files need SFTP (unavailable yet).
-    if (rws.ssh_config) continue;
+    // SSH workspaces previously skipped pane restoration entirely, silently
+    // losing all sessions. Now SSH panes restore through the same path as
+    // local panes — spawnTerminal handles SSH via its existing args.
 
     const paneType = paneInfo.pane_type as Record<string, unknown> | null;
     const isTerminal = paneType != null && "Terminal" in paneType;
@@ -298,12 +300,43 @@ export async function restoreWorkspaceImpl(
           return null;
         })();
 
-        const terminalId = await spawnTerminal(
-          settings.terminal.default_shell,
-          savedCwd || rws.root_path || "/",
-          80,
-          24,
-        );
+        // Spawn helper with single retry-on-failure (250ms delay).
+        // Passes through saved terminal_id when present so the Rust side can
+        // preserve the original numeric ID across restore.
+        // SSH workspaces spawn `/usr/bin/ssh` with the SshConfig-derived extra
+        // args (matching the live-spawn path in workspace.svelte.ts); local
+        // workspaces use the default shell.
+        const isSsh = ws.sshConfig != null;
+        const shell = isSsh ? "/usr/bin/ssh" : settings.terminal.default_shell;
+        const cwd = isSsh ? "/" : (savedCwd || rws.root_path || "/");
+        const extraArgs = isSsh ? buildSshExtraArgs(ws.sshConfig!) : undefined;
+        const savedTerminalId = paneInfo.terminal_id ?? undefined;
+
+        let terminalId: number;
+        try {
+          terminalId = await spawnTerminal(
+            shell,
+            cwd,
+            80,
+            24,
+            extraArgs,
+            savedTerminalId,
+          );
+        } catch (firstErr) {
+          console.warn(
+            `Terminal spawn failed for pane ${paneInfo.id} in workspace "${rws.name}" (cwd=${cwd}), retrying once in 250ms:`,
+            firstErr,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          terminalId = await spawnTerminal(
+            shell,
+            cwd,
+            80,
+            24,
+            extraArgs,
+            savedTerminalId,
+          );
+        }
         const paneId = `term-${terminalId}`;
         idMap.set(paneInfo.id, paneId);
 
@@ -324,9 +357,18 @@ export async function restoreWorkspaceImpl(
         if (paneInfo.claude_session_id) {
           const sessionId = paneInfo.claude_session_id;
 
+          // Validate session ID *before* scheduling resume. If it fails validation,
+          // we still want a usable terminal — just skip the --resume injection so
+          // the user gets a fresh shell instead of nothing.
+          let shouldResume = true;
           if (!isValidSessionId(sessionId)) {
-            console.warn("Refusing to inject suspicious session ID:", sessionId);
-          } else {
+            console.warn(
+              `Refusing to inject suspicious session ID for pane ${paneInfo.id} in workspace "${rws.name}": ${sessionId}. Spawning fresh terminal instead.`,
+            );
+            shouldResume = false;
+          }
+
+          if (shouldResume) {
             // Stagger resume injections to avoid flooding the shell scheduler.
             // First 8 sessions: 600ms apart. Beyond that: batch into waves of 8,
             // each wave offset by 8000ms, so slot within wave stays tight but
@@ -350,7 +392,12 @@ export async function restoreWorkspaceImpl(
           }
         }
       } catch (e) {
-        console.error("Failed to spawn terminal during restore:", e);
+        // Both spawn attempts failed. Pane is dropped from idMap (never added),
+        // so layout remapping will treat the leaf as missing and prune it.
+        console.error(
+          `Failed to spawn terminal during restore (after retry) for pane ${paneInfo.id} in workspace "${rws.name}" (title="${paneInfo.title}"):`,
+          e,
+        );
       }
     } else if (
       paneInfo.file_paths.length === 3 &&
@@ -403,8 +450,14 @@ export async function restoreWorkspaceImpl(
               ws.openFileIndex[path] = file;
             }
             filePaths.push(path);
-          } catch {
-            // File may no longer exist — skip it silently
+          } catch (e) {
+            // File may no longer exist — skip it but trace for diagnosability.
+            // (Legitimately gone files are not surfaced to the user, but we want
+            // a breadcrumb so workspace-restore weirdness is debuggable.)
+            console.debug(
+              `Skipping missing/unreadable file during restore: "${path}" (workspace "${rws.name}", pane ${paneInfo.id}):`,
+              e,
+            );
           }
         }
       }
@@ -432,9 +485,10 @@ export async function restoreWorkspaceImpl(
     }
   }
 
-  // Remap the saved layout using the new terminal IDs (not needed for SSH workspaces
-  // since all panes were skipped; layout stays null and will be built post-connect).
-  if (rws.layout && !rws.ssh_config) {
+  // Remap the saved layout using the new terminal IDs. SSH workspaces now go
+  // through the same restore path as local workspaces, so the SSH guard that
+  // used to gate this branch has been removed.
+  if (rws.layout) {
     try {
       ws.layout = remapLayout(rws.layout, idMap);
     } catch (e) {

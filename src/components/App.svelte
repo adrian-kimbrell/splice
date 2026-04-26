@@ -22,10 +22,6 @@
    * Menu routing: Tauri native menu items emit "menu-event" strings; the listener in
    * onMount maps each string to the corresponding action (save, find, zoom, zen mode, etc.).
    *
-   * Traffic lights: macOS window controls are repositioned via setTrafficLightPosition IPC.
-   * animateTrafficLight() uses requestAnimationFrame with an ease-in-out curve to smoothly
-   * transition the Y offset when the compact title bar toggles (both sidebars hidden).
-   *
    * Pane wiring: The PaneGrid receives a Svelte snippet (paneSnippet) that renders
    * EditorPane, TerminalPane, or DiffPane based on PaneConfig.kind. All file/tab
    * callbacks (open, close, save, dirty-check) are defined here and passed as props.
@@ -538,38 +534,11 @@
     applyTheme(settings.appearance.theme);
   });
 
-  let _trafficLightY = 19;
-  let _trafficRafId: number | null = null;
-
-  function animateTrafficLight(targetY: number, scale: number) {
-    if (_trafficRafId !== null) cancelAnimationFrame(_trafficRafId);
-    const startY = _trafficLightY;
-    const startTime = performance.now();
-    const duration = 150;
-
-    function ease(t: number) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
-
-    function step(now: number) {
-      const t = Math.min((now - startTime) / duration, 1);
-      const y = startY + (targetY - startY) * ease(t);
-      _trafficLightY = y;
-      import("../lib/ipc/commands").then(({ setTrafficLightPosition }) => {
-        setTrafficLightPosition(Math.round(14 * scale), Math.round(y * scale)).catch(() => {});
-      });
-      if (t < 1) _trafficRafId = requestAnimationFrame(step);
-      else { _trafficRafId = null; _trafficLightY = targetY; }
-    }
-    _trafficRafId = requestAnimationFrame(step);
-  }
-
   $effect(() => {
     const scale = settings.appearance.ui_scale / 100;
     document.documentElement.style.zoom = `${scale}`;
-    const yBase = 19;
-    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-      animateTrafficLight(yBase, scale);
-    }
   });
+
 
   $effect(() => {
     document.documentElement.style.setProperty("--font-size", `${settings.appearance.font_size}px`);
@@ -620,13 +589,14 @@
 
     // Main window: reopen any secondary windows registered before a crash
     if (isTauri) {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      const currentLabel = getCurrentWindow().label;
+      const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const currentLabel = getCurrentWebviewWindow().label;
       if (currentLabel === "main") {
-        const { getSecondaryWindowLabels } = await getCommands();
+        const { getAllWorkspaceLabels } = await getCommands();
         const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-        const labels = await getSecondaryWindowLabels();
+        const labels = await getAllWorkspaceLabels();
         for (const l of labels) {
+          if (l === currentLabel) continue;
           new WebviewWindow(l, {
             url: "/",
             title: "Splice",
@@ -635,6 +605,8 @@
             minWidth: 800,
             minHeight: 600,
             decorations: true,
+            titleBarStyle: "overlay",
+            hiddenTitle: true,
             resizable: true,
           });
         }
@@ -766,6 +738,9 @@
         unlistenClosing = await appWindow.onCloseRequested(async (event) => {
           event.preventDefault();
           flushSettingsSave();
+          // Cancel + flush any pending debounced persistence so state mutated
+          // <500ms before quit is not lost when timers fire after destroy.
+          await workspaceManager.flushPersistTimers();
           await Promise.allSettled(
             Object.keys(workspaceManager.workspaces).map(wsId =>
               workspaceManager.persistWorkspace(wsId)
@@ -950,7 +925,9 @@
 
   <!-- CENTER: PANE GRID — render ALL workspaces, hide inactive with display:none -->
   <div class="flex flex-col min-w-0" style="grid-column: 3; grid-row: 1; overflow: hidden;">
-    <TitleBar />
+    {#if ws && (ws.rootPath || ws.layout !== null || ws.sshConfig)}
+      <TitleBar />
+    {/if}
 
     {#each Object.entries(workspaceManager.workspaces) as [wsId, workspace] (wsId)}
       {@const isActive = wsId === workspaceManager.activeWorkspaceId}

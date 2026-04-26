@@ -10,6 +10,41 @@ export interface SshConfig {
   remotePath: string;
 }
 
+/**
+ * Returns true if `p` is a safe filesystem path that can be passed as an SSH
+ * `-i` argument without risk of option injection. Rejects anything that starts
+ * with `-`, contains whitespace, or contains shell/SSH metacharacters.
+ */
+export function isSafeKeyPath(p: string): boolean {
+  return /^~?\/[^\s`$&|;<>'"\\!*?{}()[\]#\x00-\x1f]+$/.test(p);
+}
+
+/**
+ * Builds the `extraArgs` for spawning `/usr/bin/ssh` to open a terminal into
+ * the remote workspace. Mirrors the live-spawn path in workspace.svelte.ts so
+ * restore yields the same SSH connection (key, port, accept-new, cd to remote
+ * path, exec login shell).
+ */
+export function buildSshExtraArgs(sshConfig: SshConfig): string[] {
+  const target = sshConfig.user ? `${sshConfig.user}@${sshConfig.host}` : sshConfig.host;
+  const escapedPath = sshConfig.remotePath.replace(/'/g, "'\\''");
+  const keyArgs: string[] = [];
+  if (sshConfig.keyPath) {
+    if (!isSafeKeyPath(sshConfig.keyPath)) {
+      throw new Error(`Unsafe SSH key path rejected: "${sshConfig.keyPath}"`);
+    }
+    keyArgs.push("-i", sshConfig.keyPath);
+  }
+  return [
+    ...keyArgs,
+    "-p", String(sshConfig.port),
+    "-t",
+    "-o", "StrictHostKeyChecking=accept-new",
+    target,
+    `cd '${escapedPath}' && exec $SHELL -l`,
+  ];
+}
+
 export interface Workspace {
   id: string;
   name: string;

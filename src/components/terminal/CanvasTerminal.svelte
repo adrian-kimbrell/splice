@@ -67,6 +67,12 @@
   let unlistenGrid: (() => void) | null = null;
   let unlistenExit: (() => void) | null = null;
   let unlistenClipboard: (() => void) | null = null;
+  // Set true in onDestroy. Async listener registrations check this after their
+  // await resolves; if destroyed before resolution, they immediately unlisten the
+  // newly-registered handler. Without this, the unlisten in onDestroy fires before
+  // the Promise resolves (unlistenGrid still null), and the listener orphans —
+  // resulting in duplicate frames after a remount (e.g. layout shape change).
+  let destroyed = false;
   let modeFlags = 0;
   let currentCols = 0;
   let currentRows = 0;
@@ -284,7 +290,7 @@
     let pendingFrame: Uint8Array | null = null;
     let hasReceivedFrame = false;
 
-    unlistenGrid = await onTerminalGrid(
+    const gridUnlisten = await onTerminalGrid(
       terminalId,
       (data: Uint8Array) => {
         if (data.length >= HEADER_SIZE) {
@@ -311,15 +317,21 @@
         }
       },
     );
+    if (destroyed) { gridUnlisten(); return; }
+    unlistenGrid = gridUnlisten;
 
-    unlistenExit = await onTerminalExit(terminalId, (_code: number) => {
+    const exitUnlisten = await onTerminalExit(terminalId, (_code: number) => {
       // Could show exit message
     });
+    if (destroyed) { exitUnlisten(); return; }
+    unlistenExit = exitUnlisten;
 
     // OSC 52: remote clipboard writes (e.g. from tmux, vim over SSH)
-    unlistenClipboard = await onTerminalClipboard(terminalId, (text: string) => {
+    const clipUnlisten = await onTerminalClipboard(terminalId, (text: string) => {
       navigator.clipboard.writeText(text).catch(console.error);
     });
+    if (destroyed) { clipUnlisten(); return; }
+    unlistenClipboard = clipUnlisten;
 
     // Initial resize
     handleResize();
@@ -852,6 +864,9 @@
   });
 
   onDestroy(() => {
+    // Mark destroyed BEFORE anything else — async listener registrations in onMount
+    // check this flag after their await resolves and unlisten themselves if set.
+    destroyed = true;
     // Cancel any pending animation frames before tearing down so RAF callbacks
     // don't fire on a detached canvas or make IPC calls to a killed terminal.
     cancelAnimationFrame(rafId);

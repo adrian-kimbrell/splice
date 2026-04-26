@@ -2,7 +2,7 @@ import type { OpenFile } from "./files.svelte";
 import type { Workspace } from "./workspace-types";
 import { generateId, findFirstLeaf, applyFileRename, markFileSaved } from "./workspace-types";
 import { isFileReferencedInAnyPane, validateLayout } from "./workspace-tab-ops";
-import { findSiblingLeaf, removeNodeFromTree } from "./layout.svelte";
+import { cloneLayout, findSiblingLeaf, removeNodeFromTree } from "./layout.svelte";
 
 // --- Query helpers ---
 
@@ -44,13 +44,15 @@ export function ensureEditorPane(ws: Workspace, paneId?: string, filePaths?: str
   if (!ws.layout) {
     ws.layout = { type: "leaf", paneId: editorPaneId };
   } else {
+    // Deep-clone the existing tree to avoid reparenting a Svelte $state proxy node —
+    // see layout.svelte.ts: structural mutations must return fresh plain objects.
     ws.layout = {
       type: "split",
       direction: "horizontal",
       ratio: 0.6,
       children: [
         { type: "leaf", paneId: editorPaneId },
-        ws.layout,
+        cloneLayout(ws.layout),
       ],
     };
   }

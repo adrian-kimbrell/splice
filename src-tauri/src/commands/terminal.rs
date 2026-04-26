@@ -48,6 +48,7 @@ pub fn spawn_terminal(
     cols: u16,
     rows: u16,
     extra_args: Option<Vec<String>>,
+    terminal_id: Option<u32>,
 ) -> Result<u32, String> {
     let extra_args = extra_args.unwrap_or_default();
     // Validate shell
@@ -96,10 +97,23 @@ pub fn spawn_terminal(
     let (cols, rows) = clamp_terminal_size(cols, rows);
 
     let mut state = state.lock().map_err(|e| e.to_string())?;
-    let id = state.next_terminal_id;
-    state.next_terminal_id = state.next_terminal_id
-        .checked_add(1)
-        .ok_or_else(|| "Terminal ID overflow".to_string())?;
+    let id = if let Some(requested) = terminal_id {
+        // Caller (e.g. workspace restore) requested a specific ID — use it directly,
+        // and bump the counter past it so future fresh spawns don't collide.
+        let next = requested
+            .checked_add(1)
+            .ok_or_else(|| "Terminal ID overflow".to_string())?;
+        if next > state.next_terminal_id {
+            state.next_terminal_id = next;
+        }
+        requested
+    } else {
+        let id = state.next_terminal_id;
+        state.next_terminal_id = state.next_terminal_id
+            .checked_add(1)
+            .ok_or_else(|| "Terminal ID overflow".to_string())?;
+        id
+    };
     let scrollback = state.settings.terminal.scrollback_lines as usize;
     let attention_port = state.attention_port;
     let attention_token = state.attention_token.clone();

@@ -15,7 +15,7 @@
  * SSH terminals are spawned by building `extraArgs` from `SshConfig` (the SSH binary is
  * in ALLOWED_SHELLS on the Rust side); SFTP handles remote file read/write separately.
  */
-import type { FileEntry, OpenFile } from "./files.svelte";
+import type { OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
 import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, swapLeavesInTree, findSiblingLeaf, findShallowestLeaf, treeDepth, MAX_SPLIT_DEPTH } from "./layout.svelte";
 import { ui } from "./ui.svelte";
@@ -25,13 +25,14 @@ import { settings } from "./settings.svelte";
 import type { RustWorkspace } from "../ipc/commands";
 import { addRecentProject } from "./recent-projects.svelte";
 import { attentionStore } from "./attention.svelte";
-import type { Workspace, SshConfig } from "./workspace-types";
+import type { Workspace } from "./workspace-types";
 import {
   generateId,
   findFirstLeaf,
   nextUntitledPath,
   fetchGitBranchImpl,
   loadFileTreeImpl,
+  buildSshExtraArgs,
 } from "./workspace-types";
 import {
   validateLayout,
@@ -67,35 +68,6 @@ import {
 } from "./workspace-file-ops";
 
 export type { Workspace } from "./workspace-types";
-
-/**
- * Returns true if `p` is a safe filesystem path that can be passed as an SSH
- * `-i` argument without risk of option injection. Rejects anything that starts
- * with `-`, contains whitespace, or contains shell/SSH metacharacters.
- */
-function isSafeKeyPath(p: string): boolean {
-  return /^~?\/[^\s`$&|;<>'"\\!*?{}()[\]#\x00-\x1f]+$/.test(p);
-}
-
-function buildSshExtraArgs(sshConfig: SshConfig): string[] {
-  const target = sshConfig.user ? `${sshConfig.user}@${sshConfig.host}` : sshConfig.host;
-  const escapedPath = sshConfig.remotePath.replace(/'/g, "'\\''");
-  const keyArgs: string[] = [];
-  if (sshConfig.keyPath) {
-    if (!isSafeKeyPath(sshConfig.keyPath)) {
-      throw new Error(`Unsafe SSH key path rejected: "${sshConfig.keyPath}"`);
-    }
-    keyArgs.push("-i", sshConfig.keyPath);
-  }
-  return [
-    ...keyArgs,
-    "-p", String(sshConfig.port),
-    "-t",
-    "-o", "StrictHostKeyChecking=accept-new",
-    target,
-    `cd '${escapedPath}' && exec $SHELL -l`,
-  ];
-}
 
 class WorkspaceManager {
   workspaces = $state<Record<string, Workspace>>({});
@@ -942,6 +914,22 @@ class WorkspaceManager {
       delete this.persistTimers[wsId];
       this.persistWorkspace(wsId);
     }, 500);
+  }
+
+  /**
+   * Cancel any pending debounced persistence timers and flush them synchronously.
+   * Returns a promise that resolves once every triggered persistWorkspace call settles.
+   * Intended to be awaited during window close so state mutated <500ms before quit
+   * is not lost to a timer that would fire after window destruction.
+   */
+  async flushPersistTimers(): Promise<void> {
+    const pending: Promise<void>[] = [];
+    for (const wsId of Object.keys(this.persistTimers)) {
+      clearTimeout(this.persistTimers[wsId]);
+      delete this.persistTimers[wsId];
+      pending.push(this.persistWorkspace(wsId));
+    }
+    await Promise.allSettled(pending);
   }
 
   // --- Initialization ---

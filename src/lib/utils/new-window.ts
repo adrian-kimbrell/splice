@@ -15,6 +15,7 @@ export async function openNewWindow(): Promise<void> {
     const { registerWindow } = await import("../ipc/commands");
     await registerWindow(label);
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const { LogicalPosition } = await import("@tauri-apps/api/dpi");
     new WebviewWindow(label, {
       url: "/",
       title: "Splice",
@@ -23,6 +24,9 @@ export async function openNewWindow(): Promise<void> {
       minWidth: 800,
       minHeight: 600,
       decorations: true,
+      titleBarStyle: "overlay",
+      hiddenTitle: true,
+      trafficLightPosition: new LogicalPosition(14, 19),
       resizable: true,
       backgroundColor: { red: 30, green: 30, blue: 30, alpha: 255 },
     });

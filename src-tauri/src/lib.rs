@@ -21,6 +21,8 @@ pub mod lsp;
 mod state;
 pub mod terminal;
 mod workspace;
+#[cfg(target_os = "macos")]
+mod window_swizzle;
 
 use state::AppState;
 use std::sync::Mutex;
@@ -148,6 +150,13 @@ pub fn run() {
     builder
         .manage(Mutex::new(app_state))
         .setup(|app| {
+            // Install NSThemeFrame.layout swizzle so traffic-light buttons stay in
+            // their custom position across every AppKit layout pass. Must run before
+            // any window finishes its first layout — setup() runs during
+            // applicationDidFinishLaunching, before windows are visible.
+            #[cfg(target_os = "macos")]
+            unsafe { window_swizzle::install(); }
+
             // Set up native menu bar
             let menu = build_menu(app)?;
             app.set_menu(menu)?;
@@ -189,7 +198,7 @@ pub fn run() {
                         .unwrap_or(0)
                 );
                 let _ = commands::workspace::register_window(label.clone());
-                let _ = tauri::WebviewWindowBuilder::new(
+                let sec_builder = tauri::WebviewWindowBuilder::new(
                     app,
                     &label,
                     tauri::WebviewUrl::App("/".into()),
@@ -198,8 +207,10 @@ pub fn run() {
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(800.0, 600.0)
                 .decorations(true)
-                .resizable(true)
-                .build();
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .resizable(true);
+
+                let _ = sec_builder.build();
             } else {
                 let _ = app.emit("menu-event", event.id().0.as_str());
             }
@@ -268,9 +279,9 @@ pub fn run() {
                 commands::workspace::register_window,
                 commands::workspace::unregister_window,
                 commands::workspace::get_secondary_window_labels,
+                commands::workspace::get_all_workspace_labels,
                 commands::settings::get_settings,
                 commands::settings::update_settings,
-                commands::settings::set_traffic_light_position,
                 commands::themes::import_theme,
                 commands::themes::list_custom_themes,
                 commands::themes::delete_custom_theme,
@@ -338,9 +349,9 @@ pub fn run() {
                 commands::workspace::register_window,
                 commands::workspace::unregister_window,
                 commands::workspace::get_secondary_window_labels,
+                commands::workspace::get_all_workspace_labels,
                 commands::settings::get_settings,
                 commands::settings::update_settings,
-                commands::settings::set_traffic_light_position,
                 commands::themes::import_theme,
                 commands::themes::list_custom_themes,
                 commands::themes::delete_custom_theme,
@@ -408,9 +419,9 @@ pub fn run() {
                 commands::workspace::register_window,
                 commands::workspace::unregister_window,
                 commands::workspace::get_secondary_window_labels,
+                commands::workspace::get_all_workspace_labels,
                 commands::settings::get_settings,
                 commands::settings::update_settings,
-                commands::settings::set_traffic_light_position,
                 commands::themes::import_theme,
                 commands::themes::list_custom_themes,
                 commands::themes::delete_custom_theme,
