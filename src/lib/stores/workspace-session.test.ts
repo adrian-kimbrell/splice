@@ -4,7 +4,30 @@ import {
   scheduleClaudeResume,
   cancelPendingResume,
   waitForShellReady,
+  restoreWorkspaceImpl,
 } from "./workspace-session";
+import type { RustWorkspace, RustPaneInfo } from "../ipc/commands";
+
+// IPC + settings module mocks for restoreWorkspaceImpl tests.
+// scheduleClaudeResume tests further down use direct dep-injection and are
+// unaffected because they don't import from these modules.
+vi.mock("../ipc/commands", () => ({
+  spawnTerminal: vi.fn(),
+  readFile: vi.fn(),
+  checkPidAlive: vi.fn(),
+  writeToTerminal: vi.fn(),
+  killTerminal: vi.fn(),
+}));
+vi.mock("../ipc/events", () => ({
+  onTerminalGrid: vi.fn(),
+}));
+vi.mock("./settings.svelte", () => ({
+  settings: {
+    terminal: { default_shell: "/bin/zsh" },
+    general: {},
+    appearance: {},
+  },
+}));
 
 // ---------------------------------------------------------------------------
 // isValidSessionId
@@ -527,5 +550,164 @@ describe("stress: many concurrent sessions", () => {
     expect(resolved).toBe(true);
     // Total elapsed (staggerMs+601) < hardTimeout (staggerMs+6000) — prove invariant
     expect(staggerMs + 601).toBeLessThan(hardTimeout);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// restoreWorkspaceImpl — pane restoration paths
+//
+// Locks in the regression surface from the multi-window restore work:
+//   - SSH workspaces must spawn /usr/bin/ssh (not the local shell)
+//   - terminal_id must round-trip through to spawnTerminal
+//   - Invalid Claude session IDs must NOT prevent the terminal spawn
+//   - Transient spawn failures must retry once before giving up
+// ---------------------------------------------------------------------------
+describe("restoreWorkspaceImpl", () => {
+  let mockSpawn: ReturnType<typeof vi.fn>;
+  let mockReadFile: ReturnType<typeof vi.fn>;
+  let mockCheckPidAlive: ReturnType<typeof vi.fn>;
+  let mockWriteToTerminal: ReturnType<typeof vi.fn>;
+  let mockKillTerminal: ReturnType<typeof vi.fn>;
+  let mockOnTerminalGrid: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    const ipc = await import("../ipc/commands");
+    const events = await import("../ipc/events");
+    mockSpawn = vi.mocked(ipc.spawnTerminal);
+    mockReadFile = vi.mocked(ipc.readFile);
+    mockCheckPidAlive = vi.mocked(ipc.checkPidAlive);
+    mockWriteToTerminal = vi.mocked(ipc.writeToTerminal);
+    mockKillTerminal = vi.mocked(ipc.killTerminal);
+    mockOnTerminalGrid = vi.mocked(events.onTerminalGrid);
+
+    mockSpawn.mockResolvedValue(123);
+    mockReadFile.mockResolvedValue("");
+    mockCheckPidAlive.mockResolvedValue(false);
+    mockWriteToTerminal.mockResolvedValue(undefined);
+    mockKillTerminal.mockResolvedValue(undefined);
+    mockOnTerminalGrid.mockResolvedValue(() => {});
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+    // Drain any scheduleClaudeResume timers spawned by tests
+    for (const id of [123, 124, 125]) cancelPendingResume(id);
+  });
+
+  function makeTerminalPane(over: Partial<RustPaneInfo> = {}): RustPaneInfo {
+    return {
+      id: "p1",
+      pane_type: { Terminal: { shell: "/bin/zsh", cwd: "/tmp" } },
+      title: "Term",
+      file_paths: [],
+      active_file_path: null,
+      claude_session_id: null,
+      claude_pid: null,
+      terminal_id: null,
+      ...over,
+    } as RustPaneInfo;
+  }
+
+  function makeRws(over: Partial<RustWorkspace> = {}): RustWorkspace {
+    return {
+      id: "ws1",
+      name: "test",
+      root_path: "/tmp",
+      layout: { type: "Leaf", pane_id: "p1" },
+      panes: [makeTerminalPane()],
+      terminal_ids: [],
+      open_file_paths: [],
+      active_file_path: null,
+      active_pane_id: "p1",
+      explorer_visible: true,
+      expanded_paths: [],
+      ssh_config: null,
+      ...over,
+    } as RustWorkspace;
+  }
+
+  it("ssh_workspace_spawns_ssh_with_extra_args", async () => {
+    const rws = makeRws({
+      ssh_config: {
+        host: "example.com",
+        port: 2222,
+        user: "alice",
+        key_path: "/home/alice/.ssh/id_ed25519",
+        remote_path: "/srv/projects/foo",
+      },
+    });
+
+    await restoreWorkspaceImpl(rws, 0, () => 1);
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    const [shell, cwd, cols, rows, extraArgs] = mockSpawn.mock.calls[0];
+    expect(shell).toBe("/usr/bin/ssh");
+    expect(cwd).toBe("/");
+    expect(cols).toBe(80);
+    expect(rows).toBe(24);
+    expect(extraArgs).toContain("-i");
+    expect(extraArgs).toContain("/home/alice/.ssh/id_ed25519");
+    expect(extraArgs).toContain("-p");
+    expect(extraArgs).toContain("2222");
+    expect(extraArgs).toContain("alice@example.com");
+    // The exec line must `cd` into the remote path then exec a login shell.
+    const execLine = extraArgs[extraArgs.length - 1];
+    expect(execLine).toContain("/srv/projects/foo");
+    expect(execLine).toContain("exec $SHELL -l");
+  });
+
+  it("terminal_id_passes_through_to_spawn", async () => {
+    const rws = makeRws({
+      panes: [makeTerminalPane({ terminal_id: 42 })],
+    });
+
+    await restoreWorkspaceImpl(rws, 0, () => 1);
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    // spawnTerminal signature: (shell, cwd, cols, rows, extraArgs, terminalId)
+    const args = mockSpawn.mock.calls[0];
+    expect(args[5]).toBe(42);
+  });
+
+  it("invalid_session_id_spawns_terminal_but_skips_resume", async () => {
+    vi.useFakeTimers();
+    // Semicolon makes this fail isValidSessionId — used to be silently dropped.
+    const rws = makeRws({
+      panes: [makeTerminalPane({ claude_session_id: "bad;session", claude_pid: null })],
+    });
+
+    await restoreWorkspaceImpl(rws, 0, () => 1);
+
+    // Terminal still spawned (the regression-prone path).
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    // Resume injection must NOT fire — advance well past every retry window.
+    // scheduleClaudeResume retries: stagger + stable(600) + 0/5000/13000 ms.
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // No `claude --resume ...` write happened.
+    const hasResumeWrite = mockWriteToTerminal.mock.calls.some((call) => {
+      const data = call[1] as Uint8Array;
+      return new TextDecoder().decode(data).startsWith("claude --resume");
+    });
+    expect(hasResumeWrite).toBe(false);
+  });
+
+  it("spawn_failure_retries_once_after_250ms", async () => {
+    // First call rejects (e.g. transient PTY error), retry succeeds.
+    mockSpawn
+      .mockRejectedValueOnce(new Error("EAGAIN"))
+      .mockResolvedValueOnce(456);
+
+    const rws = makeRws();
+
+    const result = await restoreWorkspaceImpl(rws, 0, () => 1);
+
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    // The pane survived the transient failure. Restored panes are keyed by
+    // `term-{terminalId}` (the second resolve returned 456).
+    expect(result.ws.panes["term-456"]).toBeDefined();
+    expect(result.ws.panes["term-456"].kind).toBe("terminal");
   });
 });

@@ -125,12 +125,40 @@ fn read_windows_registry() -> WindowsRegistry {
 
 fn write_windows_registry(registry: &WindowsRegistry) -> Result<(), String> {
     let data = serde_json::to_string_pretty(registry).map_err(|e| e.to_string())?;
-    // Atomic write: write to a temp file then rename to avoid corruption / dropped
-    // labels when multiple windows update the registry concurrently on shutdown.
-    let dest = windows_registry_path();
-    let tmp = dest.with_extension("json.tmp");
-    std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &dest).map_err(|e| e.to_string())
+    atomic_write_string(&windows_registry_path(), &data)
+}
+
+/// Atomic write via temp+rename. Prevents corruption / dropped state when
+/// multiple writers race (e.g. several Splice windows updating windows.json
+/// during shutdown). Extracted as a helper so it can be unit-tested with a
+/// `tempfile::tempdir`.
+fn atomic_write_string(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, contents).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
+/// Parse the labels of any `workspaces-{label}.json` files in `dir`.
+/// Pure helper used by `get_all_workspace_labels` so the disk-scan branch
+/// can be unit-tested independently of `config_dir()`.
+fn scan_workspace_labels_in_dir(dir: &std::path::Path) -> Vec<String> {
+    let mut labels = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = match entry.file_name().into_string() {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if let Some(rest) = name.strip_prefix("workspaces-") {
+                if let Some(label) = rest.strip_suffix(".json") {
+                    if !label.is_empty() {
+                        labels.push(label.to_string());
+                    }
+                }
+            }
+        }
+    }
+    labels
 }
 
 /// Explicitly grant the app read access to a directory chosen by the user.
@@ -409,24 +437,7 @@ pub fn get_secondary_window_labels() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub fn get_all_workspace_labels() -> Result<Vec<String>, String> {
     let mut labels: Vec<String> = read_windows_registry().labels;
-
-    let dir = config_dir();
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let name = match entry.file_name().into_string() {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            if let Some(rest) = name.strip_prefix("workspaces-") {
-                if let Some(label) = rest.strip_suffix(".json") {
-                    if !label.is_empty() {
-                        labels.push(label.to_string());
-                    }
-                }
-            }
-        }
-    }
-
+    labels.extend(scan_workspace_labels_in_dir(&config_dir()));
     labels.sort();
     labels.dedup();
     Ok(labels)
@@ -484,5 +495,57 @@ mod tests {
     fn pid_one_is_alive() {
         // PID 1 is init/launchd/systemd — always exists
         assert!(is_pid_alive(1));
+    }
+
+    // -----------------------------------------------------------------------
+    // Restore source-of-truth helpers (workspace label scan + atomic write).
+    // These exercise the regression fix for the multi-window restore bug
+    // where orphaned per-window state files were silently dropped.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn scan_workspace_labels_picks_up_orphaned_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+
+        // Three valid per-window files, plus distractors that must NOT match.
+        std::fs::write(p.join("workspaces-main-19d2b4f.json"), "{}").unwrap();
+        std::fs::write(p.join("workspaces-main-6d855d.json"), "{}").unwrap();
+        std::fs::write(p.join("workspaces-secondary.json"), "{}").unwrap();
+        // Distractors:
+        std::fs::write(p.join("workspaces.json"), "{}").unwrap();         // legacy global file (no label)
+        std::fs::write(p.join("workspaces-.json"), "{}").unwrap();        // empty label
+        std::fs::write(p.join("settings.json"), "{}").unwrap();           // unrelated file
+        std::fs::write(p.join("workspaces-noext"), "{}").unwrap();        // wrong suffix
+
+        let mut labels = scan_workspace_labels_in_dir(p);
+        labels.sort();
+
+        assert_eq!(
+            labels,
+            vec!["main-19d2b4f".to_string(), "main-6d855d".to_string(), "secondary".to_string()],
+        );
+    }
+
+    #[test]
+    fn atomic_write_is_atomic_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("windows.json");
+
+        atomic_write_string(&dest, r#"{"labels":["a","b"]}"#).unwrap();
+
+        // Final file has the right content
+        let read_back = std::fs::read_to_string(&dest).unwrap();
+        assert_eq!(read_back, r#"{"labels":["a","b"]}"#);
+
+        // No leftover .tmp file
+        let tmp = dest.with_extension("json.tmp");
+        assert!(!tmp.exists(), "atomic_write_string left a stale .tmp file");
+
+        // Overwrite must also succeed cleanly (rename-over-existing on macOS/Linux).
+        atomic_write_string(&dest, r#"{"labels":["c"]}"#).unwrap();
+        let read_back2 = std::fs::read_to_string(&dest).unwrap();
+        assert_eq!(read_back2, r#"{"labels":["c"]}"#);
+        assert!(!tmp.exists());
     }
 }
