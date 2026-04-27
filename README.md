@@ -8,6 +8,8 @@ Splice is a native macOS developer environment built on Rust and Tauri. Isolated
 [![CI](https://github.com/adrian-kimbrell/splice/actions/workflows/ci.yml/badge.svg)](https://github.com/adrian-kimbrell/splice/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+![Splice — file explorer, code editor, and multiple terminal panes](docs/screenshots/main_title_shot.png)
+
 > **Gatekeeper note:** Splice is not yet notarized. If macOS shows a "damaged" warning on first launch, run `xattr -cr /Applications/Splice.app` in Terminal, then open normally.
 
 ---
