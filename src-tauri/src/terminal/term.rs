@@ -287,9 +287,9 @@ impl<'a> vte::Perform for GridPerformer<'a> {
                         12 => {} // cursor blink — no-op
                         25 => self.grid.cursor_visible = false,
                         47 | 1047 => self.grid.leave_alt_screen_simple(),
-                        1000 => { if self.grid.mouse_mode == 1 { self.grid.mouse_mode = 0; } }
-                        1002 => { if self.grid.mouse_mode == 2 { self.grid.mouse_mode = 0; } }
-                        1003 => { if self.grid.mouse_mode == 3 { self.grid.mouse_mode = 0; } }
+                        1000 if self.grid.mouse_mode == 1 => self.grid.mouse_mode = 0,
+                        1002 if self.grid.mouse_mode == 2 => self.grid.mouse_mode = 0,
+                        1003 if self.grid.mouse_mode == 3 => self.grid.mouse_mode = 0,
                         1004 => self.grid.focus_events = false,
                         1006 => self.grid.mouse_sgr = false,
                         1048 => self.grid.restore_cursor(),
@@ -447,28 +447,16 @@ impl<'a> vte::Perform for GridPerformer<'a> {
                 let mode = Self::get_param(&params_vec, 0, 0);
                 self.grid.clear_tab_stop(mode);
             }
-            's' => {
-                if intermediates.is_empty() {
-                    self.grid.save_cursor();
-                }
-            }
-            'u' => {
-                // CSI u = DECRC (restore cursor) — only when no intermediates.
-                // CSI = Pu / CSI < Nu are Kitty keyboard protocol sequences;
-                // treating them as restore_cursor() would jump the cursor to (0,0).
-                if intermediates.is_empty() {
-                    self.grid.restore_cursor();
-                }
-            }
-            'm' => {
-                // Only process as SGR when there are no intermediates.
-                // CSI > Ps m (xterm Modify Other Keys) and similar private sequences
-                // must not be routed to handle_sgr — `\x1b[>4;2m` would otherwise
-                // set UNDERLINE + DIM on the entire screen.
-                if intermediates.is_empty() {
-                    self.handle_sgr(params);
-                }
-            }
+            's' if intermediates.is_empty() => self.grid.save_cursor(),
+            // CSI u = DECRC (restore cursor) — only when no intermediates.
+            // CSI = Pu / CSI < Nu are Kitty keyboard protocol sequences;
+            // treating them as restore_cursor() would jump the cursor to (0,0).
+            'u' if intermediates.is_empty() => self.grid.restore_cursor(),
+            // Only process as SGR when there are no intermediates.
+            // CSI > Ps m (xterm Modify Other Keys) and similar private sequences
+            // must not be routed to handle_sgr — `\x1b[>4;2m` would otherwise
+            // set UNDERLINE + DIM on the entire screen.
+            'm' if intermediates.is_empty() => self.handle_sgr(params),
             _ => {}
         }
     }
@@ -491,23 +479,19 @@ impl<'a> vte::Perform for GridPerformer<'a> {
             return;
         }
         match params[0] {
-            b"0" | b"2" => {
-                // Set window title
-                if params.len() > 1 {
-                    if let Ok(title) = std::str::from_utf8(params[1]) {
-                        *self.pending_title = Some(title.to_string());
-                    }
+            // Set window title
+            b"0" | b"2" if params.len() > 1 => {
+                if let Ok(title) = std::str::from_utf8(params[1]) {
+                    *self.pending_title = Some(title.to_string());
                 }
             }
-            b"52" => {
-                // OSC 52: clipboard write
-                // Format: ESC ] 52 ; Pc ; Pd BEL
-                // params[1] = selection (e.g. "c" for clipboard), params[2] = base64 data
-                if params.len() >= 3 {
-                    if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(params[2]) {
-                        if let Ok(text) = String::from_utf8(decoded) {
-                            *self.pending_clipboard = Some(text);
-                        }
+            // OSC 52: clipboard write
+            // Format: ESC ] 52 ; Pc ; Pd BEL
+            // params[1] = selection (e.g. "c" for clipboard), params[2] = base64 data
+            b"52" if params.len() >= 3 => {
+                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(params[2]) {
+                    if let Ok(text) = String::from_utf8(decoded) {
+                        *self.pending_clipboard = Some(text);
                     }
                 }
             }

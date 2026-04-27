@@ -10,7 +10,6 @@
 /// Uses Apple private API (`NSThemeFrame` is undocumented). Guarded to only
 /// apply to windows with the `FullSizeContentView` style mask (our overlay
 /// windows), so system dialogs and panels are unaffected.
-
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Once;
 

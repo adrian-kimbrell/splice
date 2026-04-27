@@ -40,6 +40,7 @@ fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_terminal(
     app: AppHandle,
     state: State<'_, Mutex<AppState>>,
