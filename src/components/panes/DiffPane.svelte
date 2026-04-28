@@ -8,7 +8,7 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { refreshGitStatus } from "../../lib/stores/git.svelte";
   import { pushToast } from "../../lib/stores/toasts.svelte";
-  import { settings } from "../../lib/stores/settings.svelte";
+  import { effectiveSettings } from "../../lib/stores/settings.svelte";
 
   let {
     filePath,
@@ -140,8 +140,8 @@
   // Match editor font settings — same as CodeMirrorEditor does
   $effect(() => {
     if (!containerEl) return;
-    containerEl.style.setProperty("--font-family", `'${settings.editor.font_family}', monospace`);
-    containerEl.style.setProperty("--font-size", `${settings.editor.font_size}px`);
+    containerEl.style.setProperty("--font-family", `'${effectiveSettings.editor.font_family}', monospace`);
+    containerEl.style.setProperty("--font-size", `${effectiveSettings.editor.font_size}px`);
   });
 
   onDestroy(() => {

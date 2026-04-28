@@ -354,10 +354,29 @@ export function initKeybindings(): () => void {
       ui.explorerVisible = !ui.explorerVisible;
     }
 
-    // Cmd/Ctrl + ,: Settings
-    if (mod && e.key === ",") {
+    // Cmd/Ctrl + ,: Open user settings window
+    if (mod && !e.shiftKey && e.code === "Comma") {
       e.preventDefault();
       openSettingsWindow();
+    }
+
+    // Cmd/Ctrl + Shift + ,: Open workspace settings (.splice/settings.json)
+    if (mod && e.shiftKey && e.code === "Comma") {
+      e.preventDefault();
+      void (async () => {
+        const ws = workspaceManager.activeWorkspace;
+        if (!ws?.rootPath) return;
+        const { ensureWorkspaceSettingsFile } = await import("../stores/settings.svelte");
+        const path = await ensureWorkspaceSettingsFile(ws.rootPath);
+        if (!path) return;
+        const { readFile } = await import("../ipc/commands");
+        const content = await readFile(path).catch(() => "{\n  \n}\n");
+        workspaceManager.openFileInWorkspace({
+          name: "settings.json",
+          path,
+          content,
+        });
+      })();
     }
 
     // Cmd/Ctrl + Z: Toggle pane zoom (only when NOT inside a CodeMirror editor, where it means Undo)

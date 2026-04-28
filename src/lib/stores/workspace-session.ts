@@ -3,7 +3,7 @@ import type { RustWorkspace } from "../ipc/commands";
 import { validateLayout } from "./workspace-tab-ops";
 import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs } from "./workspace-types";
 import { collectLeafIds, removeNodeFromTree } from "./layout.svelte";
-import { settings } from "./settings.svelte";
+import { effectiveSettings } from "./settings.svelte";
 
 interface PendingResume {
   timers: ReturnType<typeof setTimeout>[];
@@ -201,7 +201,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
         return {
           id: pane.id,
           pane_type: pane.kind === "terminal"
-            ? { Terminal: { shell: settings.terminal.default_shell, cwd: terminalCwdMap.get(pane.id) ?? ws.rootPath } }
+            ? { Terminal: { shell: effectiveSettings.terminal.default_shell, cwd: terminalCwdMap.get(pane.id) ?? ws.rootPath } }
             : { Editor: { file_path: isDiff ? "" : (pane.activeFilePath ?? "") } },
           title: pane.title,
           file_paths: isDiff
@@ -307,7 +307,7 @@ export async function restoreWorkspaceImpl(
         // args (matching the live-spawn path in workspace.svelte.ts); local
         // workspaces use the default shell.
         const isSsh = ws.sshConfig != null;
-        const shell = isSsh ? "/usr/bin/ssh" : settings.terminal.default_shell;
+        const shell = isSsh ? "/usr/bin/ssh" : effectiveSettings.terminal.default_shell;
         const cwd = isSsh ? "/" : (savedCwd || rws.root_path || "/");
         const extraArgs = isSsh ? buildSshExtraArgs(ws.sshConfig!) : undefined;
         const savedTerminalId = paneInfo.terminal_id ?? undefined;

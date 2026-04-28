@@ -29,7 +29,7 @@
   import { onMount, onDestroy } from "svelte";
   import { TerminalRenderer, HEADER_SIZE, CELL_SIZE } from "../../lib/terminal/renderer";
   import type { TerminalSearchMatch } from "../../lib/ipc/commands";
-  import { settings } from "../../lib/stores/settings.svelte";
+  import { effectiveSettings } from "../../lib/stores/settings.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { attentionStore } from "../../lib/stores/attention.svelte";
   import { keyToBytes } from "../../lib/terminal/keyboard";
@@ -133,8 +133,8 @@
   // Update terminal font when settings change
   $effect(() => {
     if (!renderer) return;
-    const fs = settings.terminal.font_size;
-    const ff = `${settings.terminal.font_family}, Consolas, 'Courier New', monospace`;
+    const fs = effectiveSettings.terminal.font_size;
+    const ff = `${effectiveSettings.terminal.font_family}, Consolas, 'Courier New', monospace`;
     renderer.updateFont(fs, ff);
     handleResize();
     renderer.rerender();
@@ -149,7 +149,7 @@
   // Force-reset currentCols/currentRows so the PTY always gets a fresh SIGWINCH
   // even when the computed cols happen to equal the pre-zoom value.
   $effect(() => {
-    const _scale = settings.appearance.ui_scale; // subscribe
+    const _scale = effectiveSettings.appearance.ui_scale; // subscribe
     if (!renderer || !containerEl) return;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       currentCols = 0;
@@ -176,7 +176,7 @@
   // Toggle cursor blink based on settings
   $effect(() => {
     if (!renderer) return;
-    if (settings.terminal.cursor_blink) {
+    if (effectiveSettings.terminal.cursor_blink) {
       resetBlinkTimer();
     } else {
       if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null; }
@@ -253,7 +253,7 @@
     // Cache resizeTerminal for use in handleResize
     cachedResizeTerminal = resizeTerminal;
 
-    renderer = new TerminalRenderer(canvasEl, settings.terminal.font_size, `${settings.terminal.font_family}, Consolas, 'Courier New', monospace`);
+    renderer = new TerminalRenderer(canvasEl, effectiveSettings.terminal.font_size, `${effectiveSettings.terminal.font_family}, Consolas, 'Courier New', monospace`);
 
     // Install resize handlers EARLY — before any awaits — so window resizes during
     // listener-registration init aren't missed. handleResize() guards on
@@ -703,7 +703,7 @@
           const url = renderer.hoveredUrl.url;
           import("@tauri-apps/plugin-shell").then(({ open }) => open(url)).catch(() => {});
         }
-      } else if (settings.terminal.copy_on_select && renderer?.selectionStart && renderer?.selectionEnd) {
+      } else if (effectiveSettings.terminal.copy_on_select && renderer?.selectionStart && renderer?.selectionEnd) {
         const text = await extractSelectionText();
         if (text) writeToClipboard(text).catch(console.error);
       }

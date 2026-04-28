@@ -65,6 +65,7 @@
     { key: "terminal.cursor_blink", category: "Terminal", title: "Cursor Blink", description: "Whether the terminal cursor blinks.", control: { type: "toggle" } },
     { key: "terminal.scrollback_lines", category: "Terminal", title: "Scrollback Lines", description: "Number of lines to keep in the scrollback buffer.", control: { type: "number", min: 100, max: 100000, step: 1000 } },
     { key: "terminal.copy_on_select", category: "Terminal", title: "Copy on Select", description: "Automatically copy text when selected in the terminal.", control: { type: "toggle" } },
+    { key: "terminal.show_full_path", category: "Terminal", title: "Show Full Path in Title", description: "When on, the terminal title shows the full workspace path. When off, only the project name (basename) is shown — full path is in the tooltip.", control: { type: "toggle" } },
   ];
 
   const keybindings = [

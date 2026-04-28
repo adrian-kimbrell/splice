@@ -9,13 +9,18 @@ vi.mock("../ipc/commands", () => ({
   setActiveWorkspaceId: vi.fn().mockResolvedValue(undefined),
   getTerminalCwd: vi.fn().mockResolvedValue(null),
 }));
-vi.mock("./settings.svelte", () => ({
-  settings: {
+vi.mock("./settings.svelte", () => {
+  const fakeSettings = {
     terminal: { default_shell: "/bin/zsh" },
     general: { restore_previous_session: true },
     appearance: {},
-  },
-}));
+    editor: {},
+  };
+  return {
+    settings: fakeSettings,
+    effectiveSettings: fakeSettings,
+  };
+});
 
 import { workspaceManager } from "./workspace.svelte";
 

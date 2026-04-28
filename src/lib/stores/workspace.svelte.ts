@@ -21,7 +21,7 @@ import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, swapLeave
 import { ui } from "./ui.svelte";
 import { isCornerDragActive } from "./corner-drag.svelte";
 import { isDragging as isTabDragging } from "./drag.svelte";
-import { settings } from "./settings.svelte";
+import { effectiveSettings } from "./settings.svelte";
 import type { RustWorkspace } from "../ipc/commands";
 import { addRecentProject } from "./recent-projects.svelte";
 import { attentionStore } from "./attention.svelte";
@@ -233,7 +233,7 @@ class WorkspaceManager {
     let paneId: string;
     try {
       const { spawnTerminal } = await import("../ipc/commands");
-      terminalId = await spawnTerminal(settings.terminal.default_shell, rootPath, 80, 24);
+      terminalId = await spawnTerminal(effectiveSettings.terminal.default_shell, rootPath, 80, 24);
       paneId = `term-${terminalId}`;
     } catch (e) {
       console.error("Failed to spawn terminal for workspace:", e);
@@ -305,7 +305,7 @@ class WorkspaceManager {
         terminalId = await spawnTerminal("/usr/bin/ssh", "/", 80, 24, buildSshExtraArgs(ws.sshConfig));
       } else {
         const cwd = overrideCwd || ws.rootPath || "/";
-        terminalId = await spawnTerminal(settings.terminal.default_shell, cwd, 80, 24);
+        terminalId = await spawnTerminal(effectiveSettings.terminal.default_shell, cwd, 80, 24);
       }
 
       // Re-validate workspace still exists after await
@@ -740,7 +740,7 @@ class WorkspaceManager {
           terminalId = await spawnTerminal("/usr/bin/ssh", "/", 80, 24, buildSshExtraArgs(ws.sshConfig));
         } else {
           const cwd = ws.rootPath || "/";
-          terminalId = await spawnTerminal(settings.terminal.default_shell, cwd, 80, 24);
+          terminalId = await spawnTerminal(effectiveSettings.terminal.default_shell, cwd, 80, 24);
         }
 
         // Re-validate workspace still exists after await
@@ -938,7 +938,7 @@ class WorkspaceManager {
     try {
       const { getWorkspaces } = await import("../ipc/commands");
       const { active_workspace_id, workspaces } = await getWorkspaces();
-      const shouldRestore = settings.general.restore_previous_session;
+      const shouldRestore = effectiveSettings.general.restore_previous_session;
 
       let globalResumeIndex = 0;
       for (const rws of workspaces) {

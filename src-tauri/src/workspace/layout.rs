@@ -222,6 +222,8 @@ pub struct TerminalSettings {
     pub font_family: String,
     #[serde(default)]
     pub copy_on_select: bool,
+    #[serde(default)]
+    pub show_full_path: bool,
 }
 
 fn default_terminal_font() -> String {
@@ -238,6 +240,7 @@ impl Default for TerminalSettings {
             scrollback_lines: 10000,
             font_family: default_terminal_font(),
             copy_on_select: false,
+            show_full_path: false,
         }
     }
 }

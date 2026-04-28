@@ -11,7 +11,7 @@
   import { cursorMatchingBracket } from "@codemirror/commands";
   import { editorTheme, editorHighlighting } from "../../lib/theme/editor-theme";
   import { conflictExtension, conflictTheme } from "../../lib/editor/conflict-extension";
-  import { settings } from "../../lib/stores/settings.svelte";
+  import { settings, effectiveSettings } from "../../lib/stores/settings.svelte";
   import { editorActions, dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { showContextMenu } from "../../lib/utils/context-menu";
@@ -235,7 +235,7 @@
   }
 
   onMount(() => {
-    const s = settings.editor;
+    const s = effectiveSettings.editor;
 
     let scrollAccum = 0;
     let scrollAccumTime = 0;
@@ -352,7 +352,7 @@
   // Reconfigure editor extensions when settings change
   $effect(() => {
     if (!viewReady || !view) return;
-    const s = settings.editor;
+    const s = effectiveSettings.editor;
     view.dispatch({ effects: [
       tabSizeCompartment.reconfigure(EditorState.tabSize.of(s.tab_size)),
       indentUnitCompartment.reconfigure(indentUnit.of(s.insert_spaces ? " ".repeat(s.tab_size) : "\t")),
@@ -368,8 +368,8 @@
   // Update editor font via CSS custom properties
   $effect(() => {
     if (!containerEl) return;
-    containerEl.style.setProperty("--font-family", `'${settings.editor.font_family}', monospace`);
-    containerEl.style.setProperty("--font-size", `${settings.editor.font_size}px`);
+    containerEl.style.setProperty("--font-family", `'${effectiveSettings.editor.font_family}', monospace`);
+    containerEl.style.setProperty("--font-size", `${effectiveSettings.editor.font_size}px`);
     if (view) view.requestMeasure();
   });
 
@@ -410,7 +410,7 @@
   // Minimap: async import, reconfigure when setting toggles
   $effect(() => {
     if (!viewReady || !view) return;
-    const enabled = settings.editor.minimap;
+    const enabled = effectiveSettings.editor.minimap;
     if (enabled) {
       import("@replit/codemirror-minimap").then(({ showMinimap }) => {
         if (view) {
@@ -439,7 +439,7 @@
   // Indent guides: reconfigure when setting toggles
   $effect(() => {
     if (!viewReady || !view) return;
-    const enabled = settings.editor.indent_guides;
+    const enabled = effectiveSettings.editor.indent_guides;
     if (enabled) {
       import("@replit/codemirror-indentation-markers").then(({ indentationMarkers }) => {
         if (view) {
@@ -454,7 +454,7 @@
   // Auto-save: onFocusChange
   $effect(() => {
     if (!containerEl || !onAutoSave) return;
-    const mode = settings.general.auto_save;
+    const mode = effectiveSettings.general.auto_save;
     if (mode !== "onFocusChange") return;
     const handler = () => onAutoSave();
     containerEl.addEventListener("focusout", handler);
@@ -465,8 +465,8 @@
   let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
   $effect(() => {
     // Track settings to re-run when they change
-    const mode = settings.general.auto_save;
-    const delay = settings.general.auto_save_delay;
+    const mode = effectiveSettings.general.auto_save;
+    const delay = effectiveSettings.general.auto_save_delay;
     if (!viewReady || !view || !onAutoSave) return;
 
     if (mode === "afterDelay") {

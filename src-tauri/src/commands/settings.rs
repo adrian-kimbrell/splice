@@ -5,6 +5,11 @@
 //! `get_settings` call and cached in [`AppState`] for subsequent reads.
 //! `update_settings` writes through to disk using atomic rename to prevent
 //! corruption on crash.
+//!
+//! Per-project settings live at `<workspace_root>/.splice/settings.json` and
+//! are a partial subset of [`Settings`]. They are loaded by the frontend on
+//! workspace switch and deep-merged on top of user settings to produce the
+//! effective view.
 
 use crate::state::AppState;
 use crate::workspace::layout::Settings;
@@ -89,5 +94,38 @@ pub fn update_settings(
     // Persist outside of lock
     save_settings_to_disk(&settings_clone)?;
     info!("Settings saved to disk");
+    Ok(())
+}
+
+/// Read `<workspace_root>/.splice/settings.json` if it exists. Returns the raw
+/// JSON value as a string so the frontend can parse it as `Partial<Settings>`
+/// (Splice's `Settings` Rust struct requires all fields, so we don't deserialize
+/// here — we let the frontend deep-merge on top of its user settings).
+///
+/// Returns an empty string if the file is absent. Returns an error only on
+/// I/O failures (permissions, etc.) — malformed JSON is the caller's problem.
+#[tauri::command]
+pub fn read_project_settings(workspace_root: String) -> Result<String, String> {
+    let path = std::path::Path::new(&workspace_root)
+        .join(".splice")
+        .join("settings.json");
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+/// Write the given JSON string to `<workspace_root>/.splice/settings.json`,
+/// creating the `.splice` directory if needed. Atomic temp+rename like the
+/// user-settings write.
+#[tauri::command]
+pub fn write_project_settings(workspace_root: String, json: String) -> Result<(), String> {
+    let dir = std::path::Path::new(&workspace_root).join(".splice");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("settings.json");
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &json).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    info!("Project settings saved to {}", path.display());
     Ok(())
 }

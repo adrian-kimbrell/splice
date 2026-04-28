@@ -227,6 +227,7 @@
   aria-expanded={entry.is_dir ? expanded : undefined}
   aria-selected={isSelected}
   data-path={entry.path}
+  data-is-dir={entry.is_dir ? "true" : "false"}
   onclick={handleClick}
   ondblclick={handleDblClick}
   oncontextmenu={handleContextMenu}

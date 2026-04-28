@@ -49,7 +49,7 @@
   import { type DropZone, setDropCallback } from "../lib/stores/drag.svelte";
   import type { TabDragData } from "../lib/stores/drag.svelte";
   import { workspaceManager } from "../lib/stores/workspace.svelte";
-  import { settings, initSettings, debouncedSaveSettings, flushSettingsSave } from "../lib/stores/settings.svelte";
+  import { settings, effectiveSettings, initSettings, debouncedSaveSettings, flushSettingsSave, loadProjectSettings } from "../lib/stores/settings.svelte";
   import type { Settings } from "../lib/stores/settings.svelte";
   import { applyTheme } from "../lib/theme/themes";
   import { loadCustomThemes } from "../lib/theme/custom-themes.svelte";
@@ -523,17 +523,26 @@
 
   // Apply theme and UI scale when appearance settings change
   $effect(() => {
-    applyTheme(settings.appearance.theme);
+    applyTheme(effectiveSettings.appearance.theme);
   });
 
   $effect(() => {
-    const scale = settings.appearance.ui_scale / 100;
+    const scale = effectiveSettings.appearance.ui_scale / 100;
     document.documentElement.style.zoom = `${scale}`;
   });
 
 
   $effect(() => {
-    document.documentElement.style.setProperty("--font-size", `${settings.appearance.font_size}px`);
+    document.documentElement.style.setProperty("--font-size", `${effectiveSettings.appearance.font_size}px`);
+  });
+
+  // Load project-level settings when the active workspace's root path changes.
+  // Reads `<rootPath>/.splice/settings.json` and merges it on top of user
+  // settings for as long as that workspace is active.
+  $effect(() => {
+    const activeId = workspaceManager.activeWorkspaceId;
+    const rootPath = activeId ? workspaceManager.workspaces[activeId]?.rootPath ?? null : null;
+    loadProjectSettings(rootPath || null);
   });
 
   onMount(async () => {
@@ -791,9 +800,48 @@
 
       // Listen for native file drag-and-drop
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
-      unlistenDragDrop = await getCurrentWebview().onDragDropEvent((event) => {
-        if (event.payload.type === "drop") {
-          openDroppedFiles(event.payload.paths);
+      unlistenDragDrop = await getCurrentWebview().onDragDropEvent(async (event) => {
+        if (event.payload.type !== "drop") return;
+        const paths = event.payload.paths;
+        if (paths.length === 0) return;
+
+        // Tauri reports position in physical pixels; elementFromPoint expects CSS pixels.
+        const dpr = window.devicePixelRatio || 1;
+        const x = event.payload.position.x / dpr;
+        const y = event.payload.position.y / dpr;
+
+        // Walk up from the drop point looking for a folder row (FileTreeItem
+        // sets data-path + data-is-dir). If we find one, copy each dropped
+        // file into that folder. Otherwise fall back to opening in the editor.
+        let el: Element | null = document.elementFromPoint(x, y);
+        let targetDir: string | null = null;
+        while (el) {
+          if (el instanceof HTMLElement && el.dataset.path && el.dataset.isDir === "true") {
+            targetDir = el.dataset.path;
+            break;
+          }
+          el = el.parentElement;
+        }
+
+        if (targetDir) {
+          const { copyPath } = await import("../lib/ipc/commands");
+          let ok = 0;
+          for (const src of paths) {
+            const name = src.split("/").filter(Boolean).pop() ?? "file";
+            const dest = `${targetDir}/${name}`;
+            try {
+              await copyPath(src, dest);
+              ok++;
+            } catch (e) {
+              console.error(`Failed to copy ${src} → ${dest}:`, e);
+              pushToast(`Could not copy ${name}: ${e}`, "error");
+            }
+          }
+          if (ok > 0) {
+            pushToast(ok === 1 ? `Copied 1 item` : `Copied ${ok} items`, "success");
+          }
+        } else {
+          openDroppedFiles(paths);
         }
       });
 
@@ -916,6 +964,16 @@
   <div class="flex flex-col min-w-0" style="grid-column: 3; grid-row: 1; overflow: hidden;">
     {#if ws && (ws.rootPath || ws.layout !== null || ws.sshConfig)}
       <TitleBar />
+    {:else}
+      <!-- Welcome screen has no TitleBar; provide an invisible drag strip so
+           the user can still drag the window from the top edge. Height matches
+           the TitleBar (32px + 6px margin) so the traffic-light area is fully
+           covered. -->
+      <div
+        data-tauri-drag-region
+        style="height: 38px; flex-shrink: 0;"
+        aria-hidden="true"
+      ></div>
     {/if}
 
     {#each Object.entries(workspaceManager.workspaces) as [wsId, workspace] (wsId)}

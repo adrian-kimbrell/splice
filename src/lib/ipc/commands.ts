@@ -187,6 +187,18 @@ export async function updateSettings(settings: Settings): Promise<void> {
   return invoke("update_settings", { settings });
 }
 
+/** Reads the JSON contents of `<workspaceRoot>/.splice/settings.json`.
+ * Returns an empty string if the file doesn't exist. Caller parses + merges. */
+export async function readProjectSettings(workspaceRoot: string): Promise<string> {
+  return invoke("read_project_settings", { workspaceRoot });
+}
+
+/** Writes the given JSON string to `<workspaceRoot>/.splice/settings.json`,
+ * creating `.splice/` if needed. */
+export async function writeProjectSettings(workspaceRoot: string, json: string): Promise<void> {
+  return invoke("write_project_settings", { workspaceRoot, json });
+}
+
 export interface CustomTheme {
   name: string;
   colors: Record<string, string>;

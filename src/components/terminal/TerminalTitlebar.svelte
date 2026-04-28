@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ui } from "../../lib/stores/ui.svelte";
+  import { effectiveSettings } from "../../lib/stores/settings.svelte";
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
   import type { AttentionNotification } from "../../lib/stores/attention.svelte";
@@ -29,6 +30,15 @@
     if (!isDragging()) return false;
     const d = getDragActive();
     return d?.kind === "terminal" && d?.sourcePaneId === paneId;
+  });
+
+  // When `show_full_path` is off, show just the project basename
+  // (last path segment); when on, show the full path as-is.
+  const displayCwd = $derived.by(() => {
+    if (!cwd) return "";
+    if (effectiveSettings.terminal.show_full_path) return cwd;
+    const segments = cwd.split("/").filter(Boolean);
+    return segments.length > 0 ? segments[segments.length - 1] : cwd;
   });
 
   function handleMouseDown(e: MouseEvent) {
@@ -135,9 +145,9 @@
     {#if gitBranch}
       <span class="overflow-hidden text-ellipsis shrink-0"><i class="bi bi-git mr-1 text-[11px]"></i>{gitBranch}</span>
     {/if}
-    {#if cwd}
-      <span class="overflow-hidden text-ellipsis"
-        ><i class="bi bi-folder2 mr-1 text-[11px]"></i>{cwd}</span
+    {#if displayCwd}
+      <span class="overflow-hidden text-ellipsis" title={cwd}
+        ><i class="bi bi-folder2 mr-1 text-[11px]"></i>{displayCwd}</span
       >
     {/if}
   </span>
