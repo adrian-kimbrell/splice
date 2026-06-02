@@ -31,7 +31,14 @@ pub fn watch_path(
     let watch_mode = if is_dir { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
 
     let emit_path = canonical_str.clone();
-    let last_emit = std::sync::Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+    // Trailing-edge debounce: when an event arrives, schedule an emit 150ms later
+    // unless one is already pending. The pending guard coalesces subsequent events
+    // in the burst into the same delayed emit, so the refresh reads the filesystem
+    // AFTER the burst has settled rather than mid-write. Crucially, every burst
+    // produces exactly one emit — no events are silently dropped (which is what the
+    // old leading-edge throttle did, and what made the file tree appear stale after
+    // multi-file LLM edits).
+    let pending = std::sync::Arc::new(std::sync::Mutex::new(false));
 
     // Use a 100ms FSEvents latency (macOS) so external changes appear quickly.
     // On Linux/Windows the Config has no effect — inotify/ReadDirectoryChanges
@@ -40,19 +47,29 @@ pub fn watch_path(
         .with_poll_interval(std::time::Duration::from_millis(100));
     let mut watcher = RecommendedWatcher::new(
         move |res: Result<notify::Event, notify::Error>| {
-            if let Ok(event) = res {
-                match event.kind {
-                    EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => {
-                        let mut last = last_emit.lock().unwrap_or_else(|e| e.into_inner());
-                        if last.elapsed() < std::time::Duration::from_millis(200) {
-                            return;
-                        }
-                        *last = std::time::Instant::now();
-                        let _ = app.emit(event_name, emit_path.clone());
-                    }
-                    _ => {}
-                }
+            let Ok(event) = res else { return };
+            if !matches!(
+                event.kind,
+                EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+            ) {
+                return;
             }
+            // Claim the slot for this burst.
+            {
+                let mut p = pending.lock().unwrap_or_else(|e| e.into_inner());
+                if *p { return; }
+                *p = true;
+            }
+            let app = app.clone();
+            let emit_path = emit_path.clone();
+            let pending = pending.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                let _ = app.emit(event_name, emit_path);
+                if let Ok(mut p) = pending.lock() {
+                    *p = false;
+                }
+            });
         },
         config,
     )
