@@ -33,6 +33,9 @@ libc = "0.2"
 unicode-width = "0.1"
 tauri-plugin-webdriver = { version = "0.2", optional = true }
 openssh = { version = "0.11", features = ["native-mux"] }
+rmcp = { version = "0.16", features = ["server", "transport-streamable-http-server", "macros"] }
+axum = "0.8"
+schemars = "0.8"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

@@ -18,6 +18,7 @@ mod commands;
 #[cfg(target_os = "macos")]
 mod dock;
 pub mod lsp;
+mod mcp;
 mod state;
 pub mod terminal;
 mod workspace;
@@ -194,6 +195,14 @@ pub fn run() {
                         tracing::warn!("Failed to install Claude hook: {}", e);
                     }
                 }
+            });
+
+            // Start the MCP server on a separate port range (19880-19882). External
+            // LLM clients read ~/.config/Splice/mcp.json to discover {url, token, port}.
+            let mcp_token = mcp::load_or_create_token();
+            let mcp_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = mcp::start(mcp_handle, mcp_token).await;
             });
 
             Ok(())
