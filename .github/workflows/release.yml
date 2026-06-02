@@ -1,0 +1,75 @@
+name: Release
+
+# Trigger: push a tag like v0.4.2 to build, sign, notarize, and upload artifacts.
+#   git tag v0.4.2 && git push origin v0.4.2
+#
+# Required GitHub Actions secrets (Settings → Secrets and variables → Actions):
+#   APPLE_CERTIFICATE             base64 of your Developer ID Application .p12
+#                                  ($ base64 -i DeveloperID.p12 | pbcopy)
+#   APPLE_CERTIFICATE_PASSWORD    password used when exporting the .p12
+#   APPLE_SIGNING_IDENTITY         e.g. "Developer ID Application: Adrian Kimbrell (TEAMID)"
+#   APPLE_TEAM_ID                  10-char Team ID (find in Apple Developer portal)
+#
+#   Either Apple ID + app-specific password:
+#     APPLE_ID                     your Apple Developer account email
+#     APPLE_PASSWORD               app-specific password (appleid.apple.com)
+#   OR App Store Connect API key (preferred — no 2FA timeouts):
+#     APPLE_API_KEY                base64 of the .p8 private key
+#     APPLE_API_KEY_ID             10-char Key ID
+#     APPLE_API_ISSUER             UUID issuer ID
+#
+# Notarization can take 1–10 minutes; tauri-action waits until Apple staples the ticket.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build, sign, notarize
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build, sign, notarize, and upload
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # GitHub release upload
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # Code signing
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+          # Notarization (Apple ID variant — swap for API key variant if preferred)
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Splice ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false
+          # Build a universal binary (one .dmg works on Intel + Apple Silicon)
+          args: --target universal-apple-darwin
