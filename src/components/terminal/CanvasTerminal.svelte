@@ -751,8 +751,13 @@
 
       const mouseMode = (modeFlags >> 3) & 0x3;
 
-      // When mouse protocol is active, forward wheel events as button 64/65
-      if (mouseMode > 0) {
+      // When mouse protocol is active, forward wheel events as button 64/65 —
+      // UNLESS the user is holding Shift, which by convention (iTerm, Terminal.app,
+      // Kitty, Alacritty, WezTerm) bypasses mouse mode and uses the terminal's own
+      // scrollback. Without this escape hatch, scrolling up during a TUI app's
+      // continuous redraw (e.g. Claude Code streaming generation) gets eaten by the
+      // app and the user can't read what just scrolled past.
+      if (mouseMode > 0 && !e.shiftKey) {
         const rect = canvasEl!.getBoundingClientRect();
         const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
         const cx = Math.min(Math.max(1, cell.col + 1), 223);
