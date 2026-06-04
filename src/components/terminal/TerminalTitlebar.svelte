@@ -5,6 +5,8 @@
   import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
   import type { AttentionNotification } from "../../lib/stores/attention.svelte";
   import { beginDrag, getDragActive, isDragging } from "../../lib/stores/drag.svelte";
+  import { workspaceManager } from "../../lib/stores/workspace.svelte";
+  import { formatRelativeTime, tickingNow } from "../../lib/utils/relative-time.svelte";
 
   let {
     title,
@@ -30,6 +32,14 @@
     if (!isDragging()) return false;
     const d = getDragActive();
     return d?.kind === "terminal" && d?.sourcePaneId === paneId;
+  });
+
+  // "Xm ago" badge shown when the pane hasn't been active for ≥5 min. Re-derives
+  // every 30 s via tickingNow() and any time the workspace's pane map changes.
+  const lastTouchedLabel = $derived.by(() => {
+    const ws = workspaceManager.activeWorkspace;
+    const lastTouchedAt = ws?.panes[paneId]?.lastTouchedAt;
+    return formatRelativeTime(lastTouchedAt, tickingNow());
   });
 
   // When `show_full_path` is off, show just the project basename
@@ -148,6 +158,11 @@
     {#if displayCwd}
       <span class="overflow-hidden text-ellipsis" title={cwd}
         ><i class="bi bi-folder2 mr-1 text-[11px]"></i>{displayCwd}</span
+      >
+    {/if}
+    {#if lastTouchedLabel}
+      <span class="shrink-0 opacity-70" title="Last active in this pane"
+        ><i class="bi bi-clock-history mr-1 text-[10px]"></i>{lastTouchedLabel}</span
       >
     {/if}
   </span>

@@ -872,6 +872,9 @@ class WorkspaceManager {
     const ws = this.workspaces[wsId];
     if (!ws) return;
     ws.activePaneId = paneId;
+    // Stamp lastTouchedAt so the pane header can render a "Xm ago" badge once stale.
+    const pane = ws.panes[paneId];
+    if (pane) pane.lastTouchedAt = Date.now();
     this.debouncedPersistWorkspace(wsId);
   }
 
@@ -935,6 +938,11 @@ class WorkspaceManager {
   // --- Initialization ---
 
   async initializeWorkspaces(): Promise<void> {
+    // Dev mode: skip workspace restore so the editor boots clean — no respawned
+    // terminals, no auto-opened folder. Tauri rebuilds the Rust backend on every
+    // .rs save and a full restore each time spawned PTYs, clobbered file watchers,
+    // and slowed iteration to a crawl. Production builds restore as usual.
+    if (import.meta.env.DEV) return;
     try {
       const { getWorkspaces } = await import("../ipc/commands");
       const { active_workspace_id, workspaces } = await getWorkspaces();

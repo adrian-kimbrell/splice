@@ -6,6 +6,7 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
+  import { formatRelativeTime, tickingNow } from "../../lib/utils/relative-time.svelte";
 
   let reorderIndicatorIndex = $state<number | null>(null);
   let tabBarEl = $state<HTMLDivElement>();
@@ -82,6 +83,14 @@
     previewMode?: "editor" | "preview";
     onTogglePreview?: () => void;
   } = $props();
+
+  // "Xm ago" badge shown when this editor pane hasn't been active for ≥5 min.
+  // Re-derives every 30 s via tickingNow() and any time the workspace pane map changes.
+  const lastTouchedLabel = $derived.by(() => {
+    const ws = workspaceManager.activeWorkspace;
+    const lastTouchedAt = ws?.panes[paneId]?.lastTouchedAt;
+    return formatRelativeTime(lastTouchedAt, tickingNow());
+  });
 
   // --- Split dropdown ---
   let splitMenuOpen = $state(false);
@@ -280,6 +289,11 @@
     {#if gitBranch}
       <span class="text-txt-dim text-[11px] flex items-center gap-1 mr-1 shrink-0">
         <i class="bi bi-git"></i>{gitBranch}
+      </span>
+    {/if}
+    {#if lastTouchedLabel}
+      <span class="text-txt-dim text-[11px] flex items-center gap-1 mr-1 shrink-0 opacity-70" title="Last active in this pane">
+        <i class="bi bi-clock-history text-[10px]"></i>{lastTouchedLabel}
       </span>
     {/if}
     {#if ui.zoomedPaneId}

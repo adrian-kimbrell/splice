@@ -49,6 +49,9 @@ export interface PaneConfig {
   diffNewContent?: string;
   diffStaged?: boolean;
   diffPreview?: boolean; // true = single-click preview; replaced by next diff click
+  /** Epoch-ms of last user activation. Stamped by `setActivePaneId`; rendered as a
+   *  "Xm ago" badge in the pane header once stale. Not persisted across restarts. */
+  lastTouchedAt?: number;
 }
 
 export const MAX_SPLIT_DEPTH = 10;
