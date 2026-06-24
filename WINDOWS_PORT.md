@@ -30,9 +30,9 @@ attention HTTP server, and config paths (`dirs::config_dir()` → `%APPDATA%`).
 - [x] Add a `windows-latest` build-check workflow on this branch (`.github/workflows/windows-build.yml`).
 - [x] First run failed in the Rust `Build` step (npm/frontend passed) — as predicted.
 - [x] Write the ranked list of real compile blockers here.
-- [ ] Confirm the gating produces a clean Windows compile (CI).
+- [x] Confirm the gating produces a clean Windows compile (CI). **✅ green on `windows-latest`.**
 
-**Exit:** a concrete, verified blocker list. No design decisions yet.
+**Exit:** ✅ Done. Two blockers found and gated; Windows compiles clean.
 
 ### Phase 0 findings
 
@@ -41,16 +41,23 @@ Audited the whole tree. The cross-platform groundwork was already mostly done:
 non-unix fallbacks; `libc` compiles on Windows; the macOS-only modules (`dock`,
 `window_swizzle`) are already `#[cfg(target_os = "macos")]`-gated.
 
-**The only real blocker was `openssh`** (the `native-mux` feature = Unix domain
-sockets + ssh ControlMaster, won't compile on Windows). Gated in this commit:
+**Two blockers**, both found by reading real `windows-latest` compiles:
+
+**1. `openssh`** (the `native-mux` feature = Unix domain sockets + ssh
+ControlMaster, won't compile on Windows). Gated:
 - `Cargo.toml`: `openssh` moved to `[target.'cfg(not(windows))'.dependencies]`.
 - `commands/mod.rs`: `pub mod ssh` behind `#[cfg(not(windows))]`.
 - `state.rs`: `ssh_sessions` field + init behind `#[cfg(not(windows))]`.
 - `lib.rs`: the 6 SSH command registrations behind `#[cfg(not(windows))]` (all 3 handler blocks).
 
-Net effect on Windows: SSH/SFTP remote workspaces are absent; everything else
-builds. The frontend SSH UI still exists and will error at runtime if invoked —
-hiding it on Windows is a Phase 1 task.
+**2. `WebviewWindowBuilder::title_bar_style`** — a macOS-only Tauri method, called
+unconditionally on the secondary-window builder in `lib.rs` (E0599). Now applied
+only under `#[cfg(target_os = "macos")]`. (`dock.rs`'s call was already in a
+macOS-gated module.)
+
+Net effect on Windows: SSH/SFTP remote workspaces are absent and new windows use
+default chrome; everything else builds. The frontend SSH UI still exists and will
+error at runtime if invoked — hiding it on Windows is a Phase 1 task.
 
 ## Phase 1 — It compiles and runs (MVP)
 
