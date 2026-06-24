@@ -141,6 +141,7 @@ export interface RustWorkspace {
   active_file_path: string | null;
   active_pane_id: string | null;
   explorer_visible: boolean;
+  explorer_width?: number;
   expanded_paths?: string[];
   ssh_config?: RustSshConfig | null;
 }
@@ -173,6 +174,12 @@ export async function deleteWorkspace(id: string): Promise<void> {
 
 export async function addAllowedRoot(path: string): Promise<void> {
   return invoke("add_allowed_root", { path });
+}
+
+export interface OpenTarget { path: string; is_dir: boolean }
+
+export async function takePendingOpenPaths(): Promise<OpenTarget[]> {
+  return invoke("take_pending_open_paths");
 }
 
 export async function closeWorkspace(id: string): Promise<number[]> {

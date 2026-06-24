@@ -177,6 +177,48 @@ pub fn add_allowed_root(
     Ok(())
 }
 
+/// Drain paths the OS asked us to open before the frontend was ready.
+/// The frontend calls this on startup and again on every `open-path` event.
+#[tauri::command]
+pub fn take_pending_open_paths(
+    state: State<'_, Mutex<AppState>>,
+) -> Result<Vec<crate::state::OpenTarget>, String> {
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+    Ok(std::mem::take(&mut state.pending_open_paths))
+}
+
+/// macOS "Open With" handler: buffers the opened file/folder paths, grants read
+/// access to each item's root (a file may live outside HOME), then pings the
+/// frontend to drain the buffer. Called from the `RunEvent::Opened` loop in lib.rs.
+#[cfg(target_os = "macos")]
+pub fn handle_opened(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
+    use tauri::{Emitter, Manager};
+    let mut any = false;
+    if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+        for url in urls {
+            let Ok(path) = url.to_file_path() else { continue };
+            let is_dir = path.is_dir();
+            let root = if is_dir {
+                path.clone()
+            } else {
+                path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| path.clone())
+            };
+            let canonical = std::fs::canonicalize(&root).unwrap_or(root);
+            if !state.allowed_roots.contains(&canonical) {
+                state.allowed_roots.push(canonical);
+            }
+            state.pending_open_paths.push(crate::state::OpenTarget {
+                path: path.to_string_lossy().into_owned(),
+                is_dir,
+            });
+            any = true;
+        }
+    }
+    if any {
+        let _ = app.emit("open-path", ());
+    }
+}
+
 /// Remove entries from `allowed_roots` that are not in `active_roots`.
 /// Called after a workspace is deleted or closed so the app doesn't retain fs access to
 /// directories that are no longer open.

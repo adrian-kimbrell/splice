@@ -166,7 +166,9 @@ impl ScreenBuffer {
         let row = cursor_row as usize;
         let bottom = self.scroll_bottom as usize;
         let top = self.scroll_top as usize;
-        if row < top || row > bottom {
+        // bottom >= lines.len() guard mirrors scroll_up/down_in_region — a stale
+        // scroll region can outrun the line count and the row range would panic.
+        if row < top || row > bottom || bottom >= self.lines.len() {
             return;
         }
         let count = (n as usize).min(bottom - row + 1);
@@ -183,7 +185,9 @@ impl ScreenBuffer {
         let row = cursor_row as usize;
         let bottom = self.scroll_bottom as usize;
         let top = self.scroll_top as usize;
-        if row < top || row > bottom {
+        // bottom >= lines.len() guard mirrors scroll_up/down_in_region — a stale
+        // scroll region can outrun the line count and the row range would panic.
+        if row < top || row > bottom || bottom >= self.lines.len() {
             return;
         }
         let count = (n as usize).min(bottom - row + 1);
@@ -807,6 +811,17 @@ mod tests {
             buf.scroll_up_in_region();
         }
         assert!(buf.scrollback.len() <= 3);
+    }
+
+    #[test]
+    fn insert_delete_lines_survive_stale_scroll_region() {
+        // A scroll_bottom that outruns the line count must be a no-op, not a panic.
+        // (Regression: parser panic here poisoned the lock and bricked the pane.)
+        let mut buf = make_buf(4, 3);
+        buf.scroll_bottom = 99;
+        buf.insert_lines(1, 0);
+        buf.delete_lines(1, 0);
+        assert_eq!(buf.lines.len(), 3);
     }
 
     #[test]

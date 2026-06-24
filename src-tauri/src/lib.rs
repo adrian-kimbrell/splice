@@ -215,7 +215,8 @@ pub fn run() {
                     &label,
                     tauri::WebviewUrl::App("/".into()),
                 )
-                .title("Splice")
+                // Empty title to match the main window (set in tauri.conf.json).
+                .title("")
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(800.0, 600.0)
                 .decorations(true)
@@ -287,6 +288,7 @@ pub fn run() {
                 commands::workspace::set_active_workspace_id,
                 commands::workspace::reorder_workspaces,
                 commands::workspace::add_allowed_root,
+                commands::workspace::take_pending_open_paths,
                 commands::workspace::check_pid_alive,
                 commands::workspace::register_window,
                 commands::workspace::unregister_window,
@@ -359,6 +361,7 @@ pub fn run() {
                 commands::workspace::set_active_workspace_id,
                 commands::workspace::reorder_workspaces,
                 commands::workspace::add_allowed_root,
+                commands::workspace::take_pending_open_paths,
                 commands::workspace::check_pid_alive,
                 commands::workspace::register_window,
                 commands::workspace::unregister_window,
@@ -431,6 +434,7 @@ pub fn run() {
                 commands::workspace::set_active_workspace_id,
                 commands::workspace::reorder_workspaces,
                 commands::workspace::add_allowed_root,
+                commands::workspace::take_pending_open_paths,
                 commands::workspace::check_pid_alive,
                 commands::workspace::register_window,
                 commands::workspace::unregister_window,
@@ -451,6 +455,13 @@ pub fn run() {
                 commands::terminal::get_debug_stats,
             ] }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            // macOS "Open With" (Finder) hands us file/folder paths here.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                commands::workspace::handle_opened(_app, urls);
+            }
+        });
 }

@@ -136,10 +136,12 @@ class WorkspaceManager {
     const current = this.activeWorkspace;
     if (current) {
       current.explorerVisible = ui.explorerVisible;
+      current.explorerWidth = ui.explorerWidth;
     }
     this.activeWorkspaceId = id;
     // Restore target workspace's sidebar state
     ui.explorerVisible = this.workspaces[id].explorerVisible;
+    ui.explorerWidth = this.workspaces[id].explorerWidth;
     // Persist the active workspace ID
     import("../ipc/commands").then(({ setActiveWorkspaceId }) => {
       setActiveWorkspaceId(id).catch(console.warn);
@@ -176,12 +178,14 @@ class WorkspaceManager {
       activePaneId: null,
       gitBranch: "",
       explorerVisible: false,
+      explorerWidth: ui.explorerWidth,
       expandedPaths: new Set(),
     };
 
     this.workspaces[id] = ws;
     this.activeWorkspaceId = id;
     ui.explorerVisible = ws.explorerVisible;
+    ui.explorerWidth = ws.explorerWidth;
     return this.workspaces[id];
   }
 
@@ -256,12 +260,14 @@ class WorkspaceManager {
       activePaneId: paneId,
       gitBranch: "",
       explorerVisible: true,
+      explorerWidth: ui.explorerWidth,
       expandedPaths: new Set(),
     };
 
     this.workspaces[id] = ws;
     this.activeWorkspaceId = id;
     ui.explorerVisible = ws.explorerVisible;
+    ui.explorerWidth = ws.explorerWidth;
     addRecentProject(rootPath);
 
     // Grant Rust access to this directory, start watching it, then load file tree and git branch
@@ -907,6 +913,7 @@ class WorkspaceManager {
     // the sidebar is persisted even without switching workspaces first.
     if (wsId === this.activeWorkspaceId) {
       ws.explorerVisible = ui.explorerVisible;
+      ws.explorerWidth = ui.explorerWidth;
     }
     await persistWorkspaceImpl(ws, this.getActiveFilePath(wsId));
   }

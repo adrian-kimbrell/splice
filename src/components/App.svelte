@@ -309,7 +309,13 @@
 
     function onUp() {
       draggingSidebar = null;
-      // Persist sidebar widths to settings
+      // Explorer width is per-workspace: store it on the active workspace and persist.
+      const activeWs = workspaceManager.activeWorkspace;
+      if (activeWs && workspaceManager.activeWorkspaceId) {
+        activeWs.explorerWidth = ui.explorerWidth;
+        workspaceManager.debouncedPersistWorkspace(workspaceManager.activeWorkspaceId);
+      }
+      // Keep the global setting as the default seed for first paint / new windows.
       settings.appearance.explorer_width = ui.explorerWidth;
       settings.appearance.workspaces_width = ui.workspacesWidth;
       debouncedSaveSettings();
@@ -471,17 +477,19 @@
     Object.keys(workspaceManager.workspaces).length === 0,
   );
 
+  async function openFolderPath(path: string) {
+    if (!workspaceManager.activeWorkspace) {
+      workspaceManager.createEmptyWorkspace();
+    }
+    await workspaceManager.openFolderInWorkspace(path);
+    ui.explorerVisible = true;
+  }
+
   async function handleOpenFolder() {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const selected = await open({ directory: true, multiple: false });
-      if (selected) {
-        if (!workspaceManager.activeWorkspace) {
-          workspaceManager.createEmptyWorkspace();
-        }
-        await workspaceManager.openFolderInWorkspace(selected as string);
-        ui.explorerVisible = true;
-      }
+      if (selected) await openFolderPath(selected as string);
     } catch (e) {
       console.error("Failed to open folder:", e);
     }
@@ -491,24 +499,46 @@
     workspaceManager.newUntitledFile();
   }
 
+  async function openFilePath(filePath: string) {
+    if (!workspaceManager.activeWorkspace) {
+      workspaceManager.createEmptyWorkspace();
+    }
+    const content = isImagePath(filePath) ? "" : await readFileForWs(filePath);
+    const name = filePath.split("/").pop() ?? "untitled";
+    workspaceManager.openFileInWorkspace({ name, path: filePath, content });
+    addRecentFile(filePath);
+  }
+
   async function handleOpenFile() {
     if (!isTauri) return;
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const selected = await open({ directory: false, multiple: false });
-      if (selected) {
-        if (!workspaceManager.activeWorkspace) {
-          workspaceManager.createEmptyWorkspace();
-        }
-        const filePath = selected as string;
-        const content = isImagePath(filePath) ? "" : await readFileForWs(filePath);
-        const name = filePath.split("/").pop() ?? "untitled";
-        workspaceManager.openFileInWorkspace({ name, path: filePath, content });
-        addRecentFile(filePath);
-      }
+      if (selected) await openFilePath(selected as string);
     } catch (e) {
       if (e && typeof e === "object" && "message" in e && String((e as {message:unknown}).message).includes("cancelled")) return;
       toastFileReadError("", e);
+    }
+  }
+
+  // Finder "Open With → Splice" hands paths to the Rust side, which buffers them
+  // and pings us via the "open-path" event. Drain on startup (cold launch) and
+  // on every ping (already-running). take_pending_open_paths drains atomically,
+  // so the two triggers never double-open the same file.
+  async function drainOpenPaths() {
+    if (!isTauri) return;
+    try {
+      const { takePendingOpenPaths } = await getCommands();
+      for (const t of await takePendingOpenPaths()) {
+        try {
+          if (t.is_dir) await openFolderPath(t.path);
+          else await openFilePath(t.path);
+        } catch (e) {
+          toastFileReadError(t.path, e);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to open paths from OS:", e);
     }
   }
 
@@ -565,6 +595,7 @@
     let unlistenTreeChanged: (() => void) | null = null;
     let unlistenClosing: (() => void) | null = null;
     let unlistenSession: (() => void) | null = null;
+    let unlistenOpenPath: (() => void) | null = null;
 
     // Register the Claude session listener BEFORE restoring workspaces so we
     // never miss a session event from a restored terminal's Claude process.
@@ -703,7 +734,13 @@
               break;
           }
         }).then((fn) => { unlistenMenu = fn; });
+
+        listen("open-path", () => { drainOpenPaths(); })
+          .then((fn) => { unlistenOpenPath = fn; });
       });
+
+      // Drain anything macOS handed us during cold launch (before listeners were ready).
+      drainOpenPaths();
 
       const { installClaudeHook } = await getCommands();
       const { onAttentionNotify } = await import("../lib/ipc/events");
@@ -921,6 +958,7 @@
       unlistenTreeChanged?.();
       unlistenClosing?.();
       unlistenSession?.();
+      unlistenOpenPath?.();
     };
   });
 </script>
@@ -1054,7 +1092,11 @@
             </div>
             {#if isActive && ui.zoomedPaneId && workspace.panes[ui.zoomedPaneId]}
               <div class="absolute inset-0 flex overflow-hidden">
-                {@render paneSnippet(workspace.panes[ui.zoomedPaneId])}
+                <!-- Key by paneId so zooming a different terminal mounts a fresh
+                     CanvasTerminal instead of reusing one bound to the prior terminalId. -->
+                {#key ui.zoomedPaneId}
+                  {@render paneSnippet(workspace.panes[ui.zoomedPaneId])}
+                {/key}
               </div>
             {/if}
           </div>

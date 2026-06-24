@@ -39,6 +39,8 @@ pub struct Workspace {
     pub active_pane_id: Option<String>,
     #[serde(default = "default_true")]
     pub explorer_visible: bool,
+    #[serde(default = "default_explorer_width")]
+    pub explorer_width: u32,
     #[serde(default)]
     pub ssh_config: Option<SshConfig>,
 }

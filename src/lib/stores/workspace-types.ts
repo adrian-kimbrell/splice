@@ -69,6 +69,7 @@ export interface Workspace {
 
   // UI state per workspace
   explorerVisible: boolean;
+  explorerWidth: number;
   nameManuallySet?: boolean;
 
   // Persists which folder paths the user has expanded in the file tree so the

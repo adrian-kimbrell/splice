@@ -141,36 +141,49 @@ impl PtySession {
                         break;
                     }
                     Ok(n) => {
-                        // Acquire emulator lock, advance parser, collect pending state,
-                        // then release lock before any I/O or Tauri events.
-                        let (reply, title, bell, clipboard, sb_delta) =
-                            match reader_emulator.write() {
-                                Err(_) => {
-                                    reader_running.store(false, Ordering::Relaxed);
-                                    let _ = app_clone.emit(&exit_event, 1);
-                                    reader_notify.notify();
-                                    break;
-                                }
-                                Ok(mut emu) => {
-                                    let old_sb = if emu.grid.active_is_alt {
-                                        0
-                                    } else {
-                                        emu.grid.primary.scrollback.len()
-                                    };
-                                    emu.advance(&buf[..n]);
-                                    let new_sb = if emu.grid.active_is_alt {
-                                        0
-                                    } else {
-                                        emu.grid.primary.scrollback.len()
-                                    };
-                                    let reply: Vec<u8> = emu.pending_reply.drain(..).collect();
-                                    let title = emu.pending_title.take();
-                                    let bell = std::mem::replace(&mut emu.pending_bell, false);
-                                    let clipboard = emu.pending_clipboard.take();
-                                    let sb_delta = new_sb.saturating_sub(old_sb) as i32;
-                                    (reply, title, bell, clipboard, sb_delta)
+                        // The VTE parser runs on arbitrary PTY bytes. A panic on some exotic
+                        // sequence must NOT brick the pane: an uncaught panic here would drop
+                        // the write guard poisoned, kill this thread, and leave the emitter
+                        // skipping every frame forever (blank + unresponsive until re-spawn).
+                        // Catch it, clear the poison, and drop just the offending chunk.
+                        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            // Recover rather than break if a *prior* panic poisoned the lock.
+                            let mut emu = match reader_emulator.write() {
+                                Ok(g) => g,
+                                Err(p) => {
+                                    reader_emulator.clear_poison();
+                                    p.into_inner()
                                 }
                             };
+                            let old_sb = if emu.grid.active_is_alt {
+                                0
+                            } else {
+                                emu.grid.primary.scrollback.len()
+                            };
+                            emu.advance(&buf[..n]);
+                            let new_sb = if emu.grid.active_is_alt {
+                                0
+                            } else {
+                                emu.grid.primary.scrollback.len()
+                            };
+                            let reply: Vec<u8> = emu.pending_reply.drain(..).collect();
+                            let title = emu.pending_title.take();
+                            let bell = std::mem::replace(&mut emu.pending_bell, false);
+                            let clipboard = emu.pending_clipboard.take();
+                            let sb_delta = new_sb.saturating_sub(old_sb) as i32;
+                            (reply, title, bell, clipboard, sb_delta)
+                        }));
+                        let (reply, title, bell, clipboard, sb_delta) = match outcome {
+                            Ok(t) => t,
+                            Err(_) => {
+                                reader_emulator.clear_poison();
+                                tracing::error!(
+                                    "terminal {}: parser panicked, dropped {} bytes of output",
+                                    id, n
+                                );
+                                continue;
+                            }
+                        };
 
                         // Scroll stabilization: when scrollback grows and the user is
                         // viewing scrollback, advance the offset by the same delta so

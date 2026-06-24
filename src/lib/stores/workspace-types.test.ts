@@ -40,6 +40,7 @@ function makeWs(overrides: Partial<Workspace> = {}): Workspace {
     activePaneId: null,
     gitBranch: "",
     explorerVisible: true,
+    explorerWidth: 240,
     expandedPaths: new Set(),
     ...overrides,
   };

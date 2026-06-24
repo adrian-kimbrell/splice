@@ -131,7 +131,14 @@
       }}
       onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") onPaneClick?.(node.paneId); }}
     >
-      {@render paneSnippet(config)}
+      <!-- Key by paneId: when the layout tree reshapes (e.g. opening a file wraps
+           the tree), Svelte reuses this leaf instance at a different tree slot. Without
+           the key the reused pane content — notably CanvasTerminal, which subscribes to
+           its terminalId once at mount — keeps rendering the wrong terminal, duplicating
+           one terminal across panes. The key forces a fresh instance when paneId changes. -->
+      {#key node.paneId}
+        {@render paneSnippet(config)}
+      {/key}
       {#if myDropZone}
         <div
           class="drop-zone-highlight absolute pointer-events-none z-10"

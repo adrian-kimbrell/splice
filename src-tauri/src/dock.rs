@@ -55,7 +55,8 @@ unsafe fn inject_dock_menu() {
                 );
                 let _ = crate::commands::workspace::register_window(label.clone());
                 let _ = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/".into()))
-                    .title("Splice")
+                    // Empty title to match the main window (set in tauri.conf.json).
+                    .title("")
                     .inner_size(1280.0, 800.0)
                     .min_inner_size(800.0, 600.0)
                     .decorations(true)

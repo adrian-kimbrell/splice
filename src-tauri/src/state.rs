@@ -39,6 +39,16 @@ pub struct AppState {
     pub lsp_sessions: HashMap<String, crate::lsp::LspSession>,
     /// workspace_id → established SSH ControlMaster session
     pub ssh_sessions: HashMap<String, Arc<openssh::Session>>,
+    /// Paths the OS asked us to open (Finder "Open With") that arrived before
+    /// the frontend was listening. Drained on startup via take_pending_open_paths.
+    pub pending_open_paths: Vec<OpenTarget>,
+}
+
+/// A file or folder the OS handed us to open (macOS `RunEvent::Opened`).
+#[derive(Clone, serde::Serialize)]
+pub struct OpenTarget {
+    pub path: String,
+    pub is_dir: bool,
 }
 
 impl Default for AppState {
@@ -66,6 +76,7 @@ impl AppState {
             terminal_claude_sessions: HashMap::new(),
             lsp_sessions: HashMap::new(),
             ssh_sessions: HashMap::new(),
+            pending_open_paths: Vec::new(),
         }
     }
 }

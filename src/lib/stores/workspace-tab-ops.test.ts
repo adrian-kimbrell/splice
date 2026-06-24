@@ -48,6 +48,7 @@ function makeWs(
     activePaneId: activePaneId ?? null,
     gitBranch: "",
     explorerVisible: true,
+    explorerWidth: 240,
     expandedPaths: new Set(),
   };
 }

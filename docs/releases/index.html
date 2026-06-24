@@ -30,7 +30,7 @@
     "name": "Splice",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "macOS",
-    "softwareVersion": "0.2.0",
+    "softwareVersion": "0.5.1",
     "url": "https://www.spliceditor.xyz/",
     "releaseNotes": "https://www.spliceditor.xyz/releases",
     "downloadUrl": "https://github.com/adrian-kimbrell/splice/releases",
@@ -91,12 +91,54 @@
   <!-- Release list -->
   <section class="max-w-6xl mx-auto px-6 py-16 space-y-12">
 
+    <!-- v0.5.1 -->
+    <div style="border:1px solid #3c3c3c">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+        <div class="flex items-center gap-4">
+          <span class="font-mono text-lg font-bold text-white">v0.5.1</span>
+          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
+        </div>
+        <span class="font-mono text-xs text-zinc-500">June 24, 2026</span>
+      </div>
+      <div class="p-6 space-y-6" style="background:#1e1e1e">
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Open from Finder</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Splice now appears in Finder's <span class="text-zinc-300">Open With</span> menu for any text or source file, and for folders — open a project straight into a workspace</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Terminal stability</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Fixed a freeze where a rare escape sequence (e.g. detaching <code class="font-mono text-zinc-300">screen</code> with a full scrollback) could blank a terminal and leave it unresponsive until the pane was recreated — the parser now recovers instead of locking up</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Layout fixes</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Fixed terminals duplicating across panes when opening a file reshaped the layout — each pane now keeps its own terminal</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>File explorer width is now remembered per workspace — switch projects and the sidebar stays the width you set for each</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>New windows no longer show a stray "Splice" title — every window matches</span></li>
+          </ul>
+        </div>
+
+        <div class="pt-2 flex items-center gap-4">
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.5.1" class="btn-orange px-4 py-2 text-xs font-mono tracking-wide transition-colors inline-flex items-center gap-2">
+            <i class="bi bi-download"></i> Download v0.5.1
+          </a>
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.5.1" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono transition-colors">View on GitHub →</a>
+        </div>
+      </div>
+    </div>
+
     <!-- v0.3.0 -->
     <div style="border:1px solid #3c3c3c">
       <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.3.0</span>
-          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">April 14, 2026</span>
       </div>

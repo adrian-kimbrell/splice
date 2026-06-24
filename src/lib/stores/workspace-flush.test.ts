@@ -75,6 +75,7 @@ describe("flushPersistTimers", () => {
       activePaneId: null,
       gitBranch: "",
       explorerVisible: true,
+      explorerWidth: 240,
       expandedPaths: new Set<string>(),
       sshConfig: null,
     };

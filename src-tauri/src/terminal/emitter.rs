@@ -285,13 +285,18 @@ pub fn spawn_emitter(
                 }
                 last_version = current;
                 let offset = scroll_offset.load(Ordering::Relaxed);
-                let b64 = match emulator.read() {
-                    Ok(emu) => {
-                        let data = serialize_grid(&emu.grid, offset);
-                        base64::engine::general_purpose::STANDARD.encode(&data)
+                // Recover from a poisoned lock (a past parser panic) rather than
+                // skipping every frame forever, which would leave the pane blank.
+                let emu = match emulator.read() {
+                    Ok(g) => g,
+                    Err(p) => {
+                        emulator.clear_poison();
+                        p.into_inner()
                     }
-                    Err(_) => continue, // skip frame on poisoned lock
                 };
+                let data = serialize_grid(&emu.grid, offset);
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+                drop(emu);
                 let _ = app.emit(&event_name, b64);
                 last_emit = Instant::now();
             }
