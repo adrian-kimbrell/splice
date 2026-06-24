@@ -210,7 +210,8 @@ pub fn run() {
                         .unwrap_or(0)
                 );
                 let _ = commands::workspace::register_window(label.clone());
-                let sec_builder = tauri::WebviewWindowBuilder::new(
+                #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+                let mut sec_builder = tauri::WebviewWindowBuilder::new(
                     app,
                     &label,
                     tauri::WebviewUrl::App("/".into()),
@@ -220,8 +221,13 @@ pub fn run() {
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(800.0, 600.0)
                 .decorations(true)
-                .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .resizable(true);
+
+                // Overlay title bar (custom traffic-light layout) is macOS-only.
+                #[cfg(target_os = "macos")]
+                {
+                    sec_builder = sec_builder.title_bar_style(tauri::TitleBarStyle::Overlay);
+                }
 
                 let _ = sec_builder.build();
             } else {
