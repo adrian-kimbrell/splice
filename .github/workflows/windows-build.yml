@@ -1,9 +1,9 @@
-name: Windows Build Check
+name: Windows Build
 
-# Phase 0 of the Windows port: just find out what breaks on a real Windows
-# compile. Build-only (no bundle, no signing). Runs only on the windows-support
-# branch so it never touches the macOS release pipeline. A red X here is the
-# point — read the log to enumerate compile blockers.
+# Phase 1 of the Windows port: produce a clickable installer to test against.
+# Builds the bundle (MSI + NSIS) and uploads it as an artifact. Unsigned, so
+# SmartScreen will warn on first launch — fine for testing. Runs only on the
+# windows-support branch (and on demand) so it never touches the macOS release.
 
 on:
   push:
@@ -12,7 +12,7 @@ on:
 
 jobs:
   windows-build:
-    name: Build (Windows x64, no bundle)
+    name: Build installer (Windows x64)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +30,15 @@ jobs:
 
       - run: npm ci
 
-      # WebView2 and the MSVC toolchain are preinstalled on windows-latest.
-      - name: Build (release, no bundle)
-        run: npm run tauri:build -- --no-bundle
+      # WebView2 + MSVC are preinstalled; the Tauri CLI auto-fetches WiX/NSIS.
+      - name: Build bundle (MSI + NSIS)
+        run: npm run tauri:build
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: splice-windows-x64
+          if-no-files-found: warn
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*-setup.exe
