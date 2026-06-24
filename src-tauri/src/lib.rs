@@ -169,6 +169,14 @@ pub fn run() {
                 }
             }
 
+            // Windows has no native overlay title bar — go frameless so the custom
+            // title bar (with its own min/max/close, see WindowControls.svelte) is the
+            // only chrome, instead of stacking under a native caption.
+            #[cfg(target_os = "windows")]
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.set_decorations(false);
+            }
+
             // Set up native menu bar
             let menu = build_menu(app)?;
             app.set_menu(menu)?;
@@ -220,7 +228,8 @@ pub fn run() {
                 .title("")
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(800.0, 600.0)
-                .decorations(true)
+                // Frameless on Windows (custom title bar); decorated on macOS.
+                .decorations(!cfg!(target_os = "windows"))
                 .resizable(true);
 
                 // Overlay title bar (custom traffic-light layout) is macOS-only.

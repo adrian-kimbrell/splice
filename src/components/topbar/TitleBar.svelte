@@ -16,6 +16,8 @@
   import { workspaceManager } from '../../lib/stores/workspace.svelte';
   import { ui } from '../../lib/stores/ui.svelte';
   import { openSettingsWindow } from '../../lib/utils/settings-window';
+  import { isWindows } from '../../lib/utils/platform';
+  import WindowControls from './WindowControls.svelte';
 
 
   const notifList = $derived(
@@ -135,6 +137,12 @@
       <i class="bi bi-gear"></i>
     </button>
   </div>
+
+  <!-- Windows: custom min/maximize/close at the far right (frameless window).
+       macOS keeps native traffic lights on the left, so this is Windows-only. -->
+  {#if isWindows}
+    <WindowControls />
+  {/if}
 </div>
 
 <style>
