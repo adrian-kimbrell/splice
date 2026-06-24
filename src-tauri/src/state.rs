@@ -37,7 +37,8 @@ pub struct AppState {
     pub terminal_claude_sessions: HashMap<u32, (String, u32)>,
     /// language_id → active LSP session
     pub lsp_sessions: HashMap<String, crate::lsp::LspSession>,
-    /// workspace_id → established SSH ControlMaster session
+    /// workspace_id → established SSH ControlMaster session (Unix-only; openssh)
+    #[cfg(not(windows))]
     pub ssh_sessions: HashMap<String, Arc<openssh::Session>>,
     /// Paths the OS asked us to open (Finder "Open With") that arrived before
     /// the frontend was listening. Drained on startup via take_pending_open_paths.
@@ -75,6 +76,7 @@ impl AppState {
             watchers: HashMap::new(),
             terminal_claude_sessions: HashMap::new(),
             lsp_sessions: HashMap::new(),
+            #[cfg(not(windows))]
             ssh_sessions: HashMap::new(),
             pending_open_paths: Vec::new(),
         }

@@ -11,6 +11,8 @@
 pub mod fs;
 pub mod git;
 pub mod settings;
+// SSH/SFTP depends on the Unix-only openssh crate — unavailable on Windows.
+#[cfg(not(windows))]
 pub mod ssh;
 pub mod terminal;
 pub mod themes;

@@ -32,6 +32,11 @@ notify = "6"
 libc = "0.2"
 unicode-width = "0.1"
 tauri-plugin-webdriver = { version = "0.2", optional = true }
+
+[target.'cfg(not(windows))'.dependencies]
+# openssh's native-mux uses Unix domain sockets + the ssh ControlMaster, which
+# is Unix-only. SSH/SFTP remote workspaces are unavailable on Windows for now;
+# Phase 2 of the Windows port rewrites this on a cross-platform SSH library.
 openssh = { version = "0.11", features = ["native-mux"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
