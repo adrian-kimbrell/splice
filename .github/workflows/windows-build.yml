@@ -1,0 +1,35 @@
+name: Windows Build Check
+
+# Phase 0 of the Windows port: just find out what breaks on a real Windows
+# compile. Build-only (no bundle, no signing). Runs only on the windows-support
+# branch so it never touches the macOS release pipeline. A red X here is the
+# point — read the log to enumerate compile blockers.
+
+on:
+  push:
+    branches: [windows-support]
+  workflow_dispatch:
+
+jobs:
+  windows-build:
+    name: Build (Windows x64, no bundle)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # WebView2 and the MSVC toolchain are preinstalled on windows-latest.
+      - name: Build (release, no bundle)
+        run: npm run tauri:build -- --no-bundle
