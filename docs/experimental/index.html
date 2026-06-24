@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Experimental builds — Splice</title>
+  <meta name="description" content="Experimental, in-progress dev builds of Splice — including the work-in-progress Windows port. Unsigned and unstable; for testing only." />
+  <link rel="canonical" href="https://www.spliceditor.xyz/experimental" />
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="../apple-touch-icon.svg" />
+  <!-- Dev builds: discoverable via the nav, but kept out of search results. -->
+  <meta name="robots" content="noindex, follow" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://www.spliceditor.xyz/experimental" />
+  <meta property="og:title" content="Experimental builds — Splice" />
+  <meta property="og:description" content="In-progress dev builds of Splice, including the work-in-progress Windows port. Unsigned and unstable; for testing only." />
+  <meta property="og:image" content="https://www.spliceditor.xyz/og.svg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="../tailwind.css">
+  <style>
+    :root { --accent: #00ff88; }
+    body { background: #1e1e1e; }
+    .btn-orange { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
+    .btn-orange:hover { background: rgba(0,255,136,0.1); }
+    .text-orange { color: #00ff88; }
+    .border-orange { border-color: #00ff88; }
+    .bg-card { background: #252526; }
+    .border-dim { border-color: #3c3c3c; }
+    body { opacity: 0; animation: fadein 0.15s ease forwards; }
+    @keyframes fadein { to { opacity: 1; } }
+  </style>
+</head>
+<body class="text-zinc-100 antialiased" style="background:#1e1e1e">
+
+  <!-- Nav -->
+  <header style="border-bottom:1px solid #3c3c3c">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2">
+        <img src="../logo.png" alt="Splice" class="w-9 h-9" style="filter:brightness(0) invert(1)" />
+        <span class="font-mono text-sm font-medium tracking-widest uppercase text-orange">Splice</span>
+      </a>
+      <nav class="flex items-center gap-8 text-sm text-zinc-500">
+        <a href="/" class="hover:text-zinc-200 transition-colors">Home</a>
+        <a href="/blog" class="hover:text-zinc-200 transition-colors">Blog</a>
+        <a href="/releases" class="hover:text-zinc-200 transition-colors">Releases</a>
+        <a href="/architecture" class="hover:text-zinc-200 transition-colors">Architecture</a>
+        <a href="/themes" class="hover:text-zinc-200 transition-colors">Themes</a>
+        <a href="/experimental" class="text-zinc-200 transition-colors">Experimental</a>
+        <a href="https://github.com/adrian-kimbrell/splice" class="hover:text-zinc-200 transition-colors font-mono text-xs">GitHub</a>
+        <a href="/#download" class="btn-orange text-white px-4 py-1.5 text-xs font-mono tracking-wide transition-colors">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Page header -->
+  <section class="max-w-6xl mx-auto px-6 py-28" style="border-bottom:1px solid #3c3c3c">
+    <p class="font-mono text-xs text-orange tracking-widest uppercase mb-6">Bleeding edge</p>
+    <h1 class="text-5xl font-bold tracking-tight text-white mb-6">Experimental builds</h1>
+    <p class="text-zinc-400 text-xl max-w-2xl leading-relaxed">Unfinished, automated builds straight off a dev branch. They let you try features before they ship — and help us find bugs. <span class="text-zinc-200">Not for daily use.</span></p>
+  </section>
+
+  <!-- Warning banner -->
+  <section class="max-w-6xl mx-auto px-6 pt-12">
+    <div class="p-5 flex gap-4" style="border:1px solid #3c3c3c;background:#2a241c">
+      <i class="bi bi-exclamation-triangle text-xl" style="color:#e0a000"></i>
+      <div class="text-sm text-zinc-300 leading-relaxed">
+        <span class="font-semibold text-white">These builds are unsigned and unstable.</span>
+        Expect bugs, missing features, and rough edges. They are not code-signed, so
+        your OS will warn you on first launch. Don't trust them with anything important.
+        For a stable build, use the <a href="/#download" class="text-orange hover:underline">latest release</a>.
+      </div>
+    </div>
+  </section>
+
+  <!-- Builds -->
+  <section class="max-w-6xl mx-auto px-6 py-16 space-y-12">
+
+    <!-- Windows preview -->
+    <div style="border:1px solid #3c3c3c">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+        <div class="flex items-center gap-4">
+          <span class="font-mono text-lg font-bold text-white"><i class="bi bi-windows mr-2"></i>Windows preview</span>
+          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Dev branch</span>
+        </div>
+        <span class="font-mono text-xs text-zinc-500">auto-updated · windows-support</span>
+      </div>
+      <div class="p-6 space-y-6" style="background:#1e1e1e">
+
+        <p class="text-sm text-zinc-400 leading-relaxed max-w-2xl">
+          Splice is a macOS app; the Windows port is a work in progress. This build
+          launches with the editor and terminal working. It rebuilds automatically on
+          every change to the <code class="font-mono text-zinc-300">windows-support</code> branch.
+        </p>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Known limitations</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Unsigned — SmartScreen warns on launch (click <span class="text-zinc-300">More info → Run anyway</span>)</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>SSH / SFTP remote workspaces are not available yet</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Window chrome and keyboard shortcuts are still being adapted to Windows</span></li>
+          </ul>
+        </div>
+
+        <div class="pt-2 flex items-center gap-4">
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/windows-preview" class="btn-orange px-4 py-2 text-xs font-mono tracking-wide transition-colors inline-flex items-center gap-2">
+            <i class="bi bi-download"></i> Download for Windows
+          </a>
+          <span class="text-xs text-zinc-500 font-mono">.exe (installer) or .msi</span>
+        </div>
+      </div>
+    </div>
+
+    <p class="text-sm text-zinc-500 font-mono">
+      Found a bug? <a href="https://github.com/adrian-kimbrell/splice/issues" class="text-orange hover:underline">Open an issue →</a>
+    </p>
+
+  </section>
+
+  <!-- Footer -->
+  <footer class="max-w-6xl mx-auto px-6 py-10 flex items-center justify-between text-xs text-zinc-600 font-mono" style="border-top:1px solid #3c3c3c">
+    <a href="/" class="tracking-widest uppercase text-orange">Splice</a>
+    <span>One window for all your work</span>
+  </footer>
+
+  <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>
