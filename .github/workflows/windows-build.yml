@@ -1,14 +1,18 @@
 name: Windows Build
 
 # Phase 1 of the Windows port: produce a clickable installer to test against.
-# Builds the bundle (MSI + NSIS) and uploads it as an artifact. Unsigned, so
-# SmartScreen will warn on first launch — fine for testing. Runs only on the
-# windows-support branch (and on demand) so it never touches the macOS release.
+# Builds the bundle (MSI + NSIS), uploads it as an artifact, and publishes it to
+# a rolling "windows-preview" GitHub pre-release so the website can link a public
+# download. Unsigned, so SmartScreen warns on first launch — fine for testing.
+# Runs only on the windows-support branch (and on demand).
 
 on:
   push:
     branches: [windows-support]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   windows-build:
@@ -34,11 +38,40 @@ jobs:
       - name: Build bundle (MSI + NSIS)
         run: npm run tauri:build
 
-      - name: Upload installer
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: splice-windows-x64
-          if-no-files-found: warn
+          if-no-files-found: error
           path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+
+      # Rolling public pre-release: each push to windows-support refreshes the
+      # "windows-preview" release with the latest installers. Linked from the
+      # website's Experimental page.
+      - name: Publish windows-preview pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-preview
+          name: Windows Preview (experimental dev build)
+          prerelease: true
+          fail_on_unmatched_files: true
+          body: |
+            ## Splice for Windows — experimental dev build
+
+            ⚠️ **Work in progress. Unsigned. Things will break.** This is an
+            automated build from the `windows-support` branch, not a release.
+
+            - **Unsigned** — Windows SmartScreen will warn on first launch
+              ("More info" → "Run anyway").
+            - **No SSH/SFTP** — remote workspaces are macOS-only for now.
+            - Window chrome and keyboard shortcuts are still being adapted to
+              Windows.
+
+            Updated automatically on every push to `windows-support`.
+
+            **Install:** download the `-setup.exe` (NSIS) or `.msi` below.
+          files: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/nsis/*-setup.exe
