@@ -2,6 +2,7 @@
   import WorkspaceListItem from "./WorkspaceListItem.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
+  import { positionFixedMenu } from "../../lib/utils/context-menu";
 
   let {
     side = "right",
@@ -127,8 +128,7 @@
     removeCtxMenu();
     ctxMenuEl = document.createElement("div");
     ctxMenuEl.className = "split-dropdown ctx-menu-container";
-    ctxMenuEl.style.top = e.clientY + "px";
-    ctxMenuEl.style.left = e.clientX + "px";
+    ctxMenuEl.style.position = "fixed";
     // Position menu away from the sidebar edge
     ctxMenuEl.style.transform = side === "right" ? "translateX(-100%)" : "translateX(0)";
     for (const item of items) {
@@ -156,6 +156,8 @@
       removeCtxMenu();
     });
     document.body.appendChild(ctxMenuEl);
+    // Position + clamp with zoom (ui_scale) correction. See [[zoom-coords]].
+    positionFixedMenu(ctxMenuEl, e.clientX, e.clientY);
   }
 
   function handleContextMenu(e: MouseEvent) {

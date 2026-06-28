@@ -339,7 +339,7 @@
                               <button
                                 class="settings-select-option"
                                 class:active={isActive}
-                                onclick={() => { setValue(def.key, opt); import("../../lib/theme/themes").then(({ applyTheme }) => applyTheme(opt)); closeDropdown(); }}
+                                onclick={() => { setValue(def.key, opt); import("../../lib/theme/themes").then(({ applyTheme }) => applyTheme(opt)); }}
                               >
                                 <span>{opt}</span>
                                 {#if isActive}

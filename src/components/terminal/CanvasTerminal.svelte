@@ -191,6 +191,37 @@
     return '"\'()[]{}|<>'.includes(String.fromCodePoint(cp));
   }
 
+  /**
+   * Map a mouse/wheel event to a terminal cell, correcting for root CSS zoom
+   * (`document.documentElement.style.zoom`, driven by appearance.ui_scale).
+   *
+   * Under zoom, getBoundingClientRect() and clientX/Y are in zoom-scaled
+   * viewport pixels, but the canvas CSS size and the renderer's cell metrics
+   * are in unzoomed layout pixels. Scale the in-rect offset by
+   * offsetSize/rectSize (= 1/zoom) so dividing by cell size lands on the
+   * correct row/col. When zoom is 1 the scale is 1 and this is a no-op.
+   */
+  function eventToCell(e: MouseEvent | WheelEvent): { col: number; row: number } {
+    const rect = canvasEl!.getBoundingClientRect();
+    // appearance.ui_scale applies CSS `zoom` to the document root. MouseEvent
+    // clientX/Y are reported in zoom-scaled (visual) pixels on every engine, but
+    // the canvas coordinate system and the renderer's cell metrics are in
+    // unzoomed layout pixels. getBoundingClientRect differs by engine: WebKit
+    // (macOS WKWebView) returns layout px (rect.width === offsetWidth), Chromium
+    // returns visual px (rect.width === offsetWidth*zoom). Normalize the canvas
+    // top-left to visual px, subtract from the visual click, then divide by zoom
+    // to land in layout px before mapping to a cell. When zoom is 1 this is a
+    // no-op. See [[zoom-coords]].
+    const zoom = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+    const rectScaleX = canvasEl!.offsetWidth  ? rect.width  / canvasEl!.offsetWidth  : 1;
+    const rectScaleY = canvasEl!.offsetHeight ? rect.height / canvasEl!.offsetHeight : 1;
+    const visualLeft = rect.left * (zoom / (rectScaleX || 1));
+    const visualTop  = rect.top  * (zoom / (rectScaleY || 1));
+    const layoutX = (e.clientX - visualLeft) / zoom;
+    const layoutY = (e.clientY - visualTop)  / zoom;
+    return renderer!.pixelToCell(layoutX, layoutY);
+  }
+
   // Padding applied to the container (must match CSS: 0 8px 4px 8px)
   const CANVAS_PAD_X = 16; // 8px left + 8px right
   const CANVAS_PAD_Y = 4;  // 4px bottom
@@ -531,8 +562,7 @@
         if (e.shiftKey) btn |= 4;
         if (e.altKey) btn |= 8;
         if (e.ctrlKey) btn |= 16;
-        const rect = canvasEl!.getBoundingClientRect();
-        const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+        const cell = eventToCell(e);
         const cx = Math.min(Math.max(1, cell.col + 1), 223); // 1-based, clamped for X10
         const cy = Math.min(Math.max(1, cell.row + 1), 223);
         sendMouseEvent(btn, cx, cy, true);
@@ -542,8 +572,7 @@
       // Only handle left button for selection
       if (e.button !== 0) return;
 
-      const rect = canvasEl!.getBoundingClientRect();
-      const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+      const cell = eventToCell(e);
       const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
 
       // Shift+click: extend existing selection
@@ -639,8 +668,7 @@
         if (!renderer) return;
         const isButtonHeld = e.buttons !== 0;
         if (mouseMode === 3 || (mouseMode === 2 && isButtonHeld)) {
-          const rect = canvasEl!.getBoundingClientRect();
-          const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+          const cell = eventToCell(e);
           const cx = Math.min(Math.max(1, cell.col + 1), 223);
           const cy = Math.min(Math.max(1, cell.row + 1), 223);
           // Derive held button from e.buttons bitmask
@@ -652,7 +680,7 @@
 
       if (!isSelecting || !renderer || !canvasEl) return;
       const rect = canvasEl.getBoundingClientRect();
-      const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+      const cell = eventToCell(e);
       const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
       renderer.selectionEnd = { historyRow, col: cell.col };
       renderer.rerender();
@@ -678,8 +706,7 @@
         if (e.shiftKey) btn |= 4;
         if (e.altKey) btn |= 8;
         if (e.ctrlKey) btn |= 16;
-        const rect = canvasEl!.getBoundingClientRect();
-        const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+        const cell = eventToCell(e);
         const cx = Math.min(Math.max(1, cell.col + 1), 223);
         const cy = Math.min(Math.max(1, cell.row + 1), 223);
         sendMouseEvent(btn, cx, cy, false);
@@ -719,8 +746,7 @@
     // Canvas-level hover: URL detection (only fires when pointer is over the canvas)
     const onCanvasMouseMove = (e: MouseEvent) => {
       if (!renderer || isSelecting || ((modeFlags >> 3) & 0x3) !== 0) return;
-      const rect = canvasEl!.getBoundingClientRect();
-      const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+      const cell = eventToCell(e);
       const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
       const url = renderer.detectedUrls.find(u =>
         u.historyRow === historyRow && cell.col >= u.colStart && cell.col < u.colEnd
@@ -758,8 +784,7 @@
       // continuous redraw (e.g. Claude Code streaming generation) gets eaten by the
       // app and the user can't read what just scrolled past.
       if (mouseMode > 0 && !e.shiftKey) {
-        const rect = canvasEl!.getBoundingClientRect();
-        const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+        const cell = eventToCell(e);
         const cx = Math.min(Math.max(1, cell.col + 1), 223);
         const cy = Math.min(Math.max(1, cell.row + 1), 223);
         const wheelBtn = e.deltaY < 0 ? 64 : 65; // 64=scroll-up, 65=scroll-down

@@ -6,6 +6,7 @@
   import { fileClipboard } from "../../lib/stores/file-clipboard.svelte";
   import { getFileGitStatus, getDirGitStatus, type GitStatusKind } from "../../lib/stores/git.svelte";
   import { untrack, setContext } from "svelte";
+  import { positionFixedMenu } from "../../lib/utils/context-menu";
 
   // Provide per-workspace expanded-path tracking via context so that FileTreeItem
   // components at any depth can read/write the set without prop-drilling.
@@ -261,8 +262,6 @@
     const menu = document.createElement("div");
     menu.className = "tab-ctx-menu split-dropdown";
     menu.style.position = "fixed";
-    menu.style.top = `${e.clientY}px`;
-    menu.style.left = `${e.clientX}px`;
     menu.style.transform = "none";
 
     for (const item of items) {
@@ -294,17 +293,8 @@
     document.body.appendChild(menu);
     ctxMenuEl = menu;
 
-    // Clamp to viewport
-    requestAnimationFrame(() => {
-      if (!menu.parentNode) return;
-      const rect = menu.getBoundingClientRect();
-      if (rect.right > window.innerWidth) {
-        menu.style.left = `${window.innerWidth - rect.width - 4}px`;
-      }
-      if (rect.bottom > window.innerHeight) {
-        menu.style.top = `${window.innerHeight - rect.height - 4}px`;
-      }
-    });
+    // Position + clamp with zoom (ui_scale) correction. See [[zoom-coords]].
+    positionFixedMenu(menu, e.clientX, e.clientY);
   }
 
   function buildMenuItems(target: MenuTarget): MenuItem[] {

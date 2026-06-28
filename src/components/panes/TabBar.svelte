@@ -7,6 +7,7 @@
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
   import { formatRelativeTime, tickingNow } from "../../lib/utils/relative-time.svelte";
+  import { positionFixedMenu } from "../../lib/utils/context-menu";
 
   let reorderIndicatorIndex = $state<number | null>(null);
   let tabBarEl = $state<HTMLDivElement>();
@@ -154,8 +155,6 @@
     const menu = document.createElement("div");
     menu.className = "tab-ctx-menu split-dropdown";
     menu.style.position = "fixed";
-    menu.style.top = `${e.clientY}px`;
-    menu.style.left = `${e.clientX}px`;
     menu.style.transform = "none";
 
     const items: { label: string; shortcut?: string; action: string; separator?: boolean }[] = [
@@ -198,17 +197,8 @@
     document.body.appendChild(menu);
     ctxMenuEl = menu;
 
-    // Clamp to viewport
-    requestAnimationFrame(() => {
-      if (!menu.parentNode) return;
-      const rect = menu.getBoundingClientRect();
-      if (rect.right > window.innerWidth) {
-        menu.style.left = `${window.innerWidth - rect.width - 4}px`;
-      }
-      if (rect.bottom > window.innerHeight) {
-        menu.style.top = `${window.innerHeight - rect.height - 4}px`;
-      }
-    });
+    // Position + clamp with zoom (ui_scale) correction. See [[zoom-coords]].
+    positionFixedMenu(menu, e.clientX, e.clientY);
   }
 
   function removeCtxMenu() {

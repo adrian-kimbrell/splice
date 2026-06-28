@@ -1173,6 +1173,10 @@
                 <span>Open Folder</span>
                 <kbd>Cmd O</kbd>
               </button>
+              <button class="welcome-item" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
+                <i class="bi bi-terminal"></i>
+                <span>Open Terminal</span>
+              </button>
             {/if}
             <button class="welcome-item" onclick={() => (ui.commandPaletteOpen = true)}>
               <i class="bi bi-command"></i>
