@@ -227,11 +227,6 @@ export async function installClaudeHook(): Promise<void> {
   return invoke("install_claude_hook");
 }
 
-/** Resolve a pending Claude PreToolUse permission request. `decision` is "allow" | "deny". */
-export async function resolveClaudePermission(id: string, decision: "allow" | "deny"): Promise<void> {
-  return invoke("resolve_claude_permission", { id, decision });
-}
-
 export interface SearchMatch {
   path: string;
   line_number: number;

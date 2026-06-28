@@ -33,15 +33,6 @@ export interface ClaudeActivityEntry {
   at: number;
 }
 
-export interface ClaudePermissionRequest {
-  id: string;
-  terminalId: number;
-  toolName: string;
-  filePath?: string | null;
-  command?: string | null;
-  at: number;
-}
-
 export interface ClaudeSessionActivity {
   state: "working" | "idle";
   /** Human-readable label for the in-flight action, if working. */
@@ -108,7 +99,6 @@ export function statusFromPayload(p: any): ClaudeStatus | null {
 function createClaudeStore() {
   let status = $state<Record<number, ClaudeStatus>>({});
   let activity = $state<Record<number, ClaudeSessionActivity>>({});
-  let permissions = $state<Record<string, ClaudePermissionRequest>>({});
 
   return {
     get status() {
@@ -116,20 +106,6 @@ function createClaudeStore() {
     },
     get activity() {
       return activity;
-    },
-    get permissions() {
-      return permissions;
-    },
-    get permissionList(): ClaudePermissionRequest[] {
-      return Object.values(permissions).sort((a, b) => a.at - b.at);
-    },
-
-    addPermission(req: ClaudePermissionRequest) {
-      permissions = { ...permissions, [req.id]: req };
-    },
-    removePermission(id: string) {
-      const { [id]: _, ...rest } = permissions;
-      permissions = rest;
     },
 
     setStatus(s: ClaudeStatus) {
@@ -175,9 +151,6 @@ function createClaudeStore() {
       const { [terminalId]: _s, ...restS } = status;
       activity = restA;
       status = restS;
-      permissions = Object.fromEntries(
-        Object.entries(permissions).filter(([, req]) => req.terminalId !== terminalId),
-      );
     },
   };
 }

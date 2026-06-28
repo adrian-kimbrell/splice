@@ -424,29 +424,6 @@ pub fn get_terminal_text_range(
     Ok(result)
 }
 
-/// Resolve a pending Claude PreToolUse permission request from the UI.
-/// `decision` is `"allow"` or `"deny"`; unblocks the waiting HTTP handler so it
-/// can return Claude's decision JSON. Errors if the request already timed out.
-#[tauri::command]
-pub fn resolve_claude_permission(
-    registry: State<'_, crate::attention::PermissionRegistry>,
-    id: String,
-    decision: String,
-) -> Result<(), String> {
-    let tx = registry
-        .pending
-        .lock()
-        .map_err(|e| e.to_string())?
-        .remove(&id);
-    match tx {
-        Some(tx) => {
-            let _ = tx.send(decision);
-            Ok(())
-        }
-        None => Err("permission request not found (already resolved or timed out)".to_string()),
-    }
-}
-
 #[tauri::command]
 pub fn install_claude_hook(state: State<'_, Mutex<AppState>>) -> Result<(), String> {
     // Guard: ensure the attention server is actually running before installing the hook

@@ -112,9 +112,6 @@ pub struct GeneralSettings {
     /// "Follow Claude": auto-open files Claude edits in the editor.
     #[serde(default = "default_true")]
     pub claude_follow_files: bool,
-    /// Surface Claude's PreToolUse permission requests as native Allow/Deny cards.
-    #[serde(default = "default_true")]
-    pub claude_permission_prompts: bool,
 }
 
 fn default_auto_save() -> String {
@@ -133,7 +130,6 @@ impl Default for GeneralSettings {
             restore_previous_session: true,
             claude_notifications: true,
             claude_follow_files: true,
-            claude_permission_prompts: true,
         }
     }
 }

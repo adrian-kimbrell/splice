@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
@@ -172,9 +172,7 @@ async fn handle_connection(
         .unwrap_or("/");
     // Only allow known safe path values
     let path = match path {
-        "/session" | "/attention" | "/tooluse" | "/stop" | "/status" | "/permission" => {
-            path.to_string()
-        }
+        "/session" | "/attention" | "/tooluse" | "/stop" | "/status" => path.to_string(),
         _ => {
             let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n").await;
             return;
@@ -213,13 +211,6 @@ async fn handle_connection(
         return;
     };
 
-    // PreToolUse permission requests block until the user decides in the UI, so
-    // the response (Claude's decision JSON) is written by the handler itself.
-    if path == "/permission" {
-        handle_permission(&mut stream, &app, json).await;
-        return;
-    }
-
     // Respond immediately so Claude isn't blocked
     let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n").await;
 
@@ -230,126 +221,6 @@ async fn handle_connection(
         "/status" => handle_status_request(&app, json).await,
         _ => handle_attention_request(&app, json).await,
     }
-}
-
-/// Tools we never block on even though the PreToolUse matcher is scoped — belt and
-/// suspenders so a read-only call can't hang on a stale prompt.
-fn write_empty_ok(resp: &mut Vec<u8>) {
-    resp.extend_from_slice(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
-}
-
-/// Build Claude's PreToolUse decision JSON body for an `allow`/`deny` choice.
-fn permission_decision_body(decision: &str) -> String {
-    let (verb, reason) = match decision {
-        "allow" => ("allow", "Approved in Splice"),
-        "deny" => ("deny", "Denied in Splice"),
-        _ => return String::new(),
-    };
-    serde_json::json!({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": verb,
-            "permissionDecisionReason": reason,
-        }
-    })
-    .to_string()
-}
-
-/// Handle a blocking `/permission` request: surface the proposed tool call in the
-/// UI and wait (bounded) for the user's decision. On timeout / disabled / unknown
-/// terminal we return an empty body so Claude falls back to its own permission flow.
-async fn handle_permission(stream: &mut TcpStream, app: &AppHandle, json: serde_json::Value) {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use tauri::Manager;
-    static PERM_SEQ: AtomicU64 = AtomicU64::new(1);
-
-    let mut empty = Vec::new();
-    write_empty_ok(&mut empty);
-
-    let terminal_id = json
-        .get("terminal_id")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u32)
-        .filter(|id| *id > 0);
-    let Some(terminal_id) = terminal_id else {
-        let _ = stream.write_all(&empty).await;
-        return;
-    };
-
-    // Honor the live setting and verify the terminal still exists, all under one lock.
-    {
-        let state = app.state::<std::sync::Mutex<crate::state::AppState>>();
-        let ok = state
-            .lock()
-            .map(|s| s.settings.general.claude_permission_prompts && s.terminals.contains_key(&terminal_id))
-            .unwrap_or(false);
-        if !ok {
-            let _ = stream.write_all(&empty).await;
-            return;
-        }
-    }
-
-    let tool_name = json.get("tool_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let tool_input = json.get("tool_input");
-    let file_path = tool_input
-        .and_then(|ti| ti.get("file_path"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let command = tool_input
-        .and_then(|ti| ti.get("command"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let id = format!("perm-{}", PERM_SEQ.fetch_add(1, Ordering::Relaxed));
-    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-    // Register the waiter, dropping the lock guard before any await.
-    let registered = {
-        let registry = app.state::<crate::attention::PermissionRegistry>();
-        let ok = match registry.pending.lock() {
-            Ok(mut pending) => {
-                pending.insert(id.clone(), tx);
-                true
-            }
-            Err(_) => false,
-        };
-        ok
-    };
-    if !registered {
-        let _ = stream.write_all(&empty).await;
-        return;
-    }
-
-    let _ = app.emit(
-        "claude:permission-request",
-        serde_json::json!({
-            "id": id,
-            "terminal_id": terminal_id,
-            "tool_name": tool_name,
-            "file_path": file_path,
-            "command": command,
-        }),
-    );
-
-    // Wait for the user's decision, bounded so a forgotten prompt can't pin the
-    // connection (Claude's own flow resumes on an empty body).
-    let decision = match tokio::time::timeout(std::time::Duration::from_secs(25), rx).await {
-        Ok(Ok(d)) => Some(d),
-        _ => {
-            // Timed out or sender dropped — clean up the registry entry.
-            if let Ok(mut pending) = app.state::<crate::attention::PermissionRegistry>().pending.lock() {
-                pending.remove(&id);
-            }
-            None
-        }
-    };
-
-    let body = decision.as_deref().map(permission_decision_body).unwrap_or_default();
-    let resp = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    let _ = stream.write_all(resp.as_bytes()).await;
 }
 
 #[cfg(test)]
