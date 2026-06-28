@@ -134,6 +134,141 @@ pub(crate) fn install_hook_entry(
     info!(hook_key, "Installed Splice hook in ~/.claude/settings.json");
 }
 
+/// Shared Python helper for the expanded hook set (PostToolUse / Stop / PreToolUse
+/// permission / statusLine). Written once to `<.claude>/splice-hooks/splice_hook.py`
+/// and referenced by path from each hook entry — far more maintainable than five
+/// giant inline one-liners. It injects `terminal_id` + `claude_pid`, prefers the
+/// per-instance `SPLICE_ATTENTION_*` env vars (falling back to the shared config
+/// files), and POSTs the hook's stdin JSON to the given endpoint.
+///
+/// Endpoint-specific behavior:
+/// - `permission`: waits up to 30s and echoes Splice's JSON decision to stdout
+///   (empty = defer to Claude's normal permission flow).
+/// - `status`: prints a concise `model · NN% ctx · $cost` line for Claude's own UI.
+/// - everything else: fire-and-forget.
+const SPLICE_HOOK_SCRIPT: &str = r#"#!/usr/bin/env python3
+# Splice Claude Code hook helper. Auto-generated; do not edit (overwritten on launch).
+import sys, json, os, os.path as op, urllib.request
+
+def read_cfg(name):
+    for cd in [op.join(op.expanduser('~'), 'Library', 'Application Support', 'Splice'),
+               op.join(op.expanduser('~'), '.config', 'Splice')]:
+        try:
+            return open(op.join(cd, name)).read().strip()
+        except Exception:
+            pass
+    return ''
+
+endpoint = sys.argv[1] if len(sys.argv) > 1 else 'tooluse'
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+
+try:
+    d['terminal_id'] = int(os.environ.get('SPLICE_TERMINAL_ID', '0') or 0)
+except Exception:
+    d['terminal_id'] = 0
+d['claude_pid'] = os.getppid()
+token = os.environ.get('SPLICE_ATTENTION_TOKEN', '') or read_cfg('.attention_token')
+port = os.environ.get('SPLICE_ATTENTION_PORT', '') or read_cfg('.attention_port')
+
+resp = ''
+if port:
+    try:
+        req = urllib.request.Request(
+            'http://127.0.0.1:%s/%s' % (port, endpoint),
+            json.dumps(d).encode(),
+            {'Content-Type': 'application/json', 'X-Splice-Token': token})
+        timeout = 30 if endpoint == 'permission' else 0.5
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            resp = r.read().decode()
+    except Exception:
+        resp = ''
+
+if endpoint == 'permission':
+    # Splice returns a JSON decision body, or empty to defer to Claude's own flow.
+    sys.stdout.write(resp)
+elif endpoint == 'status':
+    try:
+        m = (d.get('model') or {}).get('display_name', '')
+        pct = (d.get('context_window') or {}).get('used_percentage')
+        cost = (d.get('cost') or {}).get('total_cost_usd')
+        parts = [p for p in [
+            m,
+            ('%d%% ctx' % pct) if isinstance(pct, (int, float)) else None,
+            ('$%.2f' % cost) if isinstance(cost, (int, float)) else None,
+        ] if p]
+        sys.stdout.write('  '.join(parts))
+    except Exception:
+        pass
+"#;
+
+/// Write the shared helper script next to the Claude settings file and return its path.
+fn write_hook_script(settings_path: &std::path::Path) -> Result<String, String> {
+    let dir = settings_path
+        .parent()
+        .ok_or("settings path has no parent")?
+        .join("splice-hooks");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let script = dir.join("splice_hook.py");
+    std::fs::write(&script, SPLICE_HOOK_SCRIPT).map_err(|e| e.to_string())?;
+    Ok(script.to_string_lossy().into_owned())
+}
+
+/// Install a hook entry that shells out to the shared helper script for `endpoint`.
+/// Idempotent: removes any prior entry with `marker`, then writes a fresh one.
+pub(crate) fn install_script_hook_entry(
+    hooks_obj: &mut serde_json::Map<String, serde_json::Value>,
+    hook_key: &str,
+    script_path: &str,
+    endpoint: &str,
+    marker: &str,
+) {
+    if !matches!(endpoint, "tooluse" | "stop" | "permission") {
+        warn!(endpoint, "Refusing to install hook for unknown endpoint");
+        return;
+    }
+    remove_hooks_by_marker(hooks_obj, hook_key, marker);
+    let arr = hooks_obj.entry(hook_key).or_insert(serde_json::json!([]));
+    if !arr.is_array() {
+        *arr = serde_json::json!([]);
+    }
+    let arr = arr.as_array_mut().expect("guaranteed array after guard");
+    let command = format!("python3 \"{script_path}\" {endpoint} # {marker}");
+    arr.push(serde_json::json!({
+        "matcher": "",
+        "hooks": [{"type": "command", "command": command}]
+    }));
+    info!(hook_key, endpoint, "Installed Splice script hook");
+}
+
+/// Point Claude's `statusLine` at the helper script so the live HUD gets cost /
+/// context-window / model data. A user's own custom statusLine is left untouched —
+/// we only manage one that already references our helper.
+pub(crate) fn install_statusline(root: &mut serde_json::Value, script_path: &str) {
+    let Some(obj) = root.as_object_mut() else { return };
+    if let Some(existing) = obj.get("statusLine") {
+        let is_ours = existing
+            .get("command")
+            .and_then(|c| c.as_str())
+            .map(|s| s.contains("splice_hook.py"))
+            .unwrap_or(false);
+        if !is_ours {
+            info!("Leaving existing custom statusLine untouched");
+            return;
+        }
+    }
+    obj.insert(
+        "statusLine".to_string(),
+        serde_json::json!({
+            "type": "command",
+            "command": format!("python3 \"{script_path}\" status"),
+            "padding": 0
+        }),
+    );
+}
+
 pub fn install_hook() -> Result<(), String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
     let settings_path = home.join(".claude").join("settings.json");
@@ -193,6 +328,15 @@ pub fn install_hook_at(settings_path: &std::path::Path) -> Result<(), String> {
 
     install_hook_entry(hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
     install_hook_entry(hooks_obj, "SessionStart", "session", "splice-session-hook-v4");
+
+    // Expanded hook set (v1): PostToolUse drives Follow-Claude + the activity feed,
+    // Stop drives the completion card. These shell out to the shared helper script.
+    let script_path = write_hook_script(settings_path)?;
+    install_script_hook_entry(hooks_obj, "PostToolUse", &script_path, "tooluse", "splice-tooluse-hook-v1");
+    install_script_hook_entry(hooks_obj, "Stop", &script_path, "stop", "splice-stop-hook-v1");
+
+    // Drive the live status HUD via Claude's statusLine command.
+    install_statusline(&mut root, &script_path);
     info!("Splice hooks configured in ~/.claude/settings.json");
 
     let updated = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
@@ -573,5 +717,74 @@ mod tests {
         install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
         let arr = hooks_obj["Notification"].as_array().unwrap();
         assert_eq!(arr.len(), 1, "calling install_hook_entry twice must not duplicate the entry");
+    }
+
+    // -----------------------------------------------------------------------
+    // Group H: expanded hook set (PostToolUse / Stop / statusLine)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn installs_tooluse_and_stop_hooks() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        assert_eq!(count_hooks_with_marker(&root, "splice-tooluse-hook-v1"), 1,
+            "PostToolUse hook must be installed");
+        assert_eq!(count_hooks_with_marker(&root, "splice-stop-hook-v1"), 1,
+            "Stop hook must be installed");
+    }
+
+    #[test]
+    fn writes_helper_script_referenced_by_hooks() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let script = dir.path().join("splice-hooks").join("splice_hook.py");
+        assert!(script.exists(), "helper script must be written");
+        let body = std::fs::read_to_string(&script).unwrap();
+        assert!(body.contains("urllib.request"), "script must POST via urllib");
+        // The installed hook commands must point at the script file by path.
+        let cmd = find_hook_command(&read_settings(dir.path()), "splice-tooluse-hook-v1").unwrap();
+        assert!(cmd.contains("splice_hook.py"), "hook must reference the helper script");
+        assert!(cmd.contains("tooluse"), "tooluse hook must pass the tooluse endpoint");
+    }
+
+    #[test]
+    fn installs_statusline_pointing_at_helper() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        let cmd = root.get("statusLine").and_then(|s| s.get("command"))
+            .and_then(|c| c.as_str()).expect("statusLine command must be set");
+        assert!(cmd.contains("splice_hook.py"), "statusLine must call the helper");
+        assert!(cmd.contains("status"), "statusLine must pass the status endpoint");
+    }
+
+    #[test]
+    fn statusline_respects_user_custom() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let existing = serde_json::json!({
+            "statusLine": { "type": "command", "command": "my-custom-statusline.sh" }
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&existing).unwrap()).unwrap();
+        install_hook_at(&path).unwrap();
+        let root = read_settings(dir.path());
+        let cmd = root.get("statusLine").and_then(|s| s.get("command"))
+            .and_then(|c| c.as_str()).unwrap();
+        assert_eq!(cmd, "my-custom-statusline.sh",
+            "an existing non-Splice statusLine must be left untouched");
+    }
+
+    #[test]
+    fn script_hooks_are_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        install_hook_at(&path).unwrap();
+        install_hook_at(&path).unwrap();
+        let root = read_settings(dir.path());
+        assert_eq!(count_hooks_with_marker(&root, "splice-tooluse-hook-v1"), 1,
+            "PostToolUse hook must not duplicate on re-install");
+        assert_eq!(count_hooks_with_marker(&root, "splice-stop-hook-v1"), 1,
+            "Stop hook must not duplicate on re-install");
     }
 }
