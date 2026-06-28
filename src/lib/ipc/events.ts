@@ -49,3 +49,33 @@ export function onAttentionNotify(callback: (payload: AttentionPayload) => void)
     callback(event.payload);
   });
 }
+
+export interface ClaudeToolUsePayload {
+  terminal_id: number;
+  tool_name: string;
+  hook_event_name: string;
+  file_path: string | null;
+  command: string | null;
+}
+
+/** PostToolUse hook → drives the activity feed and Follow-Claude auto-open. */
+export function onClaudeToolUse(callback: (payload: ClaudeToolUsePayload) => void) {
+  return listen<ClaudeToolUsePayload>('claude:tooluse', (event) => {
+    callback(event.payload);
+  });
+}
+
+/** Stop hook → marks the session idle / triggers the completion card. */
+export function onClaudeStop(callback: (payload: { terminal_id: number }) => void) {
+  return listen<{ terminal_id: number }>('claude:stop', (event) => {
+    callback(event.payload);
+  });
+}
+
+/** statusLine command → live cost / context-window HUD. Payload is Claude's
+ *  raw statusLine JSON (model, cost, context_window, rate_limits) plus terminal_id. */
+export function onClaudeStatus(callback: (payload: any) => void) {
+  return listen<any>('claude:status', (event) => {
+    callback(event.payload);
+  });
+}

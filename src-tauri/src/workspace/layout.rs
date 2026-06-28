@@ -109,6 +109,9 @@ pub struct GeneralSettings {
     pub restore_previous_session: bool,
     #[serde(default = "default_true")]
     pub claude_notifications: bool,
+    /// "Follow Claude": auto-open files Claude edits in the editor.
+    #[serde(default = "default_true")]
+    pub claude_follow_files: bool,
 }
 
 fn default_auto_save() -> String {
@@ -126,6 +129,7 @@ impl Default for GeneralSettings {
             auto_save_delay: default_auto_save_delay(),
             restore_previous_session: true,
             claude_notifications: true,
+            claude_follow_files: true,
         }
     }
 }

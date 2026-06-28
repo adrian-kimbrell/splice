@@ -596,6 +596,9 @@
     let unlistenClosing: (() => void) | null = null;
     let unlistenSession: (() => void) | null = null;
     let unlistenOpenPath: (() => void) | null = null;
+    let unlistenClaudeToolUse: (() => void) | null = null;
+    let unlistenClaudeStop: (() => void) | null = null;
+    let unlistenClaudeStatus: (() => void) | null = null;
 
     // Register the Claude session listener BEFORE restoring workspaces so we
     // never miss a session event from a restored terminal's Claude process.
@@ -764,6 +767,53 @@
           message: payload.message,
           timestamp: Date.now(),
         });
+      });
+
+      // --- Live Claude telemetry: activity feed, Follow-Claude, status HUD ---
+      const { onClaudeToolUse, onClaudeStop, onClaudeStatus } = await import("../lib/ipc/events");
+      const { claudeStore, statusFromPayload } = await import("../lib/stores/claude.svelte");
+
+      // A terminal is "ours" only if it has an active Claude session in THIS
+      // instance — mirrors the attention-notify guard to avoid cross-instance leakage.
+      const hasActiveClaudeSession = (terminalId: number): boolean =>
+        Object.values(workspaceManager.workspaces).some(
+          w => w.terminalIds.includes(terminalId) && !!w.panes[`term-${terminalId}`]?.claudeSessionId,
+        );
+
+      const FOLLOW_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
+      async function followClaudeFile(absPath: string) {
+        try {
+          const { readFile } = await getCommands();
+          const content = await readFile(absPath);
+          const name = absPath.split("/").pop() ?? absPath;
+          workspaceManager.openFileInWorkspace({ name, path: absPath, content });
+        } catch (e) {
+          console.warn("Follow-Claude open failed:", e);
+        }
+      }
+
+      unlistenClaudeToolUse = await onClaudeToolUse((p) => {
+        if (!hasActiveClaudeSession(p.terminal_id)) return;
+        claudeStore.recordTool(p.terminal_id, p.tool_name, p.file_path, p.command);
+        // Follow-Claude: open files Claude edits (PostToolUse only, gated by setting)
+        if (
+          settings.general.claude_follow_files &&
+          p.hook_event_name === "PostToolUse" &&
+          p.file_path &&
+          FOLLOW_TOOLS.has(p.tool_name)
+        ) {
+          followClaudeFile(p.file_path);
+        }
+      });
+
+      unlistenClaudeStop = await onClaudeStop((p) => {
+        claudeStore.markIdle(p.terminal_id);
+      });
+
+      unlistenClaudeStatus = await onClaudeStatus((p) => {
+        if (!hasActiveClaudeSession(p.terminal_id)) return;
+        const status = statusFromPayload(p);
+        if (status) claudeStore.setStatus(status);
       });
 
       // Persist all workspaces before the window closes, awaiting completion
@@ -959,6 +1009,9 @@
       unlistenClosing?.();
       unlistenSession?.();
       unlistenOpenPath?.();
+      unlistenClaudeToolUse?.();
+      unlistenClaudeStop?.();
+      unlistenClaudeStatus?.();
     };
   });
 </script>

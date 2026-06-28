@@ -37,6 +37,7 @@
     { key: "general.auto_save_delay", category: "General", title: "Auto Save Delay", description: "Delay in milliseconds before auto-saving after a change.", control: { type: "number", min: 100, max: 10000, step: 100 } },
     { key: "general.restore_previous_session", category: "General", title: "Restore Previous Session", description: "Reopen the previous workspace on startup.", control: { type: "toggle" } },
     { key: "general.claude_notifications", category: "General", title: "Claude Notifications", description: "Send a macOS notification when Claude is waiting for input and Splice is in the background.", control: { type: "toggle" } },
+    { key: "general.claude_follow_files", category: "General", title: "Follow Claude", description: "Automatically open files in the editor as Claude edits them.", control: { type: "toggle" } },
 
     // Appearance
     { key: "appearance.theme", category: "Appearance", title: "Theme", description: "The color theme for the editor and UI.", control: { type: "select", options: themeNames } },
