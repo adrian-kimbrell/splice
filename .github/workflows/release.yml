@@ -56,17 +56,20 @@ jobs:
         env:
           # GitHub release upload
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # NOTE: unsigned build — no Apple Developer certs configured yet.
-          # The DMG is not notarized, so Gatekeeper warns on first launch
-          # (README documents the `xattr -cr` workaround). To enable signing +
-          # notarization, add these secrets and restore the env block:
+          # NOTE: ad-hoc signed build (tauri.conf.json bundle.macOS.signingIdentity
+          # "-") — no Apple Developer certs yet. Ad-hoc signing seals the bundle
+          # resources so the cdhash is stable, which lets macOS TCC persist the
+          # "access Documents" grant instead of re-prompting on every launch.
+          # The DMG is still not notarized, so Gatekeeper warns on first launch
+          # (README documents the `xattr -cr` workaround). To enable Developer ID
+          # signing + notarization, add these secrets and restore the env block:
           #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
           #   APPLE_TEAM_ID, APPLE_ID, APPLE_PASSWORD
           # (Leaving them empty makes tauri-action fail importing an empty cert.)
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Splice ${{ github.ref_name }}"
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           # Build a universal binary (one .dmg works on Intel + Apple Silicon)
           args: --target universal-apple-darwin
