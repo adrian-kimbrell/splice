@@ -288,6 +288,13 @@ pub fn install_hook_at(settings_path: &std::path::Path) -> Result<(), String> {
     remove_hooks_by_marker(hooks_obj, "PostToolUse", "splice-tooluse-hook");
     remove_hooks_by_marker(hooks_obj, "Stop", "splice-stop-hook");
     remove_hooks_by_marker(hooks_obj, "PreToolUse", "splice-permission-hook");
+    // Drop those keys entirely if our removal left them empty — but never touch a
+    // key that still holds the user's own hooks.
+    for key in ["PostToolUse", "Stop", "PreToolUse"] {
+        if hooks_obj.get(key).and_then(|v| v.as_array()).is_some_and(|a| a.is_empty()) {
+            hooks_obj.remove(key);
+        }
+    }
 
     install_hook_entry(hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
     install_hook_entry(hooks_obj, "SessionStart", "session", "splice-session-hook-v4");
@@ -712,6 +719,32 @@ mod tests {
         assert_eq!(count_hooks_with_marker(&root, "splice-tooluse-hook-v1"), 0, "tooluse hook must be removed");
         assert_eq!(count_hooks_with_marker(&root, "splice-stop-hook-v1"), 0, "stop hook must be removed");
         assert_eq!(count_hooks_with_marker(&root, "splice-permission-hook-v1"), 0, "permission hook must be removed");
+        // Emptied keys are pruned, not left as empty arrays.
+        let hooks = root.get("hooks").and_then(|h| h.as_object()).unwrap();
+        assert!(!hooks.contains_key("PostToolUse"), "empty PostToolUse key must be pruned");
+        assert!(!hooks.contains_key("Stop"), "empty Stop key must be pruned");
+        assert!(!hooks.contains_key("PreToolUse"), "empty PreToolUse key must be pruned");
+    }
+
+    #[test]
+    fn preserves_user_owned_hooks_in_shared_keys() {
+        // A user's own PostToolUse hook must survive even though we prune empty keys.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let existing = serde_json::json!({
+            "hooks": {
+                "PostToolUse": [
+                    { "matcher": "", "hooks": [{"type": "command", "command": "x # splice-tooluse-hook-v1"}] },
+                    { "matcher": "Edit", "hooks": [{"type": "command", "command": "my-own-formatter"}] }
+                ]
+            }
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&existing).unwrap()).unwrap();
+        install_hook_at(&path).unwrap();
+        let root = read_settings(dir.path());
+        let arr = root["hooks"]["PostToolUse"].as_array().expect("user's PostToolUse must remain");
+        assert_eq!(arr.len(), 1, "only our entry should be removed");
+        assert!(arr[0]["hooks"][0]["command"].as_str().unwrap().contains("my-own-formatter"));
     }
 
     #[test]
