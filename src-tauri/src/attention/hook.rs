@@ -223,6 +223,7 @@ pub(crate) fn install_script_hook_entry(
     hook_key: &str,
     script_path: &str,
     endpoint: &str,
+    matcher: &str,
     marker: &str,
 ) {
     if !matches!(endpoint, "tooluse" | "stop" | "permission") {
@@ -237,7 +238,7 @@ pub(crate) fn install_script_hook_entry(
     let arr = arr.as_array_mut().expect("guaranteed array after guard");
     let command = format!("python3 \"{script_path}\" {endpoint} # {marker}");
     arr.push(serde_json::json!({
-        "matcher": "",
+        "matcher": matcher,
         "hooks": [{"type": "command", "command": command}]
     }));
     info!(hook_key, endpoint, "Installed Splice script hook");
@@ -332,8 +333,18 @@ pub fn install_hook_at(settings_path: &std::path::Path) -> Result<(), String> {
     // Expanded hook set (v1): PostToolUse drives Follow-Claude + the activity feed,
     // Stop drives the completion card. These shell out to the shared helper script.
     let script_path = write_hook_script(settings_path)?;
-    install_script_hook_entry(hooks_obj, "PostToolUse", &script_path, "tooluse", "splice-tooluse-hook-v1");
-    install_script_hook_entry(hooks_obj, "Stop", &script_path, "stop", "splice-stop-hook-v1");
+    install_script_hook_entry(hooks_obj, "PostToolUse", &script_path, "tooluse", "", "splice-tooluse-hook-v1");
+    install_script_hook_entry(hooks_obj, "Stop", &script_path, "stop", "", "splice-stop-hook-v1");
+    // PreToolUse permission prompts — scoped to mutating/consequential tools so
+    // read-only calls (Read/Grep/Glob) are never blocked waiting on the UI.
+    install_script_hook_entry(
+        hooks_obj,
+        "PreToolUse",
+        &script_path,
+        "permission",
+        "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "splice-permission-hook-v1",
+    );
 
     // Drive the live status HUD via Claude's statusLine command.
     install_statusline(&mut root, &script_path);
@@ -773,6 +784,23 @@ mod tests {
             .and_then(|c| c.as_str()).unwrap();
         assert_eq!(cmd, "my-custom-statusline.sh",
             "an existing non-Splice statusLine must be left untouched");
+    }
+
+    #[test]
+    fn installs_pretooluse_permission_hook_scoped_to_mutating_tools() {
+        let dir = tempfile::tempdir().unwrap();
+        install_hook_at(&dir.path().join("settings.json")).unwrap();
+        let root = read_settings(dir.path());
+        assert_eq!(count_hooks_with_marker(&root, "splice-permission-hook-v1"), 1,
+            "PreToolUse permission hook must be installed");
+        // The matcher must scope it to mutating tools so reads/greps are never blocked.
+        let entry = root["hooks"]["PreToolUse"].as_array().unwrap().iter()
+            .find(|e| e["hooks"][0]["command"].as_str().unwrap_or("").contains("splice-permission-hook-v1"))
+            .unwrap();
+        let matcher = entry["matcher"].as_str().unwrap();
+        assert!(matcher.contains("Bash") && matcher.contains("Edit"),
+            "permission matcher must target mutating tools, got: {matcher}");
+        assert!(!matcher.is_empty(), "permission hook must not match all tools");
     }
 
     #[test]

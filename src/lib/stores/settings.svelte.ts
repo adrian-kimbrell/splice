@@ -29,6 +29,7 @@ export interface Settings {
     restore_previous_session: boolean;
     claude_notifications: boolean;
     claude_follow_files: boolean;
+    claude_permission_prompts: boolean;
   };
   editor: {
     font_family: string;
@@ -72,6 +73,7 @@ const defaultSettings: Settings = {
     restore_previous_session: true,
     claude_notifications: true,
     claude_follow_files: true,
+    claude_permission_prompts: true,
   },
   editor: {
     font_family: "Menlo",

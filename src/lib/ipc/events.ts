@@ -79,3 +79,18 @@ export function onClaudeStatus(callback: (payload: any) => void) {
     callback(event.payload);
   });
 }
+
+export interface ClaudePermissionPayload {
+  id: string;
+  terminal_id: number;
+  tool_name: string;
+  file_path: string | null;
+  command: string | null;
+}
+
+/** PreToolUse hook → a blocking permission request awaiting Allow/Deny in the UI. */
+export function onClaudePermissionRequest(callback: (payload: ClaudePermissionPayload) => void) {
+  return listen<ClaudePermissionPayload>('claude:permission-request', (event) => {
+    callback(event.payload);
+  });
+}

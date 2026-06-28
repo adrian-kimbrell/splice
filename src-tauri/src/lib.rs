@@ -149,6 +149,7 @@ pub fn run() {
 
     builder
         .manage(Mutex::new(app_state))
+        .manage(attention::PermissionRegistry::default())
         .setup(|app| {
             // Install NSThemeFrame.layout swizzle so traffic-light buttons stay in
             // their custom position across every AppKit layout pass. Must run before
@@ -281,6 +282,7 @@ pub fn run() {
                 commands::terminal::get_terminal_cwd,
                 commands::terminal::get_terminal_text_range,
                 commands::terminal::install_claude_hook,
+                commands::terminal::resolve_claude_permission,
                 commands::workspace::get_workspaces,
                 commands::workspace::save_workspace,
                 commands::workspace::delete_workspace,
@@ -354,6 +356,7 @@ pub fn run() {
                 commands::terminal::get_terminal_cwd,
                 commands::terminal::get_terminal_text_range,
                 commands::terminal::install_claude_hook,
+                commands::terminal::resolve_claude_permission,
                 commands::workspace::get_workspaces,
                 commands::workspace::save_workspace,
                 commands::workspace::delete_workspace,
@@ -427,6 +430,7 @@ pub fn run() {
                 commands::terminal::get_terminal_cwd,
                 commands::terminal::get_terminal_text_range,
                 commands::terminal::install_claude_hook,
+                commands::terminal::resolve_claude_permission,
                 commands::workspace::get_workspaces,
                 commands::workspace::save_workspace,
                 commands::workspace::delete_workspace,

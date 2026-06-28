@@ -5,6 +5,7 @@ beforeEach(() => {
   // Clear any state left by other tests.
   for (const id of Object.keys(claudeStore.activity)) claudeStore.clear(Number(id));
   for (const id of Object.keys(claudeStore.status)) claudeStore.clear(Number(id));
+  for (const id of Object.keys(claudeStore.permissions)) claudeStore.removePermission(id);
 });
 
 // ---------------------------------------------------------------------------
@@ -96,5 +97,39 @@ describe("activity", () => {
     claudeStore.clear(1);
     expect(claudeStore.activity[1]).toBeUndefined();
     expect(claudeStore.status[1]).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// permission requests
+// ---------------------------------------------------------------------------
+
+describe("permissions", () => {
+  const req = (id: string, terminalId = 1) => ({
+    id,
+    terminalId,
+    toolName: "Bash",
+    command: "rm -rf build/",
+    at: Number(id.replace(/\D/g, "")) || 0,
+  });
+
+  it("adds and lists permission requests oldest-first", () => {
+    claudeStore.addPermission(req("perm-2"));
+    claudeStore.addPermission(req("perm-1"));
+    expect(claudeStore.permissionList.map((p) => p.id)).toEqual(["perm-1", "perm-2"]);
+  });
+
+  it("removePermission drops a single request", () => {
+    claudeStore.addPermission(req("perm-1"));
+    claudeStore.removePermission("perm-1");
+    expect(claudeStore.permissions["perm-1"]).toBeUndefined();
+  });
+
+  it("clear(terminalId) drops only that terminal's pending prompts", () => {
+    claudeStore.addPermission(req("perm-1", 1));
+    claudeStore.addPermission(req("perm-2", 2));
+    claudeStore.clear(1);
+    expect(claudeStore.permissions["perm-1"]).toBeUndefined();
+    expect(claudeStore.permissions["perm-2"]).toBeDefined();
   });
 });

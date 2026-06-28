@@ -37,6 +37,7 @@
   import SshConnectForm from "./overlays/SshConnectForm.svelte";
   import Toasts from "./overlays/Toasts.svelte";
   import SendToClaudeModal from "./overlays/SendToClaudeModal.svelte";
+  import ClaudePermissionPrompts from "./overlays/ClaudePermissionPrompts.svelte";
   import AddPromptModal from "./overlays/AddPromptModal.svelte";
   import TitleBar from "./topbar/TitleBar.svelte";
   import { openSettingsWindow } from "../lib/utils/settings-window";
@@ -599,6 +600,7 @@
     let unlistenClaudeToolUse: (() => void) | null = null;
     let unlistenClaudeStop: (() => void) | null = null;
     let unlistenClaudeStatus: (() => void) | null = null;
+    let unlistenClaudePermission: (() => void) | null = null;
 
     // Register the Claude session listener BEFORE restoring workspaces so we
     // never miss a session event from a restored terminal's Claude process.
@@ -770,7 +772,8 @@
       });
 
       // --- Live Claude telemetry: activity feed, Follow-Claude, status HUD ---
-      const { onClaudeToolUse, onClaudeStop, onClaudeStatus } = await import("../lib/ipc/events");
+      const { onClaudeToolUse, onClaudeStop, onClaudeStatus, onClaudePermissionRequest } =
+        await import("../lib/ipc/events");
       const { claudeStore, statusFromPayload } = await import("../lib/stores/claude.svelte");
 
       // A terminal is "ours" only if it has an active Claude session in THIS
@@ -814,6 +817,20 @@
         if (!hasActiveClaudeSession(p.terminal_id)) return;
         const status = statusFromPayload(p);
         if (status) claudeStore.setStatus(status);
+      });
+
+      // Permission prompts: surface the request, and auto-expire the card just
+      // after the backend's 25s wait so a stale prompt can't linger forever.
+      unlistenClaudePermission = await onClaudePermissionRequest((p) => {
+        claudeStore.addPermission({
+          id: p.id,
+          terminalId: p.terminal_id,
+          toolName: p.tool_name,
+          filePath: p.file_path,
+          command: p.command,
+          at: Date.now(),
+        });
+        setTimeout(() => claudeStore.removePermission(p.id), 26000);
       });
 
       // Persist all workspaces before the window closes, awaiting completion
@@ -1012,6 +1029,7 @@
       unlistenClaudeToolUse?.();
       unlistenClaudeStop?.();
       unlistenClaudeStatus?.();
+      unlistenClaudePermission?.();
     };
   });
 </script>
@@ -1291,6 +1309,7 @@
   <CommandPalette />
   <Toasts />
   <SendToClaudeModal />
+  <ClaudePermissionPrompts />
   <AddPromptModal />
   {#if showSshForm && workspaceManager.activeWorkspace}
     <SshConnectForm workspace={workspaceManager.activeWorkspace} onclose={() => showSshForm = false} />

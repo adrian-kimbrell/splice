@@ -30,3 +30,18 @@ mod token;
 pub use hook::install_hook;
 pub use server::start_server;
 pub use token::load_or_create_token;
+
+/// Pending PreToolUse permission requests awaiting a user decision in the UI.
+///
+/// Keyed by a per-request id. When a `/permission` request arrives the server
+/// inserts a `oneshot::Sender` here, emits `claude:permission-request`, and blocks
+/// on the receiver. The `resolve_claude_permission` command removes the entry and
+/// sends the decision (`"allow"` / `"deny"`), unblocking the HTTP handler so it can
+/// write Claude's decision JSON. Entries that time out are dropped (deferred to
+/// Claude's own permission flow). Managed as Tauri state, separate from `AppState`.
+#[derive(Default)]
+pub struct PermissionRegistry {
+    pub pending: std::sync::Mutex<
+        std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>,
+    >,
+}
