@@ -23,8 +23,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::attention::handlers::{
-    handle_attention_request, handle_session_request, handle_status_request, handle_stop_request,
-    handle_tooluse_request,
+    handle_attention_request, handle_session_request, handle_status_request,
 };
 use crate::attention::http::{find_header_end, parse_content_length};
 
@@ -172,7 +171,7 @@ async fn handle_connection(
         .unwrap_or("/");
     // Only allow known safe path values
     let path = match path {
-        "/session" | "/attention" | "/tooluse" | "/stop" | "/status" => path.to_string(),
+        "/session" | "/attention" | "/status" => path.to_string(),
         _ => {
             let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n").await;
             return;
@@ -216,8 +215,6 @@ async fn handle_connection(
 
     match path.as_str() {
         "/session" => handle_session_request(&app, json).await,
-        "/tooluse" => handle_tooluse_request(&app, json).await,
-        "/stop" => handle_stop_request(&app, json).await,
         "/status" => handle_status_request(&app, json).await,
         _ => handle_attention_request(&app, json).await,
     }

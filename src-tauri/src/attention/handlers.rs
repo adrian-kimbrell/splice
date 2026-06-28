@@ -98,65 +98,6 @@ fn terminal_exists(app: &AppHandle, terminal_id: u32) -> bool {
         .unwrap_or(false)
 }
 
-/// PostToolUse / PreToolUse (non-blocking) → `claude:tooluse`.
-///
-/// Powers the "Follow Claude" auto-open and the live tool-activity feed. We forward
-/// the tool name, the hook event name (Pre/Post), and the most useful `tool_input`
-/// fields (`file_path` for Edit/Write/Read, `command` for Bash) so the frontend can
-/// open the touched file and render a human-readable activity line.
-pub(crate) async fn handle_tooluse_request(app: &AppHandle, json: serde_json::Value) {
-    let Some(terminal_id) = extract_terminal_id(&json) else {
-        warn!("tooluse request missing or zero terminal_id (non-Splice terminal?)");
-        return;
-    };
-    if !terminal_exists(app, terminal_id) {
-        warn!(terminal_id, "tooluse: terminal not found (may have been closed)");
-        return;
-    }
-
-    let tool_name = json.get("tool_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let event_name = json
-        .get("hook_event_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("PostToolUse")
-        .to_string();
-    let tool_input = json.get("tool_input");
-    let file_path = tool_input
-        .and_then(|ti| ti.get("file_path"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let command = tool_input
-        .and_then(|ti| ti.get("command"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let payload = serde_json::json!({
-        "terminal_id": terminal_id,
-        "tool_name": tool_name,
-        "hook_event_name": event_name,
-        "file_path": file_path,
-        "command": command,
-    });
-    if let Err(e) = app.emit("claude:tooluse", &payload) {
-        warn!("Failed to emit claude:tooluse: {}", e);
-    }
-}
-
-/// Stop hook → `claude:stop`. Marks the session idle and lets the UI render a
-/// "Claude finished" completion card.
-pub(crate) async fn handle_stop_request(app: &AppHandle, json: serde_json::Value) {
-    let Some(terminal_id) = extract_terminal_id(&json) else {
-        warn!("stop request missing or zero terminal_id (non-Splice terminal?)");
-        return;
-    };
-    if !terminal_exists(app, terminal_id) {
-        return;
-    }
-    if let Err(e) = app.emit("claude:stop", serde_json::json!({ "terminal_id": terminal_id })) {
-        warn!("Failed to emit claude:stop: {}", e);
-    }
-}
-
 /// statusLine command → `claude:status`. Forwards Claude's stable status JSON
 /// (model, cost, context-window usage, rate limits) for the live HUD. The whole
 /// payload is passed through so the frontend can read whichever fields it renders.

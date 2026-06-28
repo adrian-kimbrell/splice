@@ -28,7 +28,6 @@ export interface Settings {
     auto_save_delay: number;
     restore_previous_session: boolean;
     claude_notifications: boolean;
-    claude_follow_files: boolean;
   };
   editor: {
     font_family: string;
@@ -71,7 +70,6 @@ const defaultSettings: Settings = {
     auto_save_delay: 1000,
     restore_previous_session: true,
     claude_notifications: true,
-    claude_follow_files: true,
   },
   editor: {
     font_family: "Menlo",

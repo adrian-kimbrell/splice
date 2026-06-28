@@ -114,7 +114,6 @@
   // --- Live Claude telemetry for this pane's terminal ---
   const terminalId = $derived(workspaceManager.activeWorkspace?.panes[paneId]?.terminalId ?? null);
   const claudeStatus = $derived(terminalId != null ? claudeStore.status[terminalId] ?? null : null);
-  const claudeActivity = $derived(terminalId != null ? claudeStore.activity[terminalId] ?? null : null);
   // Color the context-window readout as it fills toward compaction.
   const ctxColor = $derived.by(() => {
     const pct = claudeStatus?.contextPct;
@@ -160,16 +159,6 @@
     >
       <i class="bi bi-claude" style="font-size: var(--ui-xs);"></i>
       {notification.type === 'permission' ? 'permission' : 'waiting'}
-    </span>
-  {/if}
-  {#if !notification && claudeActivity?.state === 'working' && claudeActivity.current}
-    <span
-      class="claude-activity shrink-0 mr-2 flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded min-w-0"
-      style="color: var(--accent); background: var(--bg-selected);"
-      title="Claude is working"
-    >
-      <i class="bi bi-claude claude-spin" style="font-size: var(--ui-xs);"></i>
-      <span class="overflow-hidden text-ellipsis" style="max-width: 160px;">{claudeActivity.current}</span>
     </span>
   {/if}
   <span class="flex-1 min-w-0"></span>
@@ -241,12 +230,5 @@
   @keyframes bell-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.35; }
-  }
-  .claude-spin {
-    animation: claude-spin 1.4s linear infinite;
-  }
-  @keyframes claude-spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
   }
 </style>
