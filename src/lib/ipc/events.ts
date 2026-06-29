@@ -49,3 +49,11 @@ export function onAttentionNotify(callback: (payload: AttentionPayload) => void)
     callback(event.payload);
   });
 }
+
+/** statusLine command → live cost / context-window HUD. Payload is Claude's
+ *  raw statusLine JSON (model, cost, context_window, rate_limits) plus terminal_id. */
+export function onClaudeStatus(callback: (payload: any) => void) {
+  return listen<any>('claude:status', (event) => {
+    callback(event.payload);
+  });
+}
