@@ -137,10 +137,15 @@ pub(crate) fn install_hook_entry(
 /// Python helper backing Claude's `statusLine`. Written once to
 /// `<.claude>/splice-hooks/splice_hook.py` and referenced by path. It injects
 /// `terminal_id`, prefers the per-instance `SPLICE_ATTENTION_*` env vars (falling
-/// back to the shared config files), POSTs the statusLine JSON to `/status` for the
-/// live HUD, and prints a concise `model · NN% ctx · $cost` line for Claude's own UI.
+/// back to the shared config files), and POSTs the statusLine JSON to `/status`
+/// to drive Splice's header HUD.
+///
+/// It prints NOTHING to stdout: the data is rendered in Splice's terminal header,
+/// so emitting a line here would duplicate it at the bottom of Claude's own TUI.
 const SPLICE_HOOK_SCRIPT: &str = r#"#!/usr/bin/env python3
 # Splice Claude Code statusLine helper. Auto-generated; do not edit (overwritten on launch).
+# POST-only: feeds Splice's header HUD and prints nothing, so Claude's own status
+# line stays empty rather than duplicating the readout shown in Splice's header.
 import sys, json, os, os.path as op, urllib.request
 
 def read_cfg(name):
@@ -174,18 +179,7 @@ if port:
     except Exception:
         pass
 
-try:
-    m = (d.get('model') or {}).get('display_name', '')
-    pct = (d.get('context_window') or {}).get('used_percentage')
-    cost = (d.get('cost') or {}).get('total_cost_usd')
-    parts = [p for p in [
-        m,
-        ('%d%% ctx' % pct) if isinstance(pct, (int, float)) else None,
-        ('$%.2f' % cost) if isinstance(cost, (int, float)) else None,
-    ] if p]
-    sys.stdout.write('  '.join(parts))
-except Exception:
-    pass
+# Intentionally no stdout — see header comment.
 "#;
 
 /// Write the statusLine helper script next to the Claude settings file and return its path.
