@@ -69,6 +69,31 @@
   let renameName = $state("");
   let renameTarget = $state({ line: 0, char: 0 });
 
+  /**
+   * Convert viewport (visual) client coords into the layout-px space CodeMirror's
+   * internal getBoundingClientRect hit-testing expects, compensating for root CSS
+   * `zoom` (appearance.ui_scale). Without this, click/drag selection lands offset
+   * from the cursor, with error growing away from the editor's top-left.
+   *
+   * Engine-robust (see memory zoom-coords / CanvasTerminal.eventToCell): under root
+   * zoom, clientX/Y are visual px on both engines, but contentDOM.getBoundingClientRect
+   * is LAYOUT px on WebKit (macOS) and VISUAL px on Chromium. `rectScale` measures
+   * which (1 on WebKit, zoom on Chromium), so `factor = zoom / rectScale` is `zoom`
+   * on WebKit and `1` on Chromium — exactly the divisor that aligns clientX with the
+   * content rect in either engine.
+   */
+  function adjustClientCoordsForZoom(v: EditorView, coords: { x: number; y: number }) {
+    const zoom = parseFloat(document.documentElement.style.zoom || "1") || 1;
+    if (zoom === 1) return coords;
+    const cd = v.contentDOM as HTMLElement;
+    const ow = cd.offsetWidth;
+    if (!ow) return coords;
+    const rectScale = cd.getBoundingClientRect().width / ow;
+    const factor = rectScale ? zoom / rectScale : zoom;
+    if (factor === 1) return coords;
+    return { x: coords.x / factor, y: coords.y / factor };
+  }
+
   function formatDocument(view: EditorView): boolean {
     const state = view.state;
     const ext = getExtForPath(filePath);
@@ -326,6 +351,19 @@
     });
 
     view = new EditorView({ state, parent: containerEl });
+    // Compensate CodeMirror's click/drag hit-testing for root CSS zoom (ui_scale).
+    // posAndSideAtCoords is the sole seam used by click + drag selection and is always
+    // called with clientX/Y (verified against @codemirror/view 6.39), so wrapping it is
+    // safe. posAtCoords is intentionally NOT wrapped — CM also calls it internally with
+    // getBoundingClientRect-space coords (line-boundary probing), which must stay as-is.
+    {
+      const origPosAndSide = view.posAndSideAtCoords.bind(view) as (
+        coords: { x: number; y: number },
+        precise?: false,
+      ) => { pos: number; assoc: -1 | 1 } | null;
+      view.posAndSideAtCoords = ((coords: { x: number; y: number }, precise?: false) =>
+        origPosAndSide(adjustClientCoordsForZoom(view!, coords), precise)) as typeof view.posAndSideAtCoords;
+    }
     viewReady = true;
 
     return () => {
@@ -636,7 +674,7 @@
     const hasSelection = sel.from !== sel.to;
     const selectedText = hasSelection ? view.state.doc.sliceString(sel.from, sel.to) : "";
 
-    const clickPos = view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? view.state.selection.main.head;
+    const clickPos = view.posAtCoords(adjustClientCoordsForZoom(view, { x: e.clientX, y: e.clientY })) ?? view.state.selection.main.head;
     // When text is selected, use the selection start so LSP resolves the symbol
     // at the beginning of the selection rather than at the arbitrary click position
     const lspPos = hasSelection ? sel.from : clickPos;
