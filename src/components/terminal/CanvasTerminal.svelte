@@ -123,7 +123,9 @@
     renderer.setSearchMatches(converted, searchActiveIndex);
   });
 
-  // Re-fit terminal when becoming visible after workspace/tab switch
+  // Re-fit terminal when its workspace becomes visible after a workspace/tab switch.
+  // (`active` here means "this terminal's workspace is active", not the active pane —
+  // pane focus on switch is handled centrally in App.svelte.)
   $effect(() => {
     if (active && renderer && containerEl) {
       requestAnimationFrame(() => {
@@ -916,8 +918,13 @@
     canvasEl.addEventListener("contextmenu", onContextMenu);
     cleanupFns.push(() => canvasEl!.removeEventListener("contextmenu", onContextMenu));
 
-    // Focus on mount
-    requestAnimationFrame(() => canvasEl?.focus());
+    // Focus on mount only if this terminal is the active pane — otherwise a
+    // non-active terminal (e.g. the last one to mount on restore) would steal focus
+    // from the selected pane, leaving the border on one pane and typing on another.
+    // PaneGrid marks the active pane's leaf with `.pane-leaf--active`.
+    requestAnimationFrame(() => {
+      if (canvasEl?.closest(".pane-leaf--active")) canvasEl.focus();
+    });
   });
 
   onDestroy(() => {
