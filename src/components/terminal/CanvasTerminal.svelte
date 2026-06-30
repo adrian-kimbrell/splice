@@ -80,9 +80,11 @@
   // Cached IPC function from dynamic import
   let cachedResizeTerminal: ((id: number, cols: number, rows: number) => Promise<void>) | null = null;
 
-  // Cursor blink state
+  // Cursor blink state. Only the focused terminal blinks; unfocused panes show a
+  // steady (hollow) cursor, so switching workspaces doesn't leave every terminal flashing.
   let blinkInterval: ReturnType<typeof setInterval> | null = null;
   let blinkVisible = true;
+  let focused = false;
 
   // Selection state
   let isSelecting = false;
@@ -121,7 +123,9 @@
     renderer.setSearchMatches(converted, searchActiveIndex);
   });
 
-  // Re-fit terminal when becoming visible after workspace/tab switch
+  // Re-fit terminal when its workspace becomes visible after a workspace/tab switch.
+  // (`active` here means "this terminal's workspace is active", not the active pane —
+  // pane focus on switch is handled centrally in App.svelte.)
   $effect(() => {
     if (active && renderer && containerEl) {
       requestAnimationFrame(() => {
@@ -247,14 +251,18 @@
   }
 
   function resetBlinkTimer() {
+    if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null; }
     if (renderer) {
       blinkVisible = true;
       renderer.setCursorBlink(true);
       renderer.rerender();
     }
-    if (blinkInterval) clearInterval(blinkInterval);
+    // Only blink when this terminal is focused and blinking is enabled. Without the
+    // focus guard, every visible terminal blinks (the settings effect / mount both
+    // call this), which is the "all terminals flashing on workspace switch" bug.
+    if (!focused || !effectiveSettings.terminal.cursor_blink) return;
     blinkInterval = setInterval(() => {
-      if (renderer && containerEl?.offsetParent !== null) {
+      if (renderer && focused && containerEl?.offsetParent !== null) {
         blinkVisible = !blinkVisible;
         renderer.setCursorBlink(blinkVisible);
         renderer.rerender();
@@ -814,6 +822,7 @@
 
     // Focus/blur — send CSI I / CSI O when application requests focus events (mode 1004)
     const onFocus = () => {
+      focused = true;
       if (renderer) {
         renderer.setFocused(true);
         renderer.rerender();
@@ -824,6 +833,7 @@
       }
     };
     const onBlur = () => {
+      focused = false;
       if (renderer) {
         renderer.setFocused(false);
         renderer.setCursorBlink(true); // Show cursor when blurred
@@ -842,7 +852,11 @@
     cleanupFns.push(() => canvasEl!.removeEventListener("focus", onFocus));
     cleanupFns.push(() => canvasEl!.removeEventListener("blur", onBlur));
 
-    // Start cursor blink
+    // Initialize cursor blink/focus state. The focused terminal (set by the
+    // focus-on-mount rAF below, or a prior click) blinks; others render a steady
+    // hollow cursor. resetBlinkTimer self-gates on `focused`.
+    focused = document.activeElement === canvasEl;
+    renderer.setFocused(focused);
     resetBlinkTimer();
 
     // Context menu
@@ -904,8 +918,13 @@
     canvasEl.addEventListener("contextmenu", onContextMenu);
     cleanupFns.push(() => canvasEl!.removeEventListener("contextmenu", onContextMenu));
 
-    // Focus on mount
-    requestAnimationFrame(() => canvasEl?.focus());
+    // Focus on mount only if this terminal is the active pane — otherwise a
+    // non-active terminal (e.g. the last one to mount on restore) would steal focus
+    // from the selected pane, leaving the border on one pane and typing on another.
+    // PaneGrid marks the active pane's leaf with `.pane-leaf--active`.
+    requestAnimationFrame(() => {
+      if (canvasEl?.closest(".pane-leaf--active")) canvasEl.focus();
+    });
   });
 
   onDestroy(() => {

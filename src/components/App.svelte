@@ -575,6 +575,28 @@
     loadProjectSettings(rootPath || null);
   });
 
+  // Focus the active pane's content (terminal canvas / editor) when the active
+  // workspace or its active pane changes, so the user can type immediately after a
+  // workspace switch without clicking. Panes persist across switches (display
+  // toggle), so mount-time focus can't cover this. Targets the active PANE
+  // specifically — the `active` prop passed to panes is workspace-level, so focusing
+  // per-terminal would land on the wrong pane.
+  $effect(() => {
+    const wsId = workspaceManager.activeWorkspaceId;
+    if (!wsId) return;
+    const paneId = workspaceManager.workspaces[wsId]?.activePaneId;
+    if (!paneId) return;
+    requestAnimationFrame(() => {
+      if (workspaceManager.activeWorkspaceId !== wsId) return;
+      // Pick the visible match (pane ids live in every workspace's DOM; only the
+      // active workspace is displayed) and don't steal focus already inside it.
+      const candidates = document.querySelectorAll<HTMLElement>(`[data-pane-id="${paneId}"]`);
+      const paneEl = Array.from(candidates).find((el) => el.offsetParent !== null);
+      if (!paneEl || paneEl.contains(document.activeElement)) return;
+      paneEl.querySelector<HTMLElement>('canvas[tabindex], .cm-content')?.focus();
+    });
+  });
+
   onMount(async () => {
     const stopKeybindings = initKeybindings();
     // Eagerly pre-import commands module
