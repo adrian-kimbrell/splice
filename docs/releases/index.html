@@ -30,7 +30,7 @@
     "name": "Splice",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "macOS",
-    "softwareVersion": "0.5.1",
+    "softwareVersion": "0.5.4",
     "url": "https://www.spliceditor.xyz/",
     "releaseNotes": "https://www.spliceditor.xyz/releases",
     "downloadUrl": "https://github.com/adrian-kimbrell/splice/releases",
@@ -92,12 +92,109 @@
   <!-- Release list -->
   <section class="max-w-6xl mx-auto px-6 py-16 space-y-12">
 
+    <!-- v0.5.4 -->
+    <div style="border:1px solid #3c3c3c">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+        <div class="flex items-center gap-4">
+          <span class="font-mono text-lg font-bold text-white">v0.5.4</span>
+          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
+        </div>
+        <span class="font-mono text-xs text-zinc-500">June 30, 2026</span>
+      </div>
+      <div class="p-6 space-y-6" style="background:#1e1e1e">
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Claude session HUD</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>The terminal header now shows a live readout for the Claude Code session running in it — context-window usage and session cost, at a glance</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Editor & terminal fixes</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Fixed editor text selection landing offset from the cursor when UI scale wasn't 100% — selection now tracks exactly, however far you drag</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Only the focused terminal's cursor blinks now — unfocused panes show a steady hollow cursor, so switching workspaces no longer leaves every terminal flashing</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Switching workspaces focuses the active pane, so you can start typing immediately without clicking first</span></li>
+          </ul>
+        </div>
+
+        <div class="pt-2 flex items-center gap-4">
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.5.4" class="btn-orange px-4 py-2 text-xs font-mono tracking-wide transition-colors inline-flex items-center gap-2">
+            <i class="bi bi-download"></i> Download v0.5.4
+          </a>
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.5.4" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono transition-colors">View on GitHub →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- v0.5.3 -->
+    <div style="border:1px solid #3c3c3c">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+        <div class="flex items-center gap-4">
+          <span class="font-mono text-lg font-bold text-white">v0.5.3</span>
+        </div>
+        <span class="font-mono text-xs text-zinc-500">June 28, 2026</span>
+      </div>
+      <div class="p-6 space-y-6" style="background:#1e1e1e">
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">UI scale positioning</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Fixed terminal text selection and right-click menus landing below and to the right of the cursor when UI scale was turned up</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Context menus everywhere — terminal, editor, file explorer, tabs, and the workspace list — now position correctly under any UI scale</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Quality of life</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>The theme picker stays open while you click through themes, so you can preview and scroll the list without it closing each time</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Added "Open Terminal" to the welcome screen alongside "Open Folder"</span></li>
+          </ul>
+        </div>
+
+        <div class="pt-2 flex items-center gap-4">
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.5.3" class="btn-orange px-4 py-2 text-xs font-mono tracking-wide transition-colors inline-flex items-center gap-2">
+            <i class="bi bi-download"></i> Download v0.5.3
+          </a>
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.5.3" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono transition-colors">View on GitHub →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- v0.5.2 -->
+    <div style="border:1px solid #3c3c3c">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+        <div class="flex items-center gap-4">
+          <span class="font-mono text-lg font-bold text-white">v0.5.2</span>
+        </div>
+        <span class="font-mono text-xs text-zinc-500">June 28, 2026</span>
+      </div>
+      <div class="p-6 space-y-6" style="background:#1e1e1e">
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">macOS permissions fix</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Fixed an endless "Splice would like to access files in your Documents folder" prompt loop — the app bundle is now properly signed, so macOS remembers the permission grant</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Releases now publish automatically instead of staying as drafts</span></li>
+          </ul>
+        </div>
+
+        <div class="pt-2 flex items-center gap-4">
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.5.2" class="btn-orange px-4 py-2 text-xs font-mono tracking-wide transition-colors inline-flex items-center gap-2">
+            <i class="bi bi-download"></i> Download v0.5.2
+          </a>
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.5.2" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono transition-colors">View on GitHub →</a>
+        </div>
+      </div>
+    </div>
+
     <!-- v0.5.1 -->
     <div style="border:1px solid #3c3c3c">
       <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.5.1</span>
-          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">June 24, 2026</span>
       </div>
