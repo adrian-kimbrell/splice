@@ -15,6 +15,7 @@
   import { editorActions, dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { showContextMenu } from "../../lib/utils/context-menu";
+  import { clientToRectSpace } from "../../lib/utils/zoom";
   import { lspClient } from "../../lib/lsp/client";
   import type { LspLocation, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
   import { getDiagnosticsForUri } from "../../lib/stores/diagnostics.svelte";
@@ -83,15 +84,9 @@
    * content rect in either engine.
    */
   function adjustClientCoordsForZoom(v: EditorView, coords: { x: number; y: number }) {
-    const zoom = parseFloat(document.documentElement.style.zoom || "1") || 1;
-    if (zoom === 1) return coords;
-    const cd = v.contentDOM as HTMLElement;
-    const ow = cd.offsetWidth;
-    if (!ow) return coords;
-    const rectScale = cd.getBoundingClientRect().width / ow;
-    const factor = rectScale ? zoom / rectScale : zoom;
-    if (factor === 1) return coords;
-    return { x: coords.x / factor, y: coords.y / factor };
+    // CodeMirror hit-tests with clientX/Y against its own getBoundingClientRect,
+    // so feed it the coord in rect space. Zoom-correct at any ui_scale. [[zoom-coords]]
+    return clientToRectSpace(coords.x, coords.y, v.contentDOM as HTMLElement);
   }
 
   function formatDocument(view: EditorView): boolean {
@@ -384,6 +379,8 @@
       if (view) {
         view.dispatch({ effects: langCompartment.reconfigure(lang) });
       }
+    }).catch((err) => {
+      console.error(`[splice] syntax language load failed for ${filePath}:`, err);
     });
   });
 

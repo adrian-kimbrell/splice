@@ -13,6 +13,7 @@
     unregisterPane,
   } from "../../lib/stores/drag.svelte";
   import { isCornerDragActive } from "../../lib/stores/corner-drag.svelte";
+  import { clientToLayoutOffset } from "../../lib/utils/zoom";
   import CornerDragOverlay from "./CornerDragOverlay.svelte";
   import PaneGrid from "./PaneGrid.svelte";
 
@@ -69,14 +70,16 @@
 
     function handleMouseMove(e: MouseEvent) {
       if (!rect || !node || node.type !== "split") return;
+      // Offset in unzoomed layout px, so the ratio is correct at any ui_scale.
+      const offset = clientToLayoutOffset(e.clientX, e.clientY, containerEl!);
       let ratio: number;
       if (node.direction === "horizontal") {
-        ratio = (e.clientX - rect.left) / rect.width;
-        const minRatio = MIN_PX / rect.width;
+        ratio = offset.x / containerEl!.offsetWidth;
+        const minRatio = MIN_PX / containerEl!.offsetWidth;
         ratio = Math.max(minRatio, Math.min(1 - minRatio, ratio));
       } else {
-        ratio = (e.clientY - rect.top) / rect.height;
-        const minRatio = MIN_PX / rect.height;
+        ratio = offset.y / containerEl!.offsetHeight;
+        const minRatio = MIN_PX / containerEl!.offsetHeight;
         ratio = Math.max(minRatio, Math.min(1 - minRatio, ratio));
       }
       node.ratio = ratio;

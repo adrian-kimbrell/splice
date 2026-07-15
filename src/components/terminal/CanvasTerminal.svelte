@@ -35,6 +35,7 @@
   import { keyToBytes } from "../../lib/terminal/keyboard";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { showContextMenu } from "../../lib/utils/context-menu";
+  import { clientToLayoutOffset } from "../../lib/utils/zoom";
   import { savedPrompts } from "../../lib/stores/prompts.svelte";
 
   function parseHexColor(hex: string): [number, number, number] | null {
@@ -206,24 +207,10 @@
    * correct row/col. When zoom is 1 the scale is 1 and this is a no-op.
    */
   function eventToCell(e: MouseEvent | WheelEvent): { col: number; row: number } {
-    const rect = canvasEl!.getBoundingClientRect();
-    // appearance.ui_scale applies CSS `zoom` to the document root. MouseEvent
-    // clientX/Y are reported in zoom-scaled (visual) pixels on every engine, but
-    // the canvas coordinate system and the renderer's cell metrics are in
-    // unzoomed layout pixels. getBoundingClientRect differs by engine: WebKit
-    // (macOS WKWebView) returns layout px (rect.width === offsetWidth), Chromium
-    // returns visual px (rect.width === offsetWidth*zoom). Normalize the canvas
-    // top-left to visual px, subtract from the visual click, then divide by zoom
-    // to land in layout px before mapping to a cell. When zoom is 1 this is a
-    // no-op. See [[zoom-coords]].
-    const zoom = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
-    const rectScaleX = canvasEl!.offsetWidth  ? rect.width  / canvasEl!.offsetWidth  : 1;
-    const rectScaleY = canvasEl!.offsetHeight ? rect.height / canvasEl!.offsetHeight : 1;
-    const visualLeft = rect.left * (zoom / (rectScaleX || 1));
-    const visualTop  = rect.top  * (zoom / (rectScaleY || 1));
-    const layoutX = (e.clientX - visualLeft) / zoom;
-    const layoutY = (e.clientY - visualTop)  / zoom;
-    return renderer!.pixelToCell(layoutX, layoutY);
+    // Layout-px offset within the canvas (zoom-correct at any ui_scale), then map
+    // to a cell via the renderer's layout-px metrics. See [[zoom-coords]].
+    const { x, y } = clientToLayoutOffset(e.clientX, e.clientY, canvasEl!);
+    return renderer!.pixelToCell(x, y);
   }
 
   // Padding applied to the container (must match CSS: 0 8px 4px 8px)
@@ -564,8 +551,11 @@
 
       const mouseMode = (modeFlags >> 3) & 0x3;
 
-      // When mouse protocol is active, forward button press to terminal
-      if (mouseMode > 0) {
+      // When mouse protocol is active, forward button press to terminal — except
+      // right-click (button 2), which always opens Splice's context menu (matches
+      // Terminal.app). Without this, a TUI app in mouse mode (e.g. Claude Code
+      // fullscreen) eats every right-click and the menu never appears.
+      if (mouseMode > 0 && e.button !== 2) {
         let btn = e.button === 0 ? 0 : e.button === 1 ? 1 : 2;
         if (e.shiftKey) btn |= 4;
         if (e.altKey) btn |= 8;
@@ -707,8 +697,8 @@
     const onMouseUp = async (e: MouseEvent) => {
       const mouseMode = (modeFlags >> 3) & 0x3;
 
-      // Mouse protocol: forward button release
-      if (mouseMode > 0) {
+      // Mouse protocol: forward button release (except right-click, see mousedown)
+      if (mouseMode > 0 && e.button !== 2) {
         if (!renderer) return;
         let btn = e.button === 0 ? 0 : e.button === 1 ? 1 : 2;
         if (e.shiftKey) btn |= 4;
@@ -778,26 +768,27 @@
     cleanupFns.push(() => canvasEl!.removeEventListener("mousemove", onCanvasMouseMove));
     cleanupFns.push(() => canvasEl!.removeEventListener("mouseleave", onMouseLeave));
 
-    // Mouse wheel for scrollback — accumulate deltas, flush once per RAF
+    // Mouse wheel — accumulate pixel deltas and flush once per RAF. This throttling
+    // applies to BOTH local scrollback AND mouse-protocol forwarding: a single
+    // trackpad flick fires dozens of tiny momentum `wheel` events on macOS, so
+    // emitting one scroll per event makes a TUI app in mouse mode (e.g. Claude Code
+    // fullscreen) scroll at light speed. Dividing accumulated pixels by cell height
+    // maps a flick to a sane number of lines, matching iTerm/Terminal.app.
+    let wheelForward = false;
+    let wheelCol = 1, wheelRow = 1;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       if (!renderer) return;
 
       const mouseMode = (modeFlags >> 3) & 0x3;
-
-      // When mouse protocol is active, forward wheel events as button 64/65 —
-      // UNLESS the user is holding Shift, which by convention (iTerm, Terminal.app,
-      // Kitty, Alacritty, WezTerm) bypasses mouse mode and uses the terminal's own
-      // scrollback. Without this escape hatch, scrolling up during a TUI app's
-      // continuous redraw (e.g. Claude Code streaming generation) gets eaten by the
-      // app and the user can't read what just scrolled past.
-      if (mouseMode > 0 && !e.shiftKey) {
+      // Shift bypasses mouse mode to reach the terminal's own scrollback (iTerm,
+      // Terminal.app, Kitty, Alacritty, WezTerm convention) — lets the user read
+      // what scrolled past during a TUI app's continuous redraw.
+      wheelForward = mouseMode > 0 && !e.shiftKey;
+      if (wheelForward) {
         const cell = eventToCell(e);
-        const cx = Math.min(Math.max(1, cell.col + 1), 223);
-        const cy = Math.min(Math.max(1, cell.row + 1), 223);
-        const wheelBtn = e.deltaY < 0 ? 64 : 65; // 64=scroll-up, 65=scroll-down
-        sendMouseEvent(wheelBtn, cx, cy, true);
-        return;
+        wheelCol = Math.min(Math.max(1, cell.col + 1), 223);
+        wheelRow = Math.min(Math.max(1, cell.row + 1), 223);
       }
 
       // Reset accumulator on direction change to avoid stickiness
@@ -810,8 +801,12 @@
           scrollRafId = 0;
           const ch = renderer!.cellHeight;
           const lines = Math.trunc(scrollAccum / ch);
-          if (lines !== 0) {
-            scrollAccum -= lines * ch;
+          if (lines === 0) return;
+          scrollAccum -= lines * ch;
+          if (wheelForward) {
+            const wheelBtn = lines < 0 ? 64 : 65; // 64=scroll-up, 65=scroll-down
+            for (let i = 0; i < Math.abs(lines); i++) sendMouseEvent(wheelBtn, wheelCol, wheelRow, true);
+          } else {
             scrollTerminal(terminalId, -lines).catch(console.error);
           }
         });
@@ -863,9 +858,6 @@
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-
-      // When mouse protocol is active, suppress context menu (right-click was forwarded as mouse event)
-      if (((modeFlags >> 3) & 0x3) !== 0) return;
 
       const hasSelection = !!(renderer?.selectionStart && renderer?.selectionEnd);
 

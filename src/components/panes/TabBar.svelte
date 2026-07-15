@@ -8,6 +8,7 @@
   import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
   import { formatRelativeTime, tickingNow } from "../../lib/utils/relative-time.svelte";
   import { positionFixedMenu } from "../../lib/utils/context-menu";
+  import { clientToRectSpace } from "../../lib/utils/zoom";
 
   let reorderIndicatorIndex = $state<number | null>(null);
   let tabBarEl = $state<HTMLDivElement>();
@@ -21,13 +22,15 @@
       return;
     }
 
-    // Compute insertion index from mouse position vs tab rects
+    // Compute insertion index from mouse position vs tab rects. Compare in rect
+    // space so it stays correct under ui_scale zoom. See [[zoom-coords]].
     const tabEls = tabBarEl.querySelectorAll("[role='tab']");
+    const px = clientToRectSpace(e.clientX, e.clientY, tabBarEl).x;
     let insertIdx = tabs.length;
     for (let i = 0; i < tabEls.length; i++) {
       const rect = tabEls[i].getBoundingClientRect();
       const midX = rect.left + rect.width / 2;
-      if (e.clientX < midX) {
+      if (px < midX) {
         insertIdx = i;
         break;
       }
