@@ -1,0 +1,40 @@
+/* Splice site design system — tokens + primitives.
+   Source of truth: docs/index.html <style> block + tailwind.config.js */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+  /* brand */
+  --brand: #00ff88;            /* accent — buttons, labels, icons */
+  --brand-hover: rgba(0,255,136,0.10);
+  --brand-glow: 0 0 40px rgba(0,255,136,0.08);
+
+  /* surfaces (dark, VS Code inspired) */
+  --bg:      #1e1e1e;          /* page */
+  --card:    #252526;          /* cards / sections */
+  --raised:  #2d2d30;          /* pills / raised chips */
+  --border:  #3c3c3c;          /* hairline dividers */
+
+  /* text (zinc scale) */
+  --text:      #f4f4f5;        /* zinc-100 — primary */
+  --text-dim:  #a1a1aa;        /* zinc-400 — body */
+  --text-mute: #71717a;        /* zinc-500 — captions / nav */
+
+  --font-mono: 'JetBrains Mono','Fira Code','Menlo',monospace;
+}
+
+/* primitives */
+.ds-btn        { background: transparent; color: var(--brand); border: 1px solid var(--brand);
+                 font-family: var(--font-mono); letter-spacing: .05em; transition: background .15s; }
+.ds-btn:hover  { background: var(--brand-hover); }
+.ds-btn-ghost  { background: transparent; border: none; color: var(--text-mute);
+                 font-family: var(--font-mono); }
+.ds-btn-ghost:hover { color: var(--text); }
+
+.ds-eyebrow    { font-family: var(--font-mono); font-size: .75rem; color: var(--brand);
+                 letter-spacing: .2em; text-transform: uppercase; }
+
+.ds-pill       { font-family: var(--font-mono); font-size: .75rem; padding: .25rem .5rem;
+                 color: var(--text-dim); background: var(--raised); }
+
+.ds-card       { background: var(--card); border: 1px solid var(--border); }
+.ds-glow       { box-shadow: var(--brand-glow); }

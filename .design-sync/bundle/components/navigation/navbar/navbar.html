@@ -1,0 +1,25 @@
+<!-- @dsCard group="Navigation" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  body{background:#1e1e1e;color:#f4f4f5;font-family:'JetBrains Mono',monospace}
+  .btn{background:transparent;color:#00ff88;border:1px solid #00ff88;letter-spacing:.05em;transition:background .15s}
+  .btn:hover{background:rgba(0,255,136,0.1)}
+  nav a.lnk{transition:color .15s}nav a.lnk:hover{color:#e4e4e7}
+</style></head>
+<body>
+  <header style="border-bottom:1px solid #3c3c3c">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <span class="text-sm font-medium tracking-widest uppercase" style="color:#00ff88">Splice</span>
+      <nav class="flex items-center gap-8 text-sm" style="color:#71717a">
+        <a class="lnk">Workspaces</a>
+        <a class="lnk">Features</a>
+        <a class="lnk">Blog</a>
+        <a class="lnk">Releases</a>
+        <a class="lnk text-xs">GitHub</a>
+        <a class="btn px-4 py-1.5 text-xs">Download</a>
+      </nav>
+    </div>
+  </header>
+</body></html>
