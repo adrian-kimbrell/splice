@@ -193,7 +193,7 @@
     if (!isTauri) return;
     try {
       const { emit } = await import("@tauri-apps/api/event");
-      await emit("settings-changed", JSON.parse(JSON.stringify(settings)));
+      await emit("settings-changed", $state.snapshot(settings));
     } catch (_) {}
   }
 

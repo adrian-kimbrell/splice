@@ -215,7 +215,7 @@ export function debouncedSaveSettings(): void {
     saveTimer = null;
     try {
       const { updateSettings } = await import("../ipc/commands");
-      await updateSettings(JSON.parse(JSON.stringify(settings)));
+      await updateSettings($state.snapshot(settings));
     } catch (e) {
       console.error("Failed to save settings:", e);
     }
@@ -229,6 +229,6 @@ export function flushSettingsSave(): void {
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   if (!isTauri || !settingsInitPromise) return;
   import("../ipc/commands").then(({ updateSettings }) =>
-    updateSettings(JSON.parse(JSON.stringify(settings)))
+    updateSettings($state.snapshot(settings))
   ).catch((e) => console.error("Failed to flush settings:", e));
 }

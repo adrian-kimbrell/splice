@@ -26,7 +26,7 @@
    * EditorPane, TerminalPane, or DiffPane based on PaneConfig.kind. All file/tab
    * callbacks (open, close, save, dirty-check) are defined here and passed as props.
    */
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import LeftSidebar from "./sidebar/LeftSidebar.svelte";
   import RightSidebar from "./sidebar/RightSidebar.svelte";
   import EditorPane from "./panes/EditorPane.svelte";
@@ -619,6 +619,7 @@
     let unlistenSession: (() => void) | null = null;
     let unlistenOpenPath: (() => void) | null = null;
     let unlistenClaudeStatus: (() => void) | null = null;
+    let treeChangeTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Register the Claude session listener BEFORE restoring workspaces so we
     // never miss a session event from a restored terminal's Claude process.
@@ -859,7 +860,6 @@
       }).then((fn) => { unlistenFileChanged = fn; });
 
       // Listen for directory tree changes (new/deleted/renamed files)
-      let treeChangeTimer: ReturnType<typeof setTimeout> | null = null;
       listen<string>("tree:changed", (event) => {
         if (treeChangeTimer) clearTimeout(treeChangeTimer);
         treeChangeTimer = setTimeout(async () => {
@@ -983,7 +983,9 @@
       handleTabDrop(data.filePath, data.sourcePaneId, targetPaneId, direction, side, zone);
     });
 
-    return () => {
+    // onMount ignores a cleanup returned from an async callback (it sees a
+    // Promise, not a function) — register teardown via onDestroy instead.
+    mountCleanup = () => {
       stopKeybindings();
       setDropCallback(null);
       stopGitPolling();
@@ -1002,6 +1004,9 @@
       unlistenClaudeStatus?.();
     };
   });
+
+  let mountCleanup: (() => void) | null = null;
+  onDestroy(() => mountCleanup?.());
 </script>
 
 <svelte:window onfocus={handleWindowFocus} />

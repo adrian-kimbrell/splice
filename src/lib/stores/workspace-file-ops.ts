@@ -71,7 +71,7 @@ export function openFileInWorkspace(ws: Workspace, file: OpenFile, targetPaneId?
     if (ws.activePaneId && ws.panes[ws.activePaneId]?.kind === "editor") {
       paneId = ws.activePaneId;
     } else {
-      paneId = findFirstEditorPaneId(ws);
+      paneId = findFirstEditorPaneId(ws) ?? undefined;
     }
   }
 

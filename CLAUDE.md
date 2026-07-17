@@ -111,7 +111,7 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 | `ui.svelte.ts` | Transient UI state (sidebar visibility, zen mode) | App.svelte, TitleBar, sidebars |
 | `drag.svelte.ts` | Tab/pane drag-and-drop | PaneGrid, TabBar, App.svelte (callback) |
 | `attention.svelte.ts` | Claude notification state | TitleBar, TerminalTitlebar |
-| `diagnostics.svelte.ts` | LSP diagnostic aggregation | LeftSidebar (problems panel), StatusBar |
+| `diagnostics.svelte.ts` | LSP diagnostic aggregation | LeftSidebar (problems panel) |
 | `files.svelte.ts` | FileEntry/OpenFile type definitions | workspace.svelte.ts, components |
 
 ### Rust Command Modules (src-tauri/src/commands/)
