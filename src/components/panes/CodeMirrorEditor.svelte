@@ -17,7 +17,7 @@
   import { showContextMenu } from "../../lib/utils/context-menu";
   import { clientToRectSpace } from "../../lib/utils/zoom";
   import { lspClient } from "../../lib/lsp/client";
-  import type { LspLocation, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
+  import type { LspLocation, LspPos, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
   import { getDiagnosticsForUri } from "../../lib/stores/diagnostics.svelte";
   import { pushToast } from "../../lib/stores/toasts.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
@@ -107,7 +107,7 @@
     }
 
     const changes = indentRange(state, 0, state.doc.length);
-    if (changes) view.dispatch(changes);
+    if (!changes.empty) view.dispatch({ changes });
     return true;
   }
 
@@ -123,12 +123,23 @@
     return workspaceManager.activeWorkspace?.rootPath ?? "";
   }
 
+  // Jump this editor's view to a 0-based LSP line/character.
+  function jumpTo(line0: number, char0 = 0): void {
+    if (!view || line0 < 0 || line0 >= view.state.doc.lines) return;
+    const lineInfo = view.state.doc.line(line0 + 1);
+    const pos = Math.min(lineInfo.from + char0, lineInfo.to);
+    view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+    view.focus();
+  }
+
   async function navigateToLocation(loc: LspLocation): Promise<void> {
     const path = lspClient.uriToPath(loc.uri);
     const targetLine = loc.range.start.line + 1;
     if (path === filePath) {
-      // Same file — just jump, no need to read from disk
-      dispatchEditorAction("goto-line-number", targetLine);
+      // Same file — jump directly via this pane's view. Routing through the
+      // global editorActions store would be gated on this being the active pane,
+      // but a right-click never activates the pane, so the jump would be dropped.
+      jumpTo(loc.range.start.line, loc.range.start.character);
       return;
     }
     // Cross-file: read content from disk so the editor opens correctly
@@ -139,7 +150,10 @@
   }
 
   async function navigateOrShowPicker(locs: LspLocation[]): Promise<void> {
-    if (!locs.length) return;
+    if (!locs.length) {
+      pushToast("No definition found", "info");
+      return;
+    }
     if (locs.length === 1) {
       navigateToLocation(locs[0]);
       return;

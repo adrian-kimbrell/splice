@@ -266,7 +266,12 @@ export class LspClient {
     if (!langId) return [];
     try {
       const result = await withTimeout(lspRequest(langId, "textDocument/declaration", this._textDocPos(filePath, line, char)), 5000, "gotoDeclaration");
-      return this._normalizeLocations(result);
+      const locs = this._normalizeLocations(result);
+      // Most servers (tsserver, pyright, rust-analyzer) don't implement
+      // textDocument/declaration and return null. Fall back to definition so the
+      // command isn't a silent no-op — matches how VS Code degrades.
+      if (locs.length) return locs;
+      return this.gotoDefinition(filePath, line, char);
     } catch (err) {
       if (err instanceof Error && err.message.includes("timed out")) {
         this.runningLanguages.delete(langId);
