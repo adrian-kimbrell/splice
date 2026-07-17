@@ -255,7 +255,11 @@ impl PtySession {
                 Ok(emu) => emu,
                 Err(_) => return, // scroll is non-critical
             };
-            emu.grid.active().scrollback.len() as i32
+            // Scrollback already composited into the view by the bottom-pinning
+            // shift isn't scrollable-to — clamping past it would add dead wheel
+            // turns at the top of history.
+            (emu.grid.active().scrollback.len() - crate::terminal::emitter::view_shift(&emu.grid))
+                as i32
         };
         let old = self.scroll_offset.load(Ordering::Relaxed);
         let new_val = (old + delta).clamp(0, max);
@@ -270,7 +274,8 @@ impl PtySession {
                 Ok(emu) => emu,
                 Err(_) => return,
             };
-            emu.grid.active().scrollback.len() as i32
+            (emu.grid.active().scrollback.len() - crate::terminal::emitter::view_shift(&emu.grid))
+                as i32
         };
         self.scroll_offset.store(offset.clamp(0, max), Ordering::Relaxed);
         self.version.fetch_add(1, Ordering::Relaxed);
