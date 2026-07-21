@@ -15,7 +15,8 @@
   import { attentionStore } from '../../lib/stores/attention.svelte';
   import { workspaceManager } from '../../lib/stores/workspace.svelte';
   import { ui } from '../../lib/stores/ui.svelte';
-  import { openSettingsWindow } from '../../lib/utils/settings-window';
+  import { docZoom } from '../../lib/utils/zoom';
+  import SettingsPane from '../panes/SettingsPane.svelte';
 
 
   const notifList = $derived(
@@ -32,6 +33,31 @@
   const worstColor = $derived(worstType === 'permission' ? 'var(--ansi-red)' : 'var(--ansi-yellow)');
 
   let notifExpanded = $state(false);
+
+  // Settings drawer height (draggable). Persists for the app session.
+  let drawerHeight = $state(480);
+  let drawerResizing = $state(false);
+
+  function startDrawerResize(e: MouseEvent) {
+    e.preventDefault();
+    drawerResizing = true;
+    const startY = e.clientY;
+    const startH = drawerHeight;
+    const zoom = docZoom();
+    const maxH = Math.round(window.innerHeight / zoom * 0.9);
+    function onMove(ev: MouseEvent) {
+      // clientY is visual px; divide by zoom so the drag tracks 1:1 at any ui_scale
+      const dy = (ev.clientY - startY) / zoom;
+      drawerHeight = Math.max(240, Math.min(maxH, startH + dy));
+    }
+    function onUp() {
+      drawerResizing = false;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
 
   function terminalTitle(terminalId: number): string {
     for (const ws of Object.values(workspaceManager.workspaces)) {
@@ -73,7 +99,8 @@
   }
 </script>
 
-<div class="title-bar">
+<div class="titlebar-shell">
+<div class="title-bar" class:title-bar--drawer-open={ui.settingsDrawerOpen}>
   <!-- Drag region fills remaining space -->
   <div class="title-center" data-tauri-drag-region></div>
 
@@ -131,17 +158,51 @@
     <button class="title-btn" title="New Terminal" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
       <i class="bi bi-terminal"></i>
     </button>
-    <button class="title-btn" title="Settings" onclick={openSettingsWindow}>
+    <button
+      class="title-btn title-btn--settings"
+      class:title-btn--settings-open={ui.settingsDrawerOpen}
+      title="Settings"
+      onclick={() => ui.settingsDrawerOpen = !ui.settingsDrawerOpen}
+    >
       <i class="bi bi-gear"></i>
     </button>
   </div>
 </div>
 
+<!-- Settings drawer — unfurls from beneath the title bar, pushing the panes down -->
+<div
+  class="settings-drawer"
+  class:settings-drawer--open={ui.settingsDrawerOpen}
+  class:resizing={drawerResizing}
+  style="--drawer-h: {drawerHeight}px"
+  aria-hidden={!ui.settingsDrawerOpen}
+>
+  <div class="settings-drawer-inner">
+    <SettingsPane />
+  </div>
+  <div
+    class="settings-drawer-resize"
+    onmousedown={startDrawerResize}
+    role="separator"
+    aria-orientation="horizontal"
+    aria-label="Resize settings"
+  ></div>
+</div>
+</div>
+
 <style>
+  /* The shell owns the 6px gap to the panes and stacks bar + drawer vertically,
+     so opening the drawer adds real height and compresses the panes below. */
+  .titlebar-shell {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    margin-bottom: 6px;
+  }
+
   .title-bar {
     flex-shrink: 0;
     height: 32px;
-    margin-bottom: 6px;
     background: var(--bg-sidebar);
     border-radius: var(--radius-lg);
     border: 1px solid color-mix(in srgb, var(--text-dim) 22%, transparent);
@@ -150,7 +211,63 @@
     flex-direction: row;
     align-items: stretch;
     overflow: hidden;
-    transition: height 150ms ease;
+    transition: border-radius 200ms var(--ease-default),
+                border-color 200ms var(--ease-default);
+  }
+  /* When the drawer is open the bar squares off its bottom so the two read
+     as one continuous surface unfurling downward. */
+  .title-bar--drawer-open {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom-color: transparent;
+  }
+
+  /* ── Settings drawer ───────────────────────────────────── */
+  /* In-flow: its height is real, so growing it pushes the panes down. Bar and
+     drawer share bg + squared adjoining corners so they read as one surface. */
+  .settings-drawer {
+    position: relative;
+    flex-shrink: 0;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
+    margin-top: -1px; /* overlap the bar's bottom border → seamless join */
+    background: var(--bg-sidebar);
+    border: 1px solid color-mix(in srgb, var(--text-dim) 22%, transparent);
+    border-top: none;
+    border-bottom-left-radius: var(--radius-lg);
+    border-bottom-right-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    transition: max-height 300ms var(--ease-default),
+                opacity 200ms ease;
+  }
+  .settings-drawer.resizing {
+    transition: none; /* track the cursor 1:1 while dragging */
+  }
+  .settings-drawer--open {
+    max-height: var(--drawer-h);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .settings-drawer-inner {
+    height: calc(var(--drawer-h) - 7px); /* leave room for the resize handle */
+  }
+
+  /* Resize handle pinned to the drawer's bottom edge */
+  .settings-drawer-resize {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 7px;
+    cursor: ns-resize;
+    background: transparent;
+    transition: background 120ms ease;
+  }
+  .settings-drawer-resize:hover,
+  .settings-drawer.resizing .settings-drawer-resize {
+    background: var(--accent-muted);
   }
 
 
@@ -297,6 +414,20 @@
     font-size: var(--ui-md);
   }
   .title-btn:hover { color: var(--text); background: var(--bg-hover); }
+
+  /* Settings gear — rotates and lights up when the drawer is open */
+  .title-btn--settings .bi-gear {
+    display: block;
+    transition: transform 420ms var(--ease-default), color 200ms ease;
+  }
+  .title-btn--settings-open {
+    color: var(--accent);
+    background: var(--accent-subtle);
+  }
+  .title-btn--settings-open .bi-gear {
+    transform: rotate(150deg);
+    color: var(--accent);
+  }
 
   @keyframes attn-pulse {
     0%, 100% { opacity: 1; }

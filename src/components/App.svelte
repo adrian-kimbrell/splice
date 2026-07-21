@@ -39,7 +39,6 @@
   import SendToClaudeModal from "./overlays/SendToClaudeModal.svelte";
   import AddPromptModal from "./overlays/AddPromptModal.svelte";
   import TitleBar from "./topbar/TitleBar.svelte";
-  import { openSettingsWindow } from "../lib/utils/settings-window";
   import { showContextMenu } from "../lib/utils/context-menu";
   import { openNewWindow } from "../lib/utils/new-window";
   import { ui } from "../lib/stores/ui.svelte";
@@ -711,7 +710,7 @@
               handleCloseWorkspace();
               break;
             case "settings":
-              openSettingsWindow();
+              ui.settingsDrawerOpen = true;
               break;
             case "find":
               dispatchEditorAction("find");
@@ -1248,7 +1247,7 @@
 
           <fieldset class="welcome-section">
             <legend class="welcome-legend">Configure</legend>
-            <button class="welcome-item" onclick={openSettingsWindow}>
+            <button class="welcome-item" onclick={() => ui.settingsDrawerOpen = true}>
               <i class="bi bi-gear"></i>
               <span>Open Settings</span>
               <kbd>Cmd ,</kbd>

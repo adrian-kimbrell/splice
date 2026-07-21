@@ -220,23 +220,34 @@
     border-radius: var(--radius-lg);
     border: 1px solid color-mix(in srgb, var(--text-dim) 22%, transparent);
     transition: border-color var(--duration-slow) var(--ease-default),
-                outline-color var(--duration-slow) var(--ease-default);
+                outline-color var(--duration-slow) var(--ease-default),
+                box-shadow var(--duration-slow) var(--ease-default);
     outline: 2px solid transparent;
     outline-offset: -2px;
   }
   .pane-leaf--active {
     border-color: var(--accent-border);
     outline-color: var(--accent-subtle);
+    box-shadow: var(--accent-glow);
   }
 
   .pane-splitter {
     background: transparent;
+    position: relative;
+  }
+  /* Indicator is an inset rounded pill so its ends round clear of the adjacent
+     panes' corners — matching how the settings drawer handle sits in its window. */
+  .pane-splitter::after {
+    content: '';
+    position: absolute;
+    border-radius: 999px;
+    background: transparent;
     transition: background var(--duration-slow) var(--ease-default);
   }
-  .pane-splitter:hover {
-    background: var(--overlay-md);
-  }
-  .pane-splitter--dragging {
-    background: color-mix(in srgb, var(--accent) 40%, transparent);
+  .pane-splitter.cursor-col-resize::after { inset: 8px 1px; }  /* vertical bar */
+  .pane-splitter.cursor-row-resize::after { inset: 1px 8px; }  /* horizontal bar */
+  .pane-splitter:hover::after,
+  .pane-splitter--dragging::after {
+    background: var(--accent-muted);
   }
 </style>

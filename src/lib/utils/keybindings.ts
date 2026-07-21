@@ -15,7 +15,6 @@
 import { ui } from "../stores/ui.svelte";
 import { workspaceManager } from "../stores/workspace.svelte";
 import { settings, debouncedSaveSettings } from "../stores/settings.svelte";
-import { openSettingsWindow } from "./settings-window";
 import type { LayoutNode } from "../stores/layout.svelte";
 
 function isInsideCodeMirror(el: Element | null): boolean {
@@ -329,7 +328,9 @@ export function initKeybindings(): () => void {
 
     // Escape: Close overlays, exit zen mode, then unzoom
     if (e.key === "Escape") {
-      if (ui.commandPaletteOpen) {
+      if (ui.settingsDrawerOpen) {
+        ui.settingsDrawerOpen = false;
+      } else if (ui.commandPaletteOpen) {
         ui.commandPaletteOpen = false;
       } else if (ui.zenMode) {
         exitZenMode();
@@ -354,10 +355,10 @@ export function initKeybindings(): () => void {
       ui.explorerVisible = !ui.explorerVisible;
     }
 
-    // Cmd/Ctrl + ,: Open user settings window
+    // Cmd/Ctrl + ,: Toggle the settings drawer
     if (mod && !e.shiftKey && e.code === "Comma") {
       e.preventDefault();
-      openSettingsWindow();
+      ui.settingsDrawerOpen = !ui.settingsDrawerOpen;
     }
 
     // Cmd/Ctrl + Shift + ,: Open workspace settings (.splice/settings.json)
