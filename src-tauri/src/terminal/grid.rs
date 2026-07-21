@@ -886,7 +886,7 @@ mod tests {
     #[test]
     fn insert_lines_shifts_existing_content_down() {
         let mut buf = make_buf(4, 5);
-        for (i, ch) in [b'A', b'B', b'C', b'D', b'E'].iter().enumerate() {
+        for (i, ch) in b"ABCDE".iter().enumerate() {
             buf.lines[i].cells[0].ch = *ch as char;
         }
         buf.scroll_top = 0;
@@ -904,7 +904,7 @@ mod tests {
     #[test]
     fn delete_lines_shifts_content_up() {
         let mut buf = make_buf(4, 5);
-        for (i, ch) in [b'A', b'B', b'C', b'D', b'E'].iter().enumerate() {
+        for (i, ch) in b"ABCDE".iter().enumerate() {
             buf.lines[i].cells[0].ch = *ch as char;
         }
         buf.scroll_top = 0;
@@ -920,7 +920,7 @@ mod tests {
     #[test]
     fn insert_lines_outside_scroll_region_is_noop() {
         let mut buf = make_buf(4, 5);
-        for (i, ch) in [b'A', b'B', b'C', b'D', b'E'].iter().enumerate() {
+        for (i, ch) in b"ABCDE".iter().enumerate() {
             buf.lines[i].cells[0].ch = *ch as char;
         }
         buf.scroll_top = 2;
