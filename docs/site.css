@@ -33,6 +33,7 @@ a:hover{color:#b6ffdd}
 
 /* layout helpers */
 .wrap{max-width:1200px;margin:0 auto;padding:0 28px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 /* ── NAV ─────────────────────────────────────────────── */
 .nav{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);background:rgba(11,12,14,.72);border-bottom:1px solid #1b1e24}
