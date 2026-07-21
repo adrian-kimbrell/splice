@@ -1,0 +1,97 @@
+/* ============================================================
+   Splice site — shared v2 theme layer (subpages)
+   Terminal-green near-black. Pairs with Tailwind (layout) +
+   Space Grotesk (display) + JetBrains Mono (mono) + Bootstrap Icons.
+   Loaded AFTER tailwind.css so these win.
+   ============================================================ */
+
+:root {
+  --bg:#0b0c0e; --bg-2:#0d0f12; --card:#101216; --raised:#181b20; --code:#08090b;
+  --border:#1f232a; --border-soft:#16181d; --border-strong:#2b2f37;
+  --text-hi:#f6f7f8; --text:#c3c5cb; --text-mut:#9a9da5; --text-dim:#83868f; --text-faint:#6a6d76;
+  --accent:#00ff88; --accent-soft:#8affca; --accent-cyan:#00e0ff;
+  --accent-tint:rgba(0,255,136,.09); --accent-line:rgba(0,255,136,.28);
+  --font-display:'Space Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
+}
+
+/* base — override Tailwind defaults */
+body{background:var(--bg) !important;color:var(--text);font-family:var(--font-display);-webkit-font-smoothing:antialiased}
+.font-mono,code,pre,kbd{font-family:var(--font-mono)}
+a{color:var(--accent-soft);text-decoration:none;transition:color .18s}
+a:hover{color:#b6ffdd}
+::selection{background:var(--accent);color:#08130d}
+
+/* legacy helper classes recolored to v2 (pages still reference these) */
+.text-orange{color:var(--accent) !important}
+.border-orange{border-color:var(--accent) !important}
+.bg-card{background:var(--card) !important}
+.bg-raised{background:var(--raised) !important}
+.border-dim{border-color:var(--border) !important}
+.btn-orange{background:transparent;color:var(--accent);border:1px solid var(--accent-line);transition:background .18s}
+.btn-orange:hover{background:var(--accent-tint)}
+
+/* layout helpers */
+.wrap{max-width:1200px;margin:0 auto;padding:0 28px}
+
+/* ── NAV ─────────────────────────────────────────────── */
+.nav{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);background:rgba(11,12,14,.72);border-bottom:1px solid #1b1e24}
+.nav-inner{max-width:1200px;margin:0 auto;padding:15px 28px;display:flex;align-items:center;gap:28px}
+.brand{display:flex;align-items:center;gap:9px;color:inherit}
+.brand img{width:30px;height:30px;filter:brightness(0) invert(1)}
+.brand span{font:600 13px var(--font-mono);letter-spacing:.2em;text-transform:uppercase;color:var(--text-hi)}
+.nav-links{display:flex;align-items:center;gap:22px;font-size:13.5px}
+.nav-link{color:var(--text-dim);transition:color .18s}
+.nav-link:hover{color:#e6e8ec}
+.nav-link.active{color:var(--text-hi)}
+.nav-ico{font:400 12.5px var(--font-mono);color:var(--text-dim);display:inline-flex;align-items:center;gap:6px}
+.nav-ico:hover{color:#e6e8ec}
+
+/* ── BUTTONS ─────────────────────────────────────────── */
+.btn{font:500 14px var(--font-mono);padding:12px 24px;border-radius:10px;display:inline-flex;align-items:center;gap:9px;cursor:pointer;transition:.18s;border:1px solid transparent}
+.btn-primary{color:#08130d;background:var(--accent);box-shadow:0 0 30px -6px rgba(0,255,136,.55)}
+.btn-primary:hover{background:#4dffab;color:#08130d}
+.btn-ghost{color:#dfe1e5;border-color:var(--border-strong)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent-soft)}
+.btn-sm{padding:8px 16px;font-size:12.5px;border-radius:8px}
+
+/* ── TYPOGRAPHY / PAGE HEADERS ───────────────────────── */
+.eyebrow{font:500 12px var(--font-mono);color:var(--accent);letter-spacing:.16em;text-transform:uppercase}
+.page-title{font-size:clamp(40px,6vw,64px);font-weight:600;letter-spacing:-.03em;line-height:1.03;color:var(--text-hi);margin:0}
+.lede{font-size:19px;line-height:1.6;color:var(--text-mut)}
+
+/* ── CARDS ───────────────────────────────────────────── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:13px;transition:border-color .2s,transform .2s}
+.card.lift:hover{border-color:var(--accent-line);transform:translateY(-2px)}
+.card.hi:hover{border-color:rgba(0,255,136,.3)}
+
+/* ── PROSE (blog posts, architecture doc) ────────────── */
+.prose{color:var(--text-mut);font-size:16px;line-height:1.75}
+.prose h2{font-size:26px;font-weight:600;letter-spacing:-.02em;color:var(--text-hi);margin:44px 0 14px;line-height:1.2}
+.prose h3{font-size:18px;font-weight:600;color:var(--text-hi);margin:30px 0 10px}
+.prose p{margin:0 0 16px}
+.prose a{color:var(--accent-soft);text-decoration:underline;text-decoration-color:var(--accent-line);text-underline-offset:3px}
+.prose ul,.prose ol{margin:0 0 16px;padding-left:22px}
+.prose li{margin:6px 0}
+.prose strong{color:var(--text);font-weight:600}
+.prose code{font-size:.88em;color:var(--accent-soft);background:var(--raised);border:1px solid var(--border);border-radius:5px;padding:1px 6px}
+.prose pre{background:var(--code);border:1px solid #1a1d22;border-radius:11px;padding:16px 18px;overflow-x:auto;margin:0 0 20px;line-height:1.6}
+.prose pre code{font-size:12.5px;color:#c3c5cb;background:none;border:none;padding:0}
+.prose table{width:100%;border-collapse:collapse;margin:0 0 20px;font-size:14px}
+.prose th,.prose td{text-align:left;padding:9px 12px;border:1px solid var(--border)}
+.prose th{background:var(--raised);color:var(--text-hi);font-weight:600}
+.prose blockquote{border-left:2px solid var(--accent-line);margin:0 0 20px;padding:4px 0 4px 18px;color:var(--text-dim)}
+
+/* ── FOOTER ──────────────────────────────────────────── */
+.site-footer{border-top:1px solid var(--border-soft);background:#0a0b0d}
+.foot-inner{padding:44px 28px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:18px}
+.foot-brand{display:flex;align-items:center;gap:10px;font:600 12px var(--font-mono);letter-spacing:.2em;text-transform:uppercase;color:var(--text-hi)}
+.foot-brand img{width:26px;height:26px;filter:brightness(0) invert(1)}
+.foot-tag{font:400 12px var(--font-mono);color:var(--text-faint)}
+.foot-links{display:flex;gap:20px;font-size:13px}
+
+@media (prefers-reduced-motion:reduce){*{animation:none !important}}
+@media (max-width:820px){
+  .nav-links{display:none}
+  .foot-inner{flex-direction:column;align-items:flex-start;gap:14px}
+}

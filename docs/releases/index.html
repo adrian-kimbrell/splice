@@ -9,6 +9,7 @@
   <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="../apple-touch-icon.svg" />
   <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#0b0c0e" />
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
@@ -43,65 +44,49 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
   <link rel="stylesheet" href="../tailwind.css">
-  <style>
-    :root { --accent: #00ff88; }
-    body { background: #1e1e1e; }
-    .btn-orange { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
-    .btn-orange:hover { background: rgba(0,255,136,0.1); }
-    .text-orange { color: #00ff88; }
-    .border-orange { border-color: #00ff88; }
-    .bg-card { background: #252526; }
-    .bg-raised { background: #2d2d30; }
-    .border-dim { border-color: #3c3c3c; }
-    body { opacity: 0; animation: fadein 0.15s ease forwards; }
-    @keyframes fadein { to { opacity: 1; } }
-  </style>
+  <link rel="stylesheet" href="../site.css">
 </head>
-<body class="text-zinc-100 antialiased" style="background:#1e1e1e">
+<body class="antialiased">
 
   <!-- Nav -->
-  <header style="border-bottom:1px solid #3c3c3c">
-    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2">
-        <img src="../logo.png" alt="Splice" class="w-9 h-9" style="filter:brightness(0) invert(1)" />
-        <span class="font-mono text-sm font-medium tracking-widest uppercase text-orange">Splice</span>
-      </a>
-      <nav class="flex items-center gap-8 text-sm text-zinc-500">
-        <a href="/" class="hover:text-zinc-200 transition-colors">Home</a>
-        <a href="/blog" class="hover:text-zinc-200 transition-colors">Blog</a>
-        <a href="/releases" class="text-zinc-200 transition-colors">Releases</a>
-        <a href="/architecture" class="hover:text-zinc-200 transition-colors">Architecture</a>
-        <a href="/themes" class="hover:text-zinc-200 transition-colors">Themes</a>
-        <a href="/experimental" class="hover:text-zinc-200 transition-colors">Experimental</a>
-        <a href="https://github.com/adrian-kimbrell/splice" class="hover:text-zinc-200 transition-colors font-mono text-xs">GitHub</a>
-        <a href="/#download" class="btn-orange text-white px-4 py-1.5 text-xs font-mono tracking-wide transition-colors">Download</a>
-      </nav>
-    </div>
-  </header>
+  <header class="nav"><div class="nav-inner">
+    <a class="brand" href="/"><img src="../logo.png" alt="Splice"><span>Splice</span></a>
+    <nav class="nav-links">
+      <a class="nav-link" href="/">Home</a>
+      <a class="nav-link" href="/blog">Blog</a>
+      <a class="nav-link active" href="/releases">Releases</a>
+      <a class="nav-link" href="/architecture">Architecture</a>
+      <a class="nav-link" href="/themes">Themes</a>
+      <a class="nav-link" href="/experimental">Experimental</a>
+    </nav>
+    <span style="flex:1"></span>
+    <a class="nav-ico" href="https://github.com/adrian-kimbrell/splice"><i class="bi bi-github"></i> Star</a>
+    <a class="btn btn-primary btn-sm" href="/#download">Download</a>
+  </div></header>
 
   <!-- Page header -->
-  <section class="max-w-6xl mx-auto px-6 py-28" style="border-bottom:1px solid #3c3c3c">
-    <p class="font-mono text-xs text-orange tracking-widest uppercase mb-6">Changelog</p>
-    <h1 class="text-5xl font-bold tracking-tight text-white mb-6">Releases</h1>
-    <p class="text-zinc-400 text-xl max-w-xl leading-relaxed">Every release, what changed, and why. Full source and assets on <a href="https://github.com/adrian-kimbrell/splice/releases" class="text-orange hover:underline">GitHub Releases</a>.</p>
+  <section class="wrap" style="padding-top:96px;padding-bottom:56px;border-bottom:1px solid var(--border-soft)">
+    <p class="eyebrow" style="margin-bottom:20px">Changelog</p>
+    <h1 class="page-title" style="margin-bottom:20px">Releases</h1>
+    <p class="lede" style="max-width:560px">Every release, what changed, and why. Full source and assets on <a href="https://github.com/adrian-kimbrell/splice/releases" class="text-orange hover:underline">GitHub Releases</a>.</p>
   </section>
 
   <!-- Release list -->
   <section class="max-w-6xl mx-auto px-6 py-16 space-y-12">
 
     <!-- v0.5.5 -->
-    <div style="border:1px solid #3c3c3c">
-      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.5.5</span>
           <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">July 15, 2026</span>
       </div>
-      <div class="p-6 space-y-6" style="background:#1e1e1e">
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
 
         <div>
           <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Claude fullscreen mode</p>
@@ -136,14 +121,14 @@
     </div>
 
     <!-- v0.5.4 -->
-    <div style="border:1px solid #3c3c3c">
-      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.5.4</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">June 30, 2026</span>
       </div>
-      <div class="p-6 space-y-6" style="background:#1e1e1e">
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
 
         <div>
           <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Claude session HUD</p>
@@ -171,14 +156,14 @@
     </div>
 
     <!-- v0.5.3 -->
-    <div style="border:1px solid #3c3c3c">
-      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.5.3</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">June 28, 2026</span>
       </div>
-      <div class="p-6 space-y-6" style="background:#1e1e1e">
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
 
         <div>
           <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">UI scale positioning</p>
@@ -206,14 +191,14 @@
     </div>
 
     <!-- v0.5.2 -->
-    <div style="border:1px solid #3c3c3c">
-      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.5.2</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">June 28, 2026</span>
       </div>
-      <div class="p-6 space-y-6" style="background:#1e1e1e">
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
 
         <div>
           <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">macOS permissions fix</p>
@@ -233,14 +218,14 @@
     </div>
 
     <!-- v0.5.1 -->
-    <div style="border:1px solid #3c3c3c">
-      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.5.1</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">June 24, 2026</span>
       </div>
-      <div class="p-6 space-y-6" style="background:#1e1e1e">
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
 
         <div>
           <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Open from Finder</p>
@@ -275,14 +260,14 @@
     </div>
 
     <!-- v0.3.0 -->
-    <div style="border:1px solid #3c3c3c">
-      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.3.0</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">April 14, 2026</span>
       </div>
-      <div class="p-6 space-y-6" style="background:#1e1e1e">
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
 
         <div>
           <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Image file viewer</p>
@@ -325,14 +310,14 @@
     </div>
 
     <!-- v0.2.0 -->
-    <div style="border:1px solid #3c3c3c">
-      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.2.0</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">March 25, 2026</span>
       </div>
-      <div class="p-6 space-y-6" style="background:#1e1e1e">
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
 
         <div>
           <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Terminal fixes</p>
@@ -368,15 +353,15 @@
     </div>
 
     <!-- v0.1.0 -->
-    <div style="border:1px solid #3c3c3c">
-      <div class="px-6 py-4 flex items-center justify-between" style="background:#252526;border-bottom:1px solid #3c3c3c">
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.1.0</span>
-          <span class="font-mono text-xs px-2 py-0.5 text-zinc-500" style="border:1px solid #3c3c3c">Initial release</span>
+          <span class="font-mono text-xs px-2 py-0.5 text-zinc-500" style="border:1px solid #1f232a">Initial release</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">March 19, 2026</span>
       </div>
-      <div class="p-6 space-y-6" style="background:#1e1e1e">
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
 
         <div>
           <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Shipped</p>
@@ -406,10 +391,11 @@
   </section>
 
   <!-- Footer -->
-  <footer class="max-w-6xl mx-auto px-6 py-10 flex items-center justify-between text-xs text-zinc-600 font-mono" style="border-top:1px solid #3c3c3c">
-    <a href="/" class="tracking-widest uppercase text-orange">Splice</a>
-    <span>One window for all your work</span>
-  </footer>
+  <footer class="site-footer"><div class="foot-inner wrap">
+    <div class="foot-brand"><img src="../logo.png" alt="Splice"><span>Splice</span></div>
+    <div class="foot-tag">The terminal workspace for AI-assisted development · macOS · MIT</div>
+    <div class="foot-links"><a href="https://github.com/adrian-kimbrell/splice">GitHub</a><a href="/releases">Releases</a><a href="/blog">Blog</a></div>
+  </div></footer>
 
   <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
   <script defer src="/_vercel/insights/script.js"></script>
