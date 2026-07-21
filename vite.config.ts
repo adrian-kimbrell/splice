@@ -13,6 +13,32 @@ export default defineConfig({
     },
   })],
   clearScreen: false,
+  // CodeMirror ships several packages that MUST be singletons — the editor core is
+  // imported statically while language packages (@codemirror/lang-*) are imported
+  // dynamically. Without dedupe + prebundling, Vite/Rollup can hand the dynamic
+  // chunks a second copy of @codemirror/state and @lezer/highlight, so the parser's
+  // highlight `tags` differ by identity from the ones HighlightStyle matches against
+  // → zero matches → all syntax highlighting silently renders monochrome.
+  resolve: {
+    dedupe: [
+      "@codemirror/state",
+      "@codemirror/view",
+      "@codemirror/language",
+      "@lezer/common",
+      "@lezer/highlight",
+    ],
+  },
+  optimizeDeps: {
+    include: [
+      "@codemirror/lang-javascript",
+      "@codemirror/lang-html",
+      "@codemirror/lang-css",
+      "@codemirror/lang-json",
+      "@codemirror/lang-rust",
+      "@codemirror/lang-python",
+      "@codemirror/lang-markdown",
+    ],
+  },
   build: {
     rollupOptions: {
       input: {

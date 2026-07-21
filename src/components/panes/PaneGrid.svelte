@@ -13,6 +13,7 @@
     unregisterPane,
   } from "../../lib/stores/drag.svelte";
   import { isCornerDragActive } from "../../lib/stores/corner-drag.svelte";
+  import { clientToLayoutOffset } from "../../lib/utils/zoom";
   import CornerDragOverlay from "./CornerDragOverlay.svelte";
   import PaneGrid from "./PaneGrid.svelte";
 
@@ -69,14 +70,16 @@
 
     function handleMouseMove(e: MouseEvent) {
       if (!rect || !node || node.type !== "split") return;
+      // Offset in unzoomed layout px, so the ratio is correct at any ui_scale.
+      const offset = clientToLayoutOffset(e.clientX, e.clientY, containerEl!);
       let ratio: number;
       if (node.direction === "horizontal") {
-        ratio = (e.clientX - rect.left) / rect.width;
-        const minRatio = MIN_PX / rect.width;
+        ratio = offset.x / containerEl!.offsetWidth;
+        const minRatio = MIN_PX / containerEl!.offsetWidth;
         ratio = Math.max(minRatio, Math.min(1 - minRatio, ratio));
       } else {
-        ratio = (e.clientY - rect.top) / rect.height;
-        const minRatio = MIN_PX / rect.height;
+        ratio = offset.y / containerEl!.offsetHeight;
+        const minRatio = MIN_PX / containerEl!.offsetHeight;
         ratio = Math.max(minRatio, Math.min(1 - minRatio, ratio));
       }
       node.ratio = ratio;
@@ -217,23 +220,34 @@
     border-radius: var(--radius-lg);
     border: 1px solid color-mix(in srgb, var(--text-dim) 22%, transparent);
     transition: border-color var(--duration-slow) var(--ease-default),
-                outline-color var(--duration-slow) var(--ease-default);
+                outline-color var(--duration-slow) var(--ease-default),
+                box-shadow var(--duration-slow) var(--ease-default);
     outline: 2px solid transparent;
     outline-offset: -2px;
   }
   .pane-leaf--active {
     border-color: var(--accent-border);
     outline-color: var(--accent-subtle);
+    box-shadow: var(--accent-glow);
   }
 
   .pane-splitter {
     background: transparent;
+    position: relative;
+  }
+  /* Indicator is an inset rounded pill so its ends round clear of the adjacent
+     panes' corners — matching how the settings drawer handle sits in its window. */
+  .pane-splitter::after {
+    content: '';
+    position: absolute;
+    border-radius: 999px;
+    background: transparent;
     transition: background var(--duration-slow) var(--ease-default);
   }
-  .pane-splitter:hover {
-    background: var(--overlay-md);
-  }
-  .pane-splitter--dragging {
-    background: color-mix(in srgb, var(--accent) 40%, transparent);
+  .pane-splitter.cursor-col-resize::after { inset: 8px 1px; }  /* vertical bar */
+  .pane-splitter.cursor-row-resize::after { inset: 1px 8px; }  /* horizontal bar */
+  .pane-splitter:hover::after,
+  .pane-splitter--dragging::after {
+    background: var(--accent-muted);
   }
 </style>

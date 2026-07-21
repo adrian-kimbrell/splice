@@ -28,7 +28,7 @@ on:
 
 jobs:
   release:
-    name: Build, sign, notarize
+    name: Build (unsigned)
     runs-on: macos-latest
     permissions:
       contents: write
@@ -51,25 +51,25 @@ jobs:
 
       - run: npm ci
 
-      - name: Build, sign, notarize, and upload
+      - name: Build and upload (unsigned)
         uses: tauri-apps/tauri-action@v0
         env:
           # GitHub release upload
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-          # Code signing
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-          # Notarization (Apple ID variant — swap for API key variant if preferred)
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # NOTE: ad-hoc signed build (tauri.conf.json bundle.macOS.signingIdentity
+          # "-") — no Apple Developer certs yet. Ad-hoc signing seals the bundle
+          # resources so the cdhash is stable, which lets macOS TCC persist the
+          # "access Documents" grant instead of re-prompting on every launch.
+          # The DMG is still not notarized, so Gatekeeper warns on first launch
+          # (README documents the `xattr -cr` workaround). To enable Developer ID
+          # signing + notarization, add these secrets and restore the env block:
+          #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+          #   APPLE_TEAM_ID, APPLE_ID, APPLE_PASSWORD
+          # (Leaving them empty makes tauri-action fail importing an empty cert.)
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Splice ${{ github.ref_name }}"
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           # Build a universal binary (one .dmg works on Intel + Apple Silicon)
           args: --target universal-apple-darwin

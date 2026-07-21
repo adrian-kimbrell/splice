@@ -108,21 +108,22 @@
   .resize-strip[data-side="left"] { right: 0; }
   .resize-strip[data-side="right"] { left: 0; }
 
+  /* Inset rounded pill — matches the pane splitters and settings drawer handle. */
   .resize-strip::after {
     content: '';
     position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 2px;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
     background: transparent;
-    transition: background 120ms ease;
-    border-radius: 1px;
+    transition: background var(--duration-slow) var(--ease-default);
+    border-radius: 999px;
   }
   .resize-strip[data-side="left"]::after { right: 0; }
   .resize-strip[data-side="right"]::after { left: 0; }
 
   .resize-strip:hover::after {
-    background: var(--overlay-lg);
+    background: var(--accent-muted);
   }
 </style>
 

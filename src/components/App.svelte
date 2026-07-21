@@ -26,7 +26,7 @@
    * EditorPane, TerminalPane, or DiffPane based on PaneConfig.kind. All file/tab
    * callbacks (open, close, save, dirty-check) are defined here and passed as props.
    */
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import LeftSidebar from "./sidebar/LeftSidebar.svelte";
   import RightSidebar from "./sidebar/RightSidebar.svelte";
   import EditorPane from "./panes/EditorPane.svelte";
@@ -39,7 +39,6 @@
   import SendToClaudeModal from "./overlays/SendToClaudeModal.svelte";
   import AddPromptModal from "./overlays/AddPromptModal.svelte";
   import TitleBar from "./topbar/TitleBar.svelte";
-  import { openSettingsWindow } from "../lib/utils/settings-window";
   import { showContextMenu } from "../lib/utils/context-menu";
   import { openNewWindow } from "../lib/utils/new-window";
   import { ui } from "../lib/stores/ui.svelte";
@@ -575,6 +574,28 @@
     loadProjectSettings(rootPath || null);
   });
 
+  // Focus the active pane's content (terminal canvas / editor) when the active
+  // workspace or its active pane changes, so the user can type immediately after a
+  // workspace switch without clicking. Panes persist across switches (display
+  // toggle), so mount-time focus can't cover this. Targets the active PANE
+  // specifically — the `active` prop passed to panes is workspace-level, so focusing
+  // per-terminal would land on the wrong pane.
+  $effect(() => {
+    const wsId = workspaceManager.activeWorkspaceId;
+    if (!wsId) return;
+    const paneId = workspaceManager.workspaces[wsId]?.activePaneId;
+    if (!paneId) return;
+    requestAnimationFrame(() => {
+      if (workspaceManager.activeWorkspaceId !== wsId) return;
+      // Pick the visible match (pane ids live in every workspace's DOM; only the
+      // active workspace is displayed) and don't steal focus already inside it.
+      const candidates = document.querySelectorAll<HTMLElement>(`[data-pane-id="${paneId}"]`);
+      const paneEl = Array.from(candidates).find((el) => el.offsetParent !== null);
+      if (!paneEl || paneEl.contains(document.activeElement)) return;
+      paneEl.querySelector<HTMLElement>('canvas[tabindex], .cm-content')?.focus();
+    });
+  });
+
   onMount(async () => {
     const stopKeybindings = initKeybindings();
     // Eagerly pre-import commands module
@@ -596,6 +617,8 @@
     let unlistenClosing: (() => void) | null = null;
     let unlistenSession: (() => void) | null = null;
     let unlistenOpenPath: (() => void) | null = null;
+    let unlistenClaudeStatus: (() => void) | null = null;
+    let treeChangeTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Register the Claude session listener BEFORE restoring workspaces so we
     // never miss a session event from a restored terminal's Claude process.
@@ -687,7 +710,7 @@
               handleCloseWorkspace();
               break;
             case "settings":
-              openSettingsWindow();
+              ui.settingsDrawerOpen = true;
               break;
             case "find":
               dispatchEditorAction("find");
@@ -766,6 +789,23 @@
         });
       });
 
+      // --- Live Claude status HUD (context-window % + cost in the terminal header) ---
+      const { onClaudeStatus } = await import("../lib/ipc/events");
+      const { claudeStore, statusFromPayload } = await import("../lib/stores/claude.svelte");
+
+      // A terminal is "ours" only if it has an active Claude session in THIS
+      // instance — mirrors the attention-notify guard to avoid cross-instance leakage.
+      const hasActiveClaudeSession = (terminalId: number): boolean =>
+        Object.values(workspaceManager.workspaces).some(
+          w => w.terminalIds.includes(terminalId) && !!w.panes[`term-${terminalId}`]?.claudeSessionId,
+        );
+
+      unlistenClaudeStatus = await onClaudeStatus((p) => {
+        if (!hasActiveClaudeSession(p.terminal_id)) return;
+        const status = statusFromPayload(p);
+        if (status) claudeStore.setStatus(status);
+      });
+
       // Persist all workspaces before the window closes, awaiting completion
       import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
         const appWindow = getCurrentWindow();
@@ -819,7 +859,6 @@
       }).then((fn) => { unlistenFileChanged = fn; });
 
       // Listen for directory tree changes (new/deleted/renamed files)
-      let treeChangeTimer: ReturnType<typeof setTimeout> | null = null;
       listen<string>("tree:changed", (event) => {
         if (treeChangeTimer) clearTimeout(treeChangeTimer);
         treeChangeTimer = setTimeout(async () => {
@@ -943,7 +982,9 @@
       handleTabDrop(data.filePath, data.sourcePaneId, targetPaneId, direction, side, zone);
     });
 
-    return () => {
+    // onMount ignores a cleanup returned from an async callback (it sees a
+    // Promise, not a function) — register teardown via onDestroy instead.
+    mountCleanup = () => {
       stopKeybindings();
       setDropCallback(null);
       stopGitPolling();
@@ -959,8 +1000,12 @@
       unlistenClosing?.();
       unlistenSession?.();
       unlistenOpenPath?.();
+      unlistenClaudeStatus?.();
     };
   });
+
+  let mountCleanup: (() => void) | null = null;
+  onDestroy(() => mountCleanup?.());
 </script>
 
 <svelte:window onfocus={handleWindowFocus} />
@@ -1173,6 +1218,10 @@
                 <span>Open Folder</span>
                 <kbd>Cmd O</kbd>
               </button>
+              <button class="welcome-item" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
+                <i class="bi bi-terminal"></i>
+                <span>Open Terminal</span>
+              </button>
             {/if}
             <button class="welcome-item" onclick={() => (ui.commandPaletteOpen = true)}>
               <i class="bi bi-command"></i>
@@ -1198,7 +1247,7 @@
 
           <fieldset class="welcome-section">
             <legend class="welcome-legend">Configure</legend>
-            <button class="welcome-item" onclick={openSettingsWindow}>
+            <button class="welcome-item" onclick={() => ui.settingsDrawerOpen = true}>
               <i class="bi bi-gear"></i>
               <span>Open Settings</span>
               <kbd>Cmd ,</kbd>

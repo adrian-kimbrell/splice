@@ -183,7 +183,7 @@ bench('render 80×24 colorful (cache stress)', () => {
       12,
       'monospace',
     )
-    renderer.setSelection({ col: 0, row: 0 }, { col: 79, row: 23 })
+    renderer.setSelection({ col: 0, historyRow: 0 }, { col: 79, historyRow: 23 })
     renderer.getSelectedText(selFrame)
   })
 }

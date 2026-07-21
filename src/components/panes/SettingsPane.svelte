@@ -193,7 +193,7 @@
     if (!isTauri) return;
     try {
       const { emit } = await import("@tauri-apps/api/event");
-      await emit("settings-changed", JSON.parse(JSON.stringify(settings)));
+      await emit("settings-changed", $state.snapshot(settings));
     } catch (_) {}
   }
 
@@ -339,7 +339,7 @@
                               <button
                                 class="settings-select-option"
                                 class:active={isActive}
-                                onclick={() => { setValue(def.key, opt); import("../../lib/theme/themes").then(({ applyTheme }) => applyTheme(opt)); closeDropdown(); }}
+                                onclick={() => { setValue(def.key, opt); import("../../lib/theme/themes").then(({ applyTheme }) => applyTheme(opt)); }}
                               >
                                 <span>{opt}</span>
                                 {#if isActive}

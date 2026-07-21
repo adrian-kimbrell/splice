@@ -36,4 +36,6 @@ export const ui = $state({
   prMode: false,
   sendToClaudeModal: null as SendToClaudeContext | null,
   addPromptModal: false,
+  /** Settings drawer that unfurls from the title bar (replaces the separate window). */
+  settingsDrawerOpen: false,
 });

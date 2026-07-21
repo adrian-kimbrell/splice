@@ -15,8 +15,9 @@
   import { editorActions, dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { showContextMenu } from "../../lib/utils/context-menu";
+  import { clientToRectSpace } from "../../lib/utils/zoom";
   import { lspClient } from "../../lib/lsp/client";
-  import type { LspLocation, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
+  import type { LspLocation, LspPos, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
   import { getDiagnosticsForUri } from "../../lib/stores/diagnostics.svelte";
   import { pushToast } from "../../lib/stores/toasts.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
@@ -69,6 +70,25 @@
   let renameName = $state("");
   let renameTarget = $state({ line: 0, char: 0 });
 
+  /**
+   * Convert viewport (visual) client coords into the layout-px space CodeMirror's
+   * internal getBoundingClientRect hit-testing expects, compensating for root CSS
+   * `zoom` (appearance.ui_scale). Without this, click/drag selection lands offset
+   * from the cursor, with error growing away from the editor's top-left.
+   *
+   * Engine-robust (see memory zoom-coords / CanvasTerminal.eventToCell): under root
+   * zoom, clientX/Y are visual px on both engines, but contentDOM.getBoundingClientRect
+   * is LAYOUT px on WebKit (macOS) and VISUAL px on Chromium. `rectScale` measures
+   * which (1 on WebKit, zoom on Chromium), so `factor = zoom / rectScale` is `zoom`
+   * on WebKit and `1` on Chromium — exactly the divisor that aligns clientX with the
+   * content rect in either engine.
+   */
+  function adjustClientCoordsForZoom(v: EditorView, coords: { x: number; y: number }) {
+    // CodeMirror hit-tests with clientX/Y against its own getBoundingClientRect,
+    // so feed it the coord in rect space. Zoom-correct at any ui_scale. [[zoom-coords]]
+    return clientToRectSpace(coords.x, coords.y, v.contentDOM as HTMLElement);
+  }
+
   function formatDocument(view: EditorView): boolean {
     const state = view.state;
     const ext = getExtForPath(filePath);
@@ -87,7 +107,7 @@
     }
 
     const changes = indentRange(state, 0, state.doc.length);
-    if (changes) view.dispatch(changes);
+    if (!changes.empty) view.dispatch({ changes });
     return true;
   }
 
@@ -103,12 +123,23 @@
     return workspaceManager.activeWorkspace?.rootPath ?? "";
   }
 
+  // Jump this editor's view to a 0-based LSP line/character.
+  function jumpTo(line0: number, char0 = 0): void {
+    if (!view || line0 < 0 || line0 >= view.state.doc.lines) return;
+    const lineInfo = view.state.doc.line(line0 + 1);
+    const pos = Math.min(lineInfo.from + char0, lineInfo.to);
+    view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+    view.focus();
+  }
+
   async function navigateToLocation(loc: LspLocation): Promise<void> {
     const path = lspClient.uriToPath(loc.uri);
     const targetLine = loc.range.start.line + 1;
     if (path === filePath) {
-      // Same file — just jump, no need to read from disk
-      dispatchEditorAction("goto-line-number", targetLine);
+      // Same file — jump directly via this pane's view. Routing through the
+      // global editorActions store would be gated on this being the active pane,
+      // but a right-click never activates the pane, so the jump would be dropped.
+      jumpTo(loc.range.start.line, loc.range.start.character);
       return;
     }
     // Cross-file: read content from disk so the editor opens correctly
@@ -119,7 +150,10 @@
   }
 
   async function navigateOrShowPicker(locs: LspLocation[]): Promise<void> {
-    if (!locs.length) return;
+    if (!locs.length) {
+      pushToast("No definition found", "info");
+      return;
+    }
     if (locs.length === 1) {
       navigateToLocation(locs[0]);
       return;
@@ -326,6 +360,19 @@
     });
 
     view = new EditorView({ state, parent: containerEl });
+    // Compensate CodeMirror's click/drag hit-testing for root CSS zoom (ui_scale).
+    // posAndSideAtCoords is the sole seam used by click + drag selection and is always
+    // called with clientX/Y (verified against @codemirror/view 6.39), so wrapping it is
+    // safe. posAtCoords is intentionally NOT wrapped — CM also calls it internally with
+    // getBoundingClientRect-space coords (line-boundary probing), which must stay as-is.
+    {
+      const origPosAndSide = view.posAndSideAtCoords.bind(view) as (
+        coords: { x: number; y: number },
+        precise?: false,
+      ) => { pos: number; assoc: -1 | 1 } | null;
+      view.posAndSideAtCoords = ((coords: { x: number; y: number }, precise?: false) =>
+        origPosAndSide(adjustClientCoordsForZoom(view!, coords), precise)) as typeof view.posAndSideAtCoords;
+    }
     viewReady = true;
 
     return () => {
@@ -346,6 +393,8 @@
       if (view) {
         view.dispatch({ effects: langCompartment.reconfigure(lang) });
       }
+    }).catch((err) => {
+      console.error(`[splice] syntax language load failed for ${filePath}:`, err);
     });
   });
 
@@ -636,7 +685,7 @@
     const hasSelection = sel.from !== sel.to;
     const selectedText = hasSelection ? view.state.doc.sliceString(sel.from, sel.to) : "";
 
-    const clickPos = view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? view.state.selection.main.head;
+    const clickPos = view.posAtCoords(adjustClientCoordsForZoom(view, { x: e.clientX, y: e.clientY })) ?? view.state.selection.main.head;
     // When text is selected, use the selection start so LSP resolves the symbol
     // at the beginning of the selection rather than at the arbitrary click position
     const lspPos = hasSelection ? sel.from : clickPos;

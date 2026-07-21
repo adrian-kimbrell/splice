@@ -7,6 +7,8 @@
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
   import { formatRelativeTime, tickingNow } from "../../lib/utils/relative-time.svelte";
+  import { positionFixedMenu } from "../../lib/utils/context-menu";
+  import { clientToRectSpace } from "../../lib/utils/zoom";
 
   let reorderIndicatorIndex = $state<number | null>(null);
   let tabBarEl = $state<HTMLDivElement>();
@@ -20,13 +22,15 @@
       return;
     }
 
-    // Compute insertion index from mouse position vs tab rects
+    // Compute insertion index from mouse position vs tab rects. Compare in rect
+    // space so it stays correct under ui_scale zoom. See [[zoom-coords]].
     const tabEls = tabBarEl.querySelectorAll("[role='tab']");
+    const px = clientToRectSpace(e.clientX, e.clientY, tabBarEl).x;
     let insertIdx = tabs.length;
     for (let i = 0; i < tabEls.length; i++) {
       const rect = tabEls[i].getBoundingClientRect();
       const midX = rect.left + rect.width / 2;
-      if (e.clientX < midX) {
+      if (px < midX) {
         insertIdx = i;
         break;
       }
@@ -154,8 +158,6 @@
     const menu = document.createElement("div");
     menu.className = "tab-ctx-menu split-dropdown";
     menu.style.position = "fixed";
-    menu.style.top = `${e.clientY}px`;
-    menu.style.left = `${e.clientX}px`;
     menu.style.transform = "none";
 
     const items: { label: string; shortcut?: string; action: string; separator?: boolean }[] = [
@@ -198,17 +200,8 @@
     document.body.appendChild(menu);
     ctxMenuEl = menu;
 
-    // Clamp to viewport
-    requestAnimationFrame(() => {
-      if (!menu.parentNode) return;
-      const rect = menu.getBoundingClientRect();
-      if (rect.right > window.innerWidth) {
-        menu.style.left = `${window.innerWidth - rect.width - 4}px`;
-      }
-      if (rect.bottom > window.innerHeight) {
-        menu.style.top = `${window.innerHeight - rect.height - 4}px`;
-      }
-    });
+    // Position + clamp with zoom (ui_scale) correction. See [[zoom-coords]].
+    positionFixedMenu(menu, e.clientX, e.clientY);
   }
 
   function removeCtxMenu() {

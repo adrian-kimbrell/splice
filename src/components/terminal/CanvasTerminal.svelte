@@ -35,6 +35,7 @@
   import { keyToBytes } from "../../lib/terminal/keyboard";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { showContextMenu } from "../../lib/utils/context-menu";
+  import { clientToLayoutOffset } from "../../lib/utils/zoom";
   import { savedPrompts } from "../../lib/stores/prompts.svelte";
 
   function parseHexColor(hex: string): [number, number, number] | null {
@@ -80,9 +81,11 @@
   // Cached IPC function from dynamic import
   let cachedResizeTerminal: ((id: number, cols: number, rows: number) => Promise<void>) | null = null;
 
-  // Cursor blink state
+  // Cursor blink state. Only the focused terminal blinks; unfocused panes show a
+  // steady (hollow) cursor, so switching workspaces doesn't leave every terminal flashing.
   let blinkInterval: ReturnType<typeof setInterval> | null = null;
   let blinkVisible = true;
+  let focused = false;
 
   // Selection state
   let isSelecting = false;
@@ -121,7 +124,9 @@
     renderer.setSearchMatches(converted, searchActiveIndex);
   });
 
-  // Re-fit terminal when becoming visible after workspace/tab switch
+  // Re-fit terminal when its workspace becomes visible after a workspace/tab switch.
+  // (`active` here means "this terminal's workspace is active", not the active pane —
+  // pane focus on switch is handled centrally in App.svelte.)
   $effect(() => {
     if (active && renderer && containerEl) {
       requestAnimationFrame(() => {
@@ -191,6 +196,23 @@
     return '"\'()[]{}|<>'.includes(String.fromCodePoint(cp));
   }
 
+  /**
+   * Map a mouse/wheel event to a terminal cell, correcting for root CSS zoom
+   * (`document.documentElement.style.zoom`, driven by appearance.ui_scale).
+   *
+   * Under zoom, getBoundingClientRect() and clientX/Y are in zoom-scaled
+   * viewport pixels, but the canvas CSS size and the renderer's cell metrics
+   * are in unzoomed layout pixels. Scale the in-rect offset by
+   * offsetSize/rectSize (= 1/zoom) so dividing by cell size lands on the
+   * correct row/col. When zoom is 1 the scale is 1 and this is a no-op.
+   */
+  function eventToCell(e: MouseEvent | WheelEvent): { col: number; row: number } {
+    // Layout-px offset within the canvas (zoom-correct at any ui_scale), then map
+    // to a cell via the renderer's layout-px metrics. See [[zoom-coords]].
+    const { x, y } = clientToLayoutOffset(e.clientX, e.clientY, canvasEl!);
+    return renderer!.pixelToCell(x, y);
+  }
+
   // Padding applied to the container (must match CSS: 0 8px 4px 8px)
   const CANVAS_PAD_X = 16; // 8px left + 8px right
   const CANVAS_PAD_Y = 4;  // 4px bottom
@@ -216,14 +238,18 @@
   }
 
   function resetBlinkTimer() {
+    if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null; }
     if (renderer) {
       blinkVisible = true;
       renderer.setCursorBlink(true);
       renderer.rerender();
     }
-    if (blinkInterval) clearInterval(blinkInterval);
+    // Only blink when this terminal is focused and blinking is enabled. Without the
+    // focus guard, every visible terminal blinks (the settings effect / mount both
+    // call this), which is the "all terminals flashing on workspace switch" bug.
+    if (!focused || !effectiveSettings.terminal.cursor_blink) return;
     blinkInterval = setInterval(() => {
-      if (renderer && containerEl?.offsetParent !== null) {
+      if (renderer && focused && containerEl?.offsetParent !== null) {
         blinkVisible = !blinkVisible;
         renderer.setCursorBlink(blinkVisible);
         renderer.rerender();
@@ -525,14 +551,16 @@
 
       const mouseMode = (modeFlags >> 3) & 0x3;
 
-      // When mouse protocol is active, forward button press to terminal
-      if (mouseMode > 0) {
+      // When mouse protocol is active, forward button press to terminal — except
+      // right-click (button 2), which always opens Splice's context menu (matches
+      // Terminal.app). Without this, a TUI app in mouse mode (e.g. Claude Code
+      // fullscreen) eats every right-click and the menu never appears.
+      if (mouseMode > 0 && e.button !== 2) {
         let btn = e.button === 0 ? 0 : e.button === 1 ? 1 : 2;
         if (e.shiftKey) btn |= 4;
         if (e.altKey) btn |= 8;
         if (e.ctrlKey) btn |= 16;
-        const rect = canvasEl!.getBoundingClientRect();
-        const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+        const cell = eventToCell(e);
         const cx = Math.min(Math.max(1, cell.col + 1), 223); // 1-based, clamped for X10
         const cy = Math.min(Math.max(1, cell.row + 1), 223);
         sendMouseEvent(btn, cx, cy, true);
@@ -542,8 +570,7 @@
       // Only handle left button for selection
       if (e.button !== 0) return;
 
-      const rect = canvasEl!.getBoundingClientRect();
-      const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+      const cell = eventToCell(e);
       const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
 
       // Shift+click: extend existing selection
@@ -639,8 +666,7 @@
         if (!renderer) return;
         const isButtonHeld = e.buttons !== 0;
         if (mouseMode === 3 || (mouseMode === 2 && isButtonHeld)) {
-          const rect = canvasEl!.getBoundingClientRect();
-          const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+          const cell = eventToCell(e);
           const cx = Math.min(Math.max(1, cell.col + 1), 223);
           const cy = Math.min(Math.max(1, cell.row + 1), 223);
           // Derive held button from e.buttons bitmask
@@ -652,7 +678,7 @@
 
       if (!isSelecting || !renderer || !canvasEl) return;
       const rect = canvasEl.getBoundingClientRect();
-      const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+      const cell = eventToCell(e);
       const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
       renderer.selectionEnd = { historyRow, col: cell.col };
       renderer.rerender();
@@ -671,15 +697,14 @@
     const onMouseUp = async (e: MouseEvent) => {
       const mouseMode = (modeFlags >> 3) & 0x3;
 
-      // Mouse protocol: forward button release
-      if (mouseMode > 0) {
+      // Mouse protocol: forward button release (except right-click, see mousedown)
+      if (mouseMode > 0 && e.button !== 2) {
         if (!renderer) return;
         let btn = e.button === 0 ? 0 : e.button === 1 ? 1 : 2;
         if (e.shiftKey) btn |= 4;
         if (e.altKey) btn |= 8;
         if (e.ctrlKey) btn |= 16;
-        const rect = canvasEl!.getBoundingClientRect();
-        const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+        const cell = eventToCell(e);
         const cx = Math.min(Math.max(1, cell.col + 1), 223);
         const cy = Math.min(Math.max(1, cell.row + 1), 223);
         sendMouseEvent(btn, cx, cy, false);
@@ -719,8 +744,7 @@
     // Canvas-level hover: URL detection (only fires when pointer is over the canvas)
     const onCanvasMouseMove = (e: MouseEvent) => {
       if (!renderer || isSelecting || ((modeFlags >> 3) & 0x3) !== 0) return;
-      const rect = canvasEl!.getBoundingClientRect();
-      const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
+      const cell = eventToCell(e);
       const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
       const url = renderer.detectedUrls.find(u =>
         u.historyRow === historyRow && cell.col >= u.colStart && cell.col < u.colEnd
@@ -744,27 +768,27 @@
     cleanupFns.push(() => canvasEl!.removeEventListener("mousemove", onCanvasMouseMove));
     cleanupFns.push(() => canvasEl!.removeEventListener("mouseleave", onMouseLeave));
 
-    // Mouse wheel for scrollback — accumulate deltas, flush once per RAF
+    // Mouse wheel — accumulate pixel deltas and flush once per RAF. This throttling
+    // applies to BOTH local scrollback AND mouse-protocol forwarding: a single
+    // trackpad flick fires dozens of tiny momentum `wheel` events on macOS, so
+    // emitting one scroll per event makes a TUI app in mouse mode (e.g. Claude Code
+    // fullscreen) scroll at light speed. Dividing accumulated pixels by cell height
+    // maps a flick to a sane number of lines, matching iTerm/Terminal.app.
+    let wheelForward = false;
+    let wheelCol = 1, wheelRow = 1;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       if (!renderer) return;
 
       const mouseMode = (modeFlags >> 3) & 0x3;
-
-      // When mouse protocol is active, forward wheel events as button 64/65 —
-      // UNLESS the user is holding Shift, which by convention (iTerm, Terminal.app,
-      // Kitty, Alacritty, WezTerm) bypasses mouse mode and uses the terminal's own
-      // scrollback. Without this escape hatch, scrolling up during a TUI app's
-      // continuous redraw (e.g. Claude Code streaming generation) gets eaten by the
-      // app and the user can't read what just scrolled past.
-      if (mouseMode > 0 && !e.shiftKey) {
-        const rect = canvasEl!.getBoundingClientRect();
-        const cell = renderer.pixelToCell(e.clientX - rect.left, e.clientY - rect.top);
-        const cx = Math.min(Math.max(1, cell.col + 1), 223);
-        const cy = Math.min(Math.max(1, cell.row + 1), 223);
-        const wheelBtn = e.deltaY < 0 ? 64 : 65; // 64=scroll-up, 65=scroll-down
-        sendMouseEvent(wheelBtn, cx, cy, true);
-        return;
+      // Shift bypasses mouse mode to reach the terminal's own scrollback (iTerm,
+      // Terminal.app, Kitty, Alacritty, WezTerm convention) — lets the user read
+      // what scrolled past during a TUI app's continuous redraw.
+      wheelForward = mouseMode > 0 && !e.shiftKey;
+      if (wheelForward) {
+        const cell = eventToCell(e);
+        wheelCol = Math.min(Math.max(1, cell.col + 1), 223);
+        wheelRow = Math.min(Math.max(1, cell.row + 1), 223);
       }
 
       // Reset accumulator on direction change to avoid stickiness
@@ -777,8 +801,12 @@
           scrollRafId = 0;
           const ch = renderer!.cellHeight;
           const lines = Math.trunc(scrollAccum / ch);
-          if (lines !== 0) {
-            scrollAccum -= lines * ch;
+          if (lines === 0) return;
+          scrollAccum -= lines * ch;
+          if (wheelForward) {
+            const wheelBtn = lines < 0 ? 64 : 65; // 64=scroll-up, 65=scroll-down
+            for (let i = 0; i < Math.abs(lines); i++) sendMouseEvent(wheelBtn, wheelCol, wheelRow, true);
+          } else {
             scrollTerminal(terminalId, -lines).catch(console.error);
           }
         });
@@ -789,6 +817,7 @@
 
     // Focus/blur — send CSI I / CSI O when application requests focus events (mode 1004)
     const onFocus = () => {
+      focused = true;
       if (renderer) {
         renderer.setFocused(true);
         renderer.rerender();
@@ -799,6 +828,7 @@
       }
     };
     const onBlur = () => {
+      focused = false;
       if (renderer) {
         renderer.setFocused(false);
         renderer.setCursorBlink(true); // Show cursor when blurred
@@ -817,16 +847,17 @@
     cleanupFns.push(() => canvasEl!.removeEventListener("focus", onFocus));
     cleanupFns.push(() => canvasEl!.removeEventListener("blur", onBlur));
 
-    // Start cursor blink
+    // Initialize cursor blink/focus state. The focused terminal (set by the
+    // focus-on-mount rAF below, or a prior click) blinks; others render a steady
+    // hollow cursor. resetBlinkTimer self-gates on `focused`.
+    focused = document.activeElement === canvasEl;
+    renderer.setFocused(focused);
     resetBlinkTimer();
 
     // Context menu
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-
-      // When mouse protocol is active, suppress context menu (right-click was forwarded as mouse event)
-      if (((modeFlags >> 3) & 0x3) !== 0) return;
 
       const hasSelection = !!(renderer?.selectionStart && renderer?.selectionEnd);
 
@@ -879,8 +910,13 @@
     canvasEl.addEventListener("contextmenu", onContextMenu);
     cleanupFns.push(() => canvasEl!.removeEventListener("contextmenu", onContextMenu));
 
-    // Focus on mount
-    requestAnimationFrame(() => canvasEl?.focus());
+    // Focus on mount only if this terminal is the active pane — otherwise a
+    // non-active terminal (e.g. the last one to mount on restore) would steal focus
+    // from the selected pane, leaving the border on one pane and typing on another.
+    // PaneGrid marks the active pane's leaf with `.pane-leaf--active`.
+    requestAnimationFrame(() => {
+      if (canvasEl?.closest(".pane-leaf--active")) canvasEl.focus();
+    });
   });
 
   onDestroy(() => {

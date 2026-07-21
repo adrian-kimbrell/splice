@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<title>Splice OG card (template)</title>
+<!--
+  Social share card, exactly 1200×630. This is a TEMPLATE, not a live page.
+  To produce og-image.png: open this file, screenshot the .card element at 1200×630
+  (e.g. browser devtools device size 1200×630, or a headless shot), save to
+  docs/og-image.png, then point og:image / twitter:image at
+  https://www.spliceditor.xyz/og-image.png across the site.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0}
+  body{background:#26282c;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .card{
+    position:relative;width:1200px;height:630px;overflow:hidden;
+    background:#0b0c0e;color:#c3c5cb;font-family:'Space Grotesk',sans-serif;
+    padding:80px 88px;display:flex;flex-direction:column;justify-content:center;
+  }
+  /* ambient v2 backdrop */
+  .card::before{content:'';position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(700px 420px at 12% -10%,rgba(0,255,136,.14),transparent 60%),
+               radial-gradient(760px 520px at 96% 8%,rgba(0,224,255,.08),transparent 60%)}
+  .card::after{content:'';position:absolute;inset:0;pointer-events:none;
+    background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+    background-size:60px 60px;mask-image:radial-gradient(900px 620px at 40% 0%,#000,transparent 78%);-webkit-mask-image:radial-gradient(900px 620px at 40% 0%,#000,transparent 78%)}
+  .inner{position:relative;z-index:1}
+  .brand{display:flex;align-items:center;gap:16px;margin-bottom:44px}
+  .brand img{width:52px;height:52px;filter:brightness(0) invert(1)}
+  .brand span{font:600 24px 'JetBrains Mono',monospace;letter-spacing:.28em;text-transform:uppercase;color:#eef0f2}
+  .pill{display:inline-flex;align-items:center;gap:11px;font:500 18px 'JetBrains Mono',monospace;color:#8affca;background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.24);padding:9px 20px;border-radius:100px;margin-bottom:30px}
+  .pill span{width:9px;height:9px;border-radius:50%;background:#00ff88;box-shadow:0 0 12px #00ff88}
+  h1{font-size:76px;font-weight:600;letter-spacing:-.035em;line-height:1.02;color:#f6f7f8;max-width:1000px}
+  .grad{background:linear-gradient(105deg,#00ff88,#00e0ff 60%,#7bffd0);-webkit-background-clip:text;background-clip:text;color:transparent}
+  p{font-size:27px;line-height:1.5;color:#9a9da5;margin-top:26px;max-width:920px}
+  .foot{position:absolute;bottom:70px;left:88px;right:88px;z-index:1;display:flex;justify-content:space-between;align-items:center;font:500 19px 'JetBrains Mono',monospace;color:#6a6d76}
+  .foot .accent{color:#00ff88}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="inner">
+      <div class="brand"><img src="logo.png" alt="Splice"><span>Splice</span></div>
+      <div class="pill"><span></span>Native macOS · Rust · 120fps</div>
+      <h1>One window.<br><span class="grad">Every project, in motion.</span></h1>
+      <p>The terminal workspace for AI-assisted development — isolated per-project environments and first-class Claude Code &amp; Codex support.</p>
+    </div>
+    <div class="foot">
+      <span>spliceditor.xyz</span>
+      <span><span class="accent">$</span> free &amp; open source · MIT</span>
+    </div>
+  </div>
+</body>
+</html>

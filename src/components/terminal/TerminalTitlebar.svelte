@@ -6,6 +6,7 @@
   import type { AttentionNotification } from "../../lib/stores/attention.svelte";
   import { beginDrag, getDragActive, isDragging } from "../../lib/stores/drag.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
+  import { claudeStore } from "../../lib/stores/claude.svelte";
   import { formatRelativeTime, tickingNow } from "../../lib/utils/relative-time.svelte";
 
   let {
@@ -109,6 +110,18 @@
     splitDropdown?.reposition();
     plusDropdown?.reposition();
   }
+
+  // --- Live Claude telemetry for this pane's terminal ---
+  const terminalId = $derived(workspaceManager.activeWorkspace?.panes[paneId]?.terminalId ?? null);
+  const claudeStatus = $derived(terminalId != null ? claudeStore.status[terminalId] ?? null : null);
+  // Color the context-window readout as it fills toward compaction.
+  const ctxColor = $derived.by(() => {
+    const pct = claudeStatus?.contextPct;
+    if (pct == null) return "var(--txt-dim)";
+    if (pct >= 85) return "var(--ansi-red)";
+    if (pct >= 70) return "var(--ansi-yellow)";
+    return "var(--txt-dim)";
+  });
 </script>
 
 <svelte:window onresize={onResize} />
@@ -164,6 +177,14 @@
       <span class="shrink-0 opacity-70" title="Last active in this pane"
         ><i class="bi bi-clock-history mr-1 text-[10px]"></i>{lastTouchedLabel}</span
       >
+    {/if}
+    {#if claudeStatus?.contextPct != null}
+      <span class="shrink-0" style="color: {ctxColor};" title="Claude context window used">
+        <i class="bi bi-pie-chart mr-1 text-[10px]"></i>{Math.round(claudeStatus.contextPct)}%
+      </span>
+    {/if}
+    {#if claudeStatus?.costUsd != null}
+      <span class="shrink-0 opacity-80" title="Claude session cost">${claudeStatus.costUsd.toFixed(2)}</span>
     {/if}
   </span>
   <span class="flex items-center gap-0.5 ml-2.5 shrink-0">

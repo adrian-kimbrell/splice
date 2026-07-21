@@ -101,6 +101,27 @@ fn is_row_blank(row: &crate::terminal::grid::Row) -> bool {
 ///   [9]     bg.b
 ///   [10]    flags (bold|italic|underline|dim|inverse|strikethrough|blink|hidden)
 ///   [11]    width (1=normal, 2=wide left, 0=wide right placeholder)
+/// Number of trailing-blank grid rows composited away by pinning content to
+/// the bottom with scrollback rows. 0 on the alt screen, after an explicit
+/// clear (ED 2/3), or when there's no scrollback.
+pub fn view_shift(grid: &Grid) -> usize {
+    let buf_ref = grid.active();
+    if grid.active_is_alt || buf_ref.cleared || buf_ref.scrollback.is_empty() {
+        return 0;
+    }
+    let live_lines = &buf_ref.lines;
+    let cursor_row = buf_ref.cursor_row as usize;
+    let mut trailing_blanks = 0usize;
+    for r in (cursor_row + 1..live_lines.len()).rev() {
+        if is_row_blank(&live_lines[r]) {
+            trailing_blanks += 1;
+        } else {
+            break;
+        }
+    }
+    trailing_blanks.min(buf_ref.scrollback.len())
+}
+
 pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
     let cols = grid.cols;
     let rows = grid.rows;
@@ -110,40 +131,22 @@ pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
     let total = header_size + (cols as usize * rows as usize * cell_size);
     let mut buf = Vec::with_capacity(total);
 
-    // Clamp scroll offset to actual scrollback length
-    let max_offset = buf_ref.scrollback.len() as i32;
-    let offset = scroll_offset.min(max_offset).max(0) as usize;
-    let is_scrolled = offset > 0;
-
     let live_lines = &buf_ref.lines;
     let scrollback_len = buf_ref.scrollback.len();
 
-    // Display-level view shift: when NOT scrolled and there are trailing blank
-    // rows below the cursor, fill them with scrollback content to keep the
-    // prompt visually pinned to the bottom. This doesn't touch the grid — it's
-    // purely a compositing optimization.
-    //
-    // Skipped when: scrolled, alt screen, no scrollback, or screen was
-    // explicitly cleared (buf.cleared flag — set by ED 2/3, cleared when
-    // content scrolls up again).
-    let view_shift = if !is_scrolled && !grid.active_is_alt && scrollback_len > 0 && !buf_ref.cleared {
-        let cursor_row = buf_ref.cursor_row as usize;
-        let mut trailing_blanks = 0usize;
-        for r in (cursor_row + 1..live_lines.len()).rev() {
-            if is_row_blank(&live_lines[r]) {
-                trailing_blanks += 1;
-            } else {
-                break;
-            }
-        }
-        if trailing_blanks > 0 {
-            trailing_blanks.min(scrollback_len)
-        } else {
-            0
-        }
-    } else {
-        0
-    };
+    // Display-level view shift: when there are trailing blank rows below the
+    // cursor, fill them with scrollback content to keep the prompt visually
+    // pinned to the bottom. This doesn't touch the grid — it's purely a
+    // compositing optimization. It applies while scrolled too: the scroll
+    // offset composes on top of the shifted view, so scrolling up continues
+    // seamlessly from what was displayed instead of snapping back to the raw
+    // grid (which would expose the blank rows as a gap under the prompt).
+    let view_shift = view_shift(grid);
+
+    // Clamp scroll offset to the scrollback not already consumed by the shift
+    let max_offset = (scrollback_len - view_shift) as i32;
+    let offset = scroll_offset.min(max_offset).max(0) as usize;
+    let is_scrolled = offset > 0;
 
     // With view_shift, the display shows:
     //   scrollback[scrollback_len - view_shift ..] (view_shift rows from scrollback)
@@ -187,33 +190,17 @@ pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
     let default_cell = Cell::default();
     let blank_row = crate::terminal::grid::Row::new(cols as usize);
 
+    // Topmost visible row as an index into the combined [scrollback, live]
+    // array. ≥ 0 because offset is clamped to scrollback_len - view_shift.
+    let first_row = scrollback_len - view_shift - offset;
     for display_row in 0..rows as usize {
-        let row = if is_scrolled {
-            // Explicit scrollback viewing
-            let history_row = scrollback_len as i64 - offset as i64 + display_row as i64;
-            if history_row >= 0 && (history_row as usize) < scrollback_len {
-                &buf_ref.scrollback[history_row as usize]
-            } else if history_row >= 0 {
-                // Past end of scrollback — map into live screen rows
-                let live_idx = (history_row as usize).saturating_sub(scrollback_len);
-                if live_idx < live_lines.len() {
-                    &live_lines[live_idx]
-                } else {
-                    &blank_row
-                }
-            } else {
-                // history_row < 0: display row is before the start of scrollback
-                &blank_row
-            }
-        } else if display_row < view_shift {
-            // View-shifted: fill top rows from scrollback
-            let sb_idx = scrollback_len - view_shift + display_row;
-            &buf_ref.scrollback[sb_idx]
+        let history_row = first_row + display_row;
+        let row = if history_row < scrollback_len {
+            &buf_ref.scrollback[history_row]
         } else {
-            // Normal grid row (shifted by view_shift)
-            let grid_row = display_row - view_shift;
-            if grid_row < live_lines.len() {
-                &live_lines[grid_row]
+            let live_idx = history_row - scrollback_len;
+            if live_idx < live_lines.len() {
+                &live_lines[live_idx]
             } else {
                 &blank_row
             }
@@ -385,6 +372,8 @@ mod tests {
         // Push a row to scrollback so offset=1 is valid
         grid.primary.lines[0].cells[0].ch = 'X';
         grid.primary.scroll_up_in_region();
+        // Fill the bottom row so bottom-pinning doesn't consume the scrollback
+        grid.primary.lines[4].cells[0].ch = 'Y';
 
         let data = serialize_grid(&grid, 1);
 
@@ -402,6 +391,8 @@ mod tests {
             grid.primary.lines[0].cells[0].ch = 'X';
             grid.primary.scroll_up_in_region();
         }
+        // Fill the bottom row so bottom-pinning doesn't consume the scrollback
+        grid.primary.lines[4].cells[0].ch = 'Y';
         // scrollback_len = 3, offset = 2
         let data = serialize_grid(&grid, 2);
         let fdhr = i32::from_le_bytes([data[12], data[13], data[14], data[15]]);
@@ -409,6 +400,31 @@ mod tests {
         assert_eq!(fdhr, 1);
         let sb_len = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
         assert_eq!(sb_len, 3);
+    }
+
+    #[test]
+    fn scrolled_view_composes_with_bottom_pin_shift() {
+        // Prompt on row 0, rows 1-4 blank, 5 scrollback rows of 'X'. Unscrolled,
+        // bottom-pinning shows sb[1..5] + prompt. Scrolling up by 1 must continue
+        // from that view (fdhr 0, all rows content) — not snap to the raw grid,
+        // which would expose the blank rows as a gap under the prompt.
+        let mut grid = make_grid(10, 5);
+        for _ in 0..5 {
+            grid.primary.lines[0].cells[0].ch = 'X';
+            grid.primary.scroll_up_in_region();
+        }
+        grid.primary.lines[0].cells[0].ch = 'P';
+
+        let data = serialize_grid(&grid, 1);
+        let fdhr = i32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+        assert_eq!(fdhr, 0);
+        let codepoint_at = |row: usize| {
+            let o = 20 + row * 10 * 12;
+            u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]])
+        };
+        for row in 0..5 {
+            assert_eq!(codepoint_at(row), 'X' as u32, "display row {row} should be scrollback, not a blank gap");
+        }
     }
 
     // --- Cell layout ---

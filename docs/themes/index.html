@@ -8,21 +8,53 @@
   <link rel="canonical" href="https://www.spliceditor.xyz/themes" />
   <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="../apple-touch-icon.svg" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta name="theme-color" content="#0b0c0e" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://www.spliceditor.xyz/themes" />
+  <meta property="og:title" content="Theme Builder — Splice" />
+  <meta property="og:description" content="Create and export custom themes for Splice. Customize every color and import directly into the app." />
+  <meta property="og:image" content="https://www.spliceditor.xyz/og-image.png" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Theme Builder — Splice" />
+  <meta name="twitter:description" content="Create and export custom themes for Splice. Customize every color and import directly into the app." />
+  <meta name="twitter:image" content="https://www.spliceditor.xyz/og-image.png" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Splice Theme Builder",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Any",
+    "browserRequirements": "Requires JavaScript",
+    "description": "Create and export custom color themes for the Splice macOS terminal workspace. Customize every editor and terminal color and import directly into the app.",
+    "url": "https://www.spliceditor.xyz/themes",
+    "isPartOf": { "@type": "WebSite", "name": "Splice", "url": "https://www.spliceditor.xyz/" },
+    "isAccessibleForFree": true,
+    "author": { "@type": "Person", "name": "Adrian Kimbrell", "url": "https://github.com/adrian-kimbrell" }
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
   <link rel="stylesheet" href="../tailwind.css">
+  <link rel="stylesheet" href="../site.css">
   <style>
     :root { --accent: #00ff88; }
-    body { background: #1e1e1e; font-family: 'JetBrains Mono', monospace; }
     .btn-orange { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
     .btn-orange:hover { background: rgba(0,255,136,0.1); }
     .text-orange { color: #00ff88; }
     .border-orange { border-color: #00ff88; }
-    .bg-card { background: #252526; }
-    .bg-raised { background: #2d2d30; }
-    .border-dim { border-color: #3c3c3c; }
+    .bg-card { background: #101216; }
+    .bg-raised { background: #181b20; }
+    .border-dim { border-color: #1f232a; }
     body { opacity: 0; animation: fadein 0.15s ease forwards; }
     @keyframes fadein { to { opacity: 1; } }
 
@@ -119,7 +151,7 @@
 
     .hex-input {
       width: 72px;
-      background: #1e1e1e;
+      background: #0b0c0e;
       border: 1px solid #2a2a2a;
       border-radius: 3px;
       color: #999;
@@ -146,7 +178,7 @@
     }
     .t-label { font-size: 10px; color: #444; white-space: nowrap; }
     .t-name-input {
-      background: #111;
+      background: #0d0f12;
       border: 1px solid #2a2a2a;
       border-radius: 4px;
       color: #ccc;
@@ -159,7 +191,7 @@
     }
     .t-name-input:focus { border-color: #00ff88; color: #fff; }
     .t-select {
-      background: #111;
+      background: #0d0f12;
       border: 1px solid #2a2a2a;
       border-radius: 4px;
       color: #888;
@@ -198,7 +230,7 @@
 
     /* ── Preview wrap ── */
     .preview-wrap {
-      background: #111;
+      background: #0d0f12;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -407,25 +439,24 @@
     .toast.show { opacity: 1; transform: translateY(0); }
   </style>
 </head>
-<body class="text-zinc-100 antialiased" style="background:#1e1e1e">
+<body class="text-zinc-100 antialiased">
+  <h1 class="sr-only">Splice Theme Builder — create and export custom terminal themes</h1>
 
   <!-- Nav -->
-  <header style="border-bottom:1px solid #2a2a2a">
-    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2">
-        <img src="../logo.png" alt="Splice" class="w-9 h-9" style="filter:brightness(0) invert(1)" />
-        <span class="font-mono text-sm font-medium tracking-widest uppercase text-orange">Splice</span>
-      </a>
-      <nav class="flex items-center gap-8 text-sm text-zinc-500">
-        <a href="/" class="hover:text-zinc-200 transition-colors">Home</a>
-        <a href="/blog" class="hover:text-zinc-200 transition-colors">Blog</a>
-        <a href="/releases" class="hover:text-zinc-200 transition-colors">Releases</a>
-        <a href="/themes" class="text-zinc-200">Themes</a>
-        <a href="/experimental" class="hover:text-zinc-200 transition-colors">Experimental</a>
-        <a href="https://github.com/adrian-kimbrell/splice" class="hover:text-zinc-200 transition-colors font-mono text-xs">GitHub</a>
-      </nav>
-    </div>
-  </header>
+  <header class="nav"><div class="nav-inner">
+    <a class="brand" href="/"><img src="../logo.png" alt="Splice"><span>Splice</span></a>
+    <nav class="nav-links">
+      <a class="nav-link" href="/">Home</a>
+      <a class="nav-link" href="/blog">Blog</a>
+      <a class="nav-link" href="/releases">Releases</a>
+      <a class="nav-link" href="/architecture">Architecture</a>
+      <a class="nav-link active" href="/themes">Themes</a>
+      <a class="nav-link" href="/experimental">Experimental</a>
+    </nav>
+    <span style="flex:1"></span>
+    <a class="nav-ico" href="https://github.com/adrian-kimbrell/splice"><i class="bi bi-github"></i> Star</a>
+    <a class="btn btn-primary btn-sm" href="/#download">Download</a>
+  </div></header>
 
   <!-- Toolbar -->
   <div class="toolbar">

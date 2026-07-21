@@ -8,56 +8,62 @@
   <link rel="canonical" href="https://www.spliceditor.xyz/architecture" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="apple-touch-icon.svg" />
-  <meta name="robots" content="index, follow" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://www.spliceditor.xyz/architecture" />
   <meta property="og:title" content="Architecture — How Splice works under the hood" />
   <meta property="og:description" content="A technical deep-dive into how Splice is built: Rust backend, Svelte 5 frontend, binary terminal protocol, LSP proxy, and Claude attention hooks." />
-  <meta property="og:image" content="https://www.spliceditor.xyz/og.svg" />
+  <meta property="og:image" content="https://www.spliceditor.xyz/og-image.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Architecture — How Splice works under the hood" />
   <meta name="twitter:description" content="A technical deep-dive into how Splice is built: Rust backend, Svelte 5 frontend, binary terminal protocol, LSP proxy, and Claude attention hooks." />
-  <meta name="twitter:image" content="https://www.spliceditor.xyz/og.svg" />
+  <meta name="twitter:image" content="https://www.spliceditor.xyz/og-image.png" />
 
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "How Splice works under the hood",
+    "description": "A technical deep-dive into how Splice is built: a Rust backend, a Svelte 5 frontend, a canvas terminal with a binary rendering protocol, an LSP proxy, and the Claude Code attention-hook system.",
+    "url": "https://www.spliceditor.xyz/architecture",
+    "image": "https://www.spliceditor.xyz/screenshots/main_title_shot.png",
+    "author": { "@type": "Person", "name": "Adrian Kimbrell", "url": "https://github.com/adrian-kimbrell" },
+    "publisher": { "@type": "Person", "name": "Adrian Kimbrell" },
+    "isPartOf": { "@type": "WebSite", "name": "Splice", "url": "https://www.spliceditor.xyz/" },
+    "about": ["Terminal emulator", "Rust", "Tauri", "Svelte", "Language Server Protocol", "Developer tools"]
+  }
+  </script>
+
+  <meta name="theme-color" content="#0b0c0e" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
   <link rel="stylesheet" href="tailwind.css">
+  <link rel="stylesheet" href="site.css">
   <style>
-    :root { --accent: #00ff88; }
-    body { background: #1e1e1e; }
-    .btn-orange { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
-    .btn-orange:hover { background: rgba(0,255,136,0.1); }
-    .text-orange { color: #00ff88; }
-    .border-orange { border-color: #00ff88; }
-    .bg-card { background: #252526; }
-    .bg-raised { background: #2d2d30; }
-    .border-dim { border-color: #3c3c3c; }
     body { opacity: 0; animation: fadein 0.15s ease forwards; }
     @keyframes fadein { to { opacity: 1; } }
 
-    /* Sticky sub-nav */
+    /* Section sub-nav — scrolls with the page (not a second sticky bar) */
     .sub-nav {
-      position: sticky;
-      top: 0;
-      z-index: 40;
-      background: #1a1a1a;
-      border-bottom: 1px solid #3c3c3c;
+      background: var(--bg-2);
+      border-bottom: 1px solid var(--border);
     }
     .sub-nav a {
       display: inline-block;
       padding: 12px 0;
       font-size: 12px;
-      color: #71717a;
-      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
       text-decoration: none;
       transition: color 0.15s;
       border-bottom: 2px solid transparent;
       margin-bottom: -1px;
     }
-    .sub-nav a:hover { color: #e4e4e7; }
-    .sub-nav a.active { color: #00ff88; border-bottom-color: #00ff88; }
+    .sub-nav a:hover { color: var(--text-hi); }
+    .sub-nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
 
     /* Layer stack */
     .layer-row {
@@ -71,21 +77,22 @@
       text-align: right;
     }
     .layer-cards-col {
-      border-left: 2px solid #2a2a2a;
+      border-left: 2px solid var(--border);
       padding-left: 24px;
       padding-top: 8px;
       padding-bottom: 16px;
     }
     .arch-card {
-      background: #252526;
-      border: 1px solid #3c3c3c;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
       padding: 16px 20px;
       flex: 1;
       min-width: 180px;
     }
     .arch-card:hover {
-      border-color: #555;
-      background: #2a2a2a;
+      border-color: var(--border-strong);
+      background: var(--raised);
     }
     .arch-connector {
       display: grid;
@@ -95,7 +102,7 @@
       height: 52px;
     }
     .arch-connector-line {
-      border-left: 2px solid #2a2a2a;
+      border-left: 2px solid var(--border);
       padding-left: 24px;
       display: flex;
       align-items: center;
@@ -105,11 +112,11 @@
     .connector-arrow-line {
       height: 1px;
       width: 40px;
-      background: #3c3c3c;
+      background: var(--border-strong);
     }
     .connector-arrowhead {
       width: 0; height: 0;
-      border-left: 5px solid #3c3c3c;
+      border-left: 5px solid var(--border-strong);
       border-top: 4px solid transparent;
       border-bottom: 4px solid transparent;
       margin-left: -1px;
@@ -138,14 +145,14 @@
       justify-content: center;
       font-size: 9px;
       font-weight: 700;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: var(--font-mono);
       flex-shrink: 0;
-      background: #1e1e1e;
+      background: var(--bg);
     }
     .flow-step-vert {
       flex: 1;
       width: 2px;
-      background: #2a2a2a;
+      background: var(--border);
       min-height: 16px;
       margin: 3px 0;
     }
@@ -158,57 +165,55 @@
 
     /* Code blocks */
     pre {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: var(--font-mono);
       font-size: 11px;
-      color: #71717a;
-      background: #1a1a1a;
-      border: 1px solid #2a2a2a;
+      color: var(--text-dim);
+      background: var(--code);
+      border: 1px solid var(--border);
+      border-radius: 8px;
       padding: 12px 16px;
       margin-top: 10px;
       overflow-x: auto;
       line-height: 1.7;
     }
     code {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: var(--font-mono);
       font-size: 11px;
-      color: #a3e635;
+      color: var(--accent-soft);
     }
   </style>
 </head>
-<body class="text-zinc-100 antialiased" style="background:#1e1e1e">
+<body class="antialiased">
 
   <!-- Nav -->
-  <header style="border-bottom:1px solid #3c3c3c">
-    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2">
-        <img src="logo.png" alt="Splice" class="w-9 h-9" style="filter:brightness(0) invert(1)" />
-        <span class="font-mono text-sm font-medium tracking-widest uppercase text-orange">Splice</span>
-      </a>
-      <nav class="flex items-center gap-8 text-sm text-zinc-500">
-        <a href="/" class="hover:text-zinc-200 transition-colors">Home</a>
-        <a href="/blog" class="hover:text-zinc-200 transition-colors">Blog</a>
-        <a href="/releases" class="hover:text-zinc-200 transition-colors">Releases</a>
-        <a href="/architecture" class="text-zinc-200 transition-colors">Architecture</a>
-        <a href="/experimental" class="hover:text-zinc-200 transition-colors">Experimental</a>
-        <a href="https://github.com/adrian-kimbrell/splice" class="hover:text-zinc-200 transition-colors font-mono text-xs">GitHub</a>
-        <a href="/#download" class="btn-orange text-white px-4 py-1.5 text-xs font-mono tracking-wide transition-colors">Download</a>
-      </nav>
-    </div>
-  </header>
+  <header class="nav"><div class="nav-inner">
+    <a class="brand" href="/"><img src="logo.png" alt="Splice"><span>Splice</span></a>
+    <nav class="nav-links">
+      <a class="nav-link" href="/">Home</a>
+      <a class="nav-link" href="/blog">Blog</a>
+      <a class="nav-link" href="/releases">Releases</a>
+      <a class="nav-link active" href="/architecture">Architecture</a>
+      <a class="nav-link" href="/themes">Themes</a>
+      <a class="nav-link" href="/experimental">Experimental</a>
+    </nav>
+    <span style="flex:1"></span>
+    <a class="nav-ico" href="https://github.com/adrian-kimbrell/splice"><i class="bi bi-github"></i> Star</a>
+    <a class="btn btn-primary btn-sm" href="/#download">Download</a>
+  </div></header>
 
-  <!-- Hero -->
-  <section class="max-w-6xl mx-auto px-6 py-20" style="border-bottom:1px solid #3c3c3c">
-    <p class="font-mono text-xs text-orange tracking-widest uppercase mb-6">Technical deep-dive</p>
-    <h1 class="text-4xl font-bold tracking-tight leading-tight mb-6 text-white">How Splice works</h1>
-    <p class="text-lg text-zinc-400 leading-relaxed max-w-2xl mb-8">
+  <!-- Page header -->
+  <section class="wrap" style="padding-top:96px;padding-bottom:40px;border-bottom:1px solid var(--border-soft)">
+    <p class="eyebrow" style="margin-bottom:20px">Technical deep-dive</p>
+    <h1 class="page-title" style="margin-bottom:20px">How Splice works</h1>
+    <p class="lede" style="max-width:640px;margin-bottom:28px">
       Splice is a native macOS desktop app built with a Rust backend and a Svelte 5 frontend, connected through Tauri's IPC bridge. This page covers the full system — from how terminal bytes become pixels to how Claude Code hooks work.
     </p>
     <div style="display:flex;flex-wrap:wrap;gap:10px">
-      <span class="font-mono text-xs px-3 py-1.5 text-zinc-400" style="background:#252526;border:1px solid #3c3c3c">Rust + Tauri v2</span>
-      <span class="font-mono text-xs px-3 py-1.5 text-zinc-400" style="background:#252526;border:1px solid #3c3c3c">Svelte 5 runes</span>
-      <span class="font-mono text-xs px-3 py-1.5 text-zinc-400" style="background:#252526;border:1px solid #3c3c3c">TypeScript + Vite</span>
-      <span class="font-mono text-xs px-3 py-1.5 text-zinc-400" style="background:#252526;border:1px solid #3c3c3c">CodeMirror 6</span>
-      <span class="font-mono text-xs px-3 py-1.5 text-zinc-400" style="background:#252526;border:1px solid #3c3c3c">Tailwind CSS</span>
+      <span class="font-mono text-xs px-3 py-1.5" style="color:var(--text-mut);background:var(--card);border:1px solid var(--border);border-radius:7px">Rust + Tauri v2</span>
+      <span class="font-mono text-xs px-3 py-1.5" style="color:var(--text-mut);background:var(--card);border:1px solid var(--border);border-radius:7px">Svelte 5 runes</span>
+      <span class="font-mono text-xs px-3 py-1.5" style="color:var(--text-mut);background:var(--card);border:1px solid var(--border);border-radius:7px">TypeScript + Vite</span>
+      <span class="font-mono text-xs px-3 py-1.5" style="color:var(--text-mut);background:var(--card);border:1px solid var(--border);border-radius:7px">CodeMirror 6</span>
+      <span class="font-mono text-xs px-3 py-1.5" style="color:var(--text-mut);background:var(--card);border:1px solid var(--border);border-radius:7px">Tailwind CSS</span>
     </div>
   </section>
 
@@ -222,7 +227,7 @@
   </div>
 
   <!-- ═══════════════ THE STACK ═══════════════ -->
-  <section id="stack" class="max-w-6xl mx-auto px-6 py-20" style="border-bottom:1px solid #3c3c3c">
+  <section id="stack" class="max-w-6xl mx-auto px-6 py-20" style="border-bottom:1px solid #1f232a">
 
     <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">The Stack</p>
     <h2 class="text-2xl font-bold tracking-tight mb-3 text-white">Five layers, one window</h2>
@@ -452,7 +457,7 @@
   </section>
 
   <!-- ═══════════════ COMPONENT GRAPH ═══════════════ -->
-  <section id="graph" class="py-20" style="border-bottom:1px solid #3c3c3c;background:#111">
+  <section id="graph" class="py-20" style="border-bottom:1px solid #1f232a;background:#0d0f12">
 
     <div class="max-w-6xl mx-auto px-6 mb-10">
       <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Live Data Flow</p>
@@ -464,22 +469,22 @@
 
     <div style="position:relative;overflow:hidden">
       <svg id="arch-graph" style="width:100%;display:block;overflow:visible"></svg>
-      <div id="graph-tooltip" style="position:fixed;pointer-events:none;background:#1e1e1e;border:1px solid #3c3c3c;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#a1a1aa;max-width:260px;line-height:1.65;display:none;z-index:100;box-shadow:0 4px 24px rgba(0,0,0,0.6)"></div>
+      <div id="graph-tooltip" style="position:fixed;pointer-events:none;background:#0b0c0e;border:1px solid #1f232a;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#a1a1aa;max-width:260px;line-height:1.65;display:none;z-index:100;box-shadow:0 4px 24px rgba(0,0,0,0.6)"></div>
     </div>
   </section>
 
   <!-- ═══════════════ DATA FLOWS ═══════════════ -->
-  <section id="flows" style="background:#252526;border-bottom:1px solid #3c3c3c">
+  <section id="flows" style="background:#101216;border-bottom:1px solid #1f232a">
     <div class="max-w-6xl mx-auto px-6 py-20">
 
       <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Data Flows</p>
       <h2 class="text-2xl font-bold tracking-tight mb-3 text-white">How key operations work end-to-end</h2>
       <p class="text-zinc-400 leading-relaxed mb-16 max-w-2xl">Step-by-step traces of the most important operations in Splice — from the moment you trigger an action to the moment you see the result.</p>
 
-      <div class="grid md:grid-cols-2 gap-px" style="border:1px solid #3c3c3c">
+      <div class="grid md:grid-cols-2 gap-px" style="border:1px solid #1f232a">
 
         <!-- Terminal rendering -->
-        <div class="p-8" style="background:#1e1e1e;border-bottom:1px solid #3c3c3c;border-right:1px solid #3c3c3c">
+        <div class="p-8" style="background:#0b0c0e;border-bottom:1px solid #1f232a;border-right:1px solid #1f232a">
           <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
             <i class="bi bi-terminal-fill"></i> Terminal rendering
           </p>
@@ -552,7 +557,7 @@ Cells  (12 bytes each): codepoint u32, fg RGB,
         </div>
 
         <!-- File save -->
-        <div class="p-8" style="background:#1e1e1e;border-bottom:1px solid #3c3c3c">
+        <div class="p-8" style="background:#0b0c0e;border-bottom:1px solid #1f232a">
           <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
             <i class="bi bi-floppy"></i> File save
           </p>
@@ -601,7 +606,7 @@ Cells  (12 bytes each): codepoint u32, fg RGB,
         </div>
 
         <!-- LSP -->
-        <div class="p-8" style="background:#1e1e1e;border-bottom:1px solid #3c3c3c;border-right:1px solid #3c3c3c">
+        <div class="p-8" style="background:#0b0c0e;border-bottom:1px solid #1f232a;border-right:1px solid #1f232a">
           <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
             <i class="bi bi-braces-asterisk"></i> LSP: diagnostics &amp; completions
           </p>
@@ -663,7 +668,7 @@ Server request (both)   → answer inline</pre>
         </div>
 
         <!-- Claude attention hook -->
-        <div class="p-8" style="background:#1e1e1e;border-bottom:1px solid #3c3c3c">
+        <div class="p-8" style="background:#0b0c0e;border-bottom:1px solid #1f232a">
           <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
             <i class="bi bi-lightning-charge-fill"></i> Claude attention hook
           </p>
@@ -726,7 +731,7 @@ Authorization: Bearer &lt;token&gt;
         </div>
 
         <!-- Session restore -->
-        <div class="p-8" style="background:#1e1e1e;border-right:1px solid #3c3c3c">
+        <div class="p-8" style="background:#0b0c0e;border-right:1px solid #1f232a">
           <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
             <i class="bi bi-arrow-counterclockwise"></i> Session restore
           </p>
@@ -785,7 +790,7 @@ Authorization: Bearer &lt;token&gt;
         </div>
 
         <!-- SSH -->
-        <div class="p-8" style="background:#1e1e1e">
+        <div class="p-8" style="background:#0b0c0e">
           <p class="font-mono text-xs text-orange tracking-widest uppercase mb-3 flex items-center gap-2">
             <i class="bi bi-hdd-network"></i> SSH remote workspace
           </p>
@@ -840,12 +845,11 @@ Authorization: Bearer &lt;token&gt;
 
 
   <!-- Footer -->
-  <footer style="border-top:1px solid #3c3c3c">
-    <div class="max-w-6xl mx-auto px-6 py-10 flex items-center justify-between text-xs text-zinc-600 font-mono">
-      <a href="/" class="tracking-widest uppercase text-orange">Splice</a>
-      <span>One window for all your work</span>
-    </div>
-  </footer>
+  <footer class="site-footer"><div class="foot-inner wrap">
+    <div class="foot-brand"><img src="logo.png" alt="Splice"><span>Splice</span></div>
+    <div class="foot-tag">The terminal workspace for AI-assisted development · macOS · MIT</div>
+    <div class="foot-links"><a href="https://github.com/adrian-kimbrell/splice">GitHub</a><a href="/releases">Releases</a><a href="/blog">Blog</a></div>
+  </div></footer>
 
   <script>
   // ─── Layered Data Flow Diagram ────────────────────────────────────────────
@@ -949,7 +953,7 @@ Authorization: Bearer &lt;token&gt;
       LAYERS.forEach((layer, i) => {
         const y = 20 + i * ROW_H;
         const band = el('rect', { x: 0, y, width: W, height: ROW_H,
-          fill: i % 2 === 0 ? '#141414' : '#111', opacity: 1 });
+          fill: i % 2 === 0 ? '#101216' : '#0d0f12', opacity: 1 });
         svg.appendChild(band);
 
         // Layer label
@@ -967,7 +971,7 @@ Authorization: Bearer &lt;token&gt;
         // Dividing line
         if (i > 0) {
           const line = el('line', { x1: 0, y1: y, x2: W, y2: y,
-            stroke: '#2a2a2a', 'stroke-width': 1 });
+            stroke: '#1f232a', 'stroke-width': 1 });
           svg.appendChild(line);
         }
       });
@@ -1009,7 +1013,7 @@ Authorization: Bearer &lt;token&gt;
         const g = el('g', { cursor: 'pointer', 'data-id': n.id });
 
         const bg = el('rect', { x: nd.cx - nw/2, y: nd.cy - NODE_H/2, width: nw, height: NODE_H,
-          fill: '#1a1a1a', stroke: nd.color, 'stroke-width': '1', rx: '4',
+          fill: '#181b20', stroke: nd.color, 'stroke-width': '1', rx: '4',
           'stroke-opacity': '0.6' });
         g.appendChild(bg);
 
@@ -1027,7 +1031,7 @@ Authorization: Bearer &lt;token&gt;
 
         // Hover interactions
         g.addEventListener('mouseenter', function(ev) {
-          bg.setAttribute('fill', '#252526');
+          bg.setAttribute('fill', '#101216');
           bg.setAttribute('stroke-opacity', '1');
           // Highlight connected edges
           edgeEls.forEach(ee => {
@@ -1048,7 +1052,7 @@ Authorization: Bearer &lt;token&gt;
         });
         g.addEventListener('mousemove', positionTooltip);
         g.addEventListener('mouseleave', function() {
-          bg.setAttribute('fill', '#1a1a1a');
+          bg.setAttribute('fill', '#181b20');
           bg.setAttribute('stroke-opacity', '0.6');
           edgeEls.forEach(ee => {
             ee.path.setAttribute('opacity', '0.18');

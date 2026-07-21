@@ -1,7 +1,6 @@
 <script lang="ts">
   import { ui } from "../../lib/stores/ui.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
-  import { openSettingsWindow } from "../../lib/utils/settings-window";
   import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
   import { settings, debouncedSaveSettings } from "../../lib/stores/settings.svelte";
   import { recentFiles } from "../../lib/stores/recent-files.svelte";
@@ -20,7 +19,7 @@
     { name: "New Terminal", shortcut: "", action() { workspaceManager.spawnTerminalInWorkspace(); } },
     { name: "Find in Files", shortcut: "⇧⌘F", action() { ui.sidebarMode = "search"; ui.explorerVisible = true; } },
     { name: "Go to Line…", shortcut: "⌘G", action() { dispatchEditorAction("goto-line"); } },
-    { name: "Preferences: Open Settings", shortcut: "⌘,", action() { openSettingsWindow(); } },
+    { name: "Preferences: Open Settings", shortcut: "⌘,", action() { ui.settingsDrawerOpen = true; } },
     { name: "Format Document", shortcut: "⇧⌥F", action() { dispatchEditorAction("format-document"); } },
     { name: "Save All", shortcut: "⌥⌘S", action() { workspaceManager.saveAllDirtyFiles(); } },
     { name: "Toggle Word Wrap", shortcut: "", action() { dispatchEditorAction("toggle-word-wrap"); } },

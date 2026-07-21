@@ -169,15 +169,25 @@ function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void, dep
         document.body.appendChild(sub);
         activeSubmenu = sub;
 
-        // Measure synchronously, then position
+        // Position entirely in unzoomed layout px. The trigger's getBoundingClientRect
+        // is layout px in WebKit but visual (layout*zoom) in Chromium; normalize it
+        // by the ratio of its reported width to its layout offsetWidth, then place
+        // the submenu (offsetWidth/Height and clientWidth/Height are layout px on
+        // every engine). style.left/top on the fixed submenu are layout px too, so
+        // no further zoom conversion is needed. See [[zoom-coords]].
+        const r = btn.getBoundingClientRect();
+        const s = btn.offsetWidth ? (r.width / btn.offsetWidth) || 1 : 1;
+        // Root rect / s gives the viewport bounds in layout px on either engine.
+        const vp = document.documentElement.getBoundingClientRect();
+        const vw = vp.width  / s;
+        const vh = vp.height / s;
         const subW = sub.offsetWidth;
         const subH = sub.offsetHeight;
-        const r = btn.getBoundingClientRect();
 
-        let left = r.right;
-        let top  = r.top;
-        if (left + subW > window.innerWidth)  left = r.left - subW;
-        if (top  + subH > window.innerHeight) top  = window.innerHeight - subH - 4;
+        let left = r.right / s;
+        let top  = r.top   / s;
+        if (left + subW > vw) left = r.left / s - subW;
+        if (top  + subH > vh) top  = vh - subH - 4;
 
         sub.style.left = `${left}px`;
         sub.style.top  = `${top}px`;
@@ -216,19 +226,48 @@ function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void, dep
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
+/**
+ * Position an already-appended `position:fixed` menu element at a viewport
+ * (zoom-scaled / visual) click coordinate, correcting for the document root's
+ * CSS `zoom` (appearance.ui_scale) and clamping to stay on-screen.
+ *
+ * clientX/Y are visual px on every engine, but a fixed element inside the zoomed
+ * root positions in layout px (the root re-multiplies by zoom on render), so set
+ * left/top = client/zoom. For the on-screen clamp, the menu's own
+ * getBoundingClientRect and the root element's are in the SAME engine-specific
+ * space (layout px in WebKit, visual px in Chromium), so comparing them is valid
+ * without knowing which; overflow is converted back to layout px via the menu's
+ * rectScale (rect.width/offsetWidth = 1 in WebKit, zoom in Chromium). No-op when
+ * zoom is 1. Call after the element is in the DOM so it has a measurable size.
+ * See [[zoom-coords]]. Used by every fixed context menu in the app.
+ */
+export function positionFixedMenu(menu: HTMLElement, x: number, y: number): void {
+  const zoom = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+  const leftLayout = x / zoom;
+  const topLayout  = y / zoom;
+  menu.style.left = `${leftLayout}px`;
+  menu.style.top  = `${topLayout}px`;
+
+  requestAnimationFrame(() => {
+    if (!menu.parentNode) return;
+    const r  = menu.getBoundingClientRect();
+    const vp = document.documentElement.getBoundingClientRect();
+    const s  = menu.offsetWidth ? (r.width / menu.offsetWidth) || 1 : 1;
+    const overR = r.right  - (vp.right  - 4);
+    const overB = r.bottom - (vp.bottom - 4);
+    if (overR > 0) menu.style.left = `${Math.max(4, leftLayout - overR / s)}px`;
+    if (overB > 0) menu.style.top  = `${Math.max(4, topLayout  - overB / s)}px`;
+  });
+}
+
 export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y: number): void {
   document.querySelector(".splice-ctx-menu")?.remove();
   removeSubmenu();
 
   const menu = buildMenu(items, remove);
-  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:9999;`;
+  menu.style.cssText = "position:fixed;z-index:9999;";
   document.body.appendChild(menu);
-
-  requestAnimationFrame(() => {
-    const r = menu.getBoundingClientRect();
-    if (r.right  > window.innerWidth)  menu.style.left = `${window.innerWidth  - r.width  - 4}px`;
-    if (r.bottom > window.innerHeight) menu.style.top  = `${window.innerHeight - r.height - 4}px`;
-  });
+  positionFixedMenu(menu, x, y);
 
   function remove() {
     removeSubmenu();

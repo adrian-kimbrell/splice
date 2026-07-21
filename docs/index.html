@@ -1,28 +1,39 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Splice — Terminal workspace for macOS</title>
-  <meta name="description" content="Splice is a macOS developer environment built on Rust and Tauri. Isolated workspaces, a blazing-fast terminal, and first-class support for AI coding agents like Claude Code." />
-  <meta name="keywords" content="terminal, developer tool, macOS, workspace, code editor, Claude Code, AI coding, terminal emulator, open source" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Primary -->
+  <title>Splice — The macOS Terminal Workspace for AI Coding | Rust, 120fps</title>
+  <meta name="description" content="Splice is a native macOS terminal workspace built in Rust. Isolated per-project environments, a 120fps terminal, a built-in code editor, and first-class Claude Code + OpenAI Codex support. Free & open source." />
+  <meta name="keywords" content="terminal, developer tool, macOS, workspace, code editor, Claude Code, OpenAI Codex, AI coding, terminal emulator, Rust, Tauri, open source" />
   <link rel="canonical" href="https://www.spliceditor.xyz/" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="apple-touch-icon.svg" />
-  <meta name="robots" content="index, follow" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta name="theme-color" content="#0b0c0e" />
+  <meta name="author" content="Adrian Kimbrell" />
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Splice" />
   <meta property="og:url" content="https://www.spliceditor.xyz/" />
-  <meta property="og:title" content="Splice — Terminal workspace for macOS" />
-  <meta property="og:description" content="Native macOS developer environment. Isolated workspaces, fast terminal, built for AI-assisted development." />
-  <meta property="og:image" content="https://www.spliceditor.xyz/og.svg" />
+  <meta property="og:title" content="Splice — The macOS Terminal Workspace for AI Coding" />
+  <meta property="og:description" content="Isolated per-project workspaces, a 120fps Rust terminal, and first-class Claude Code + Codex support — all in one window. Free & open source." />
+  <!-- Branded 1200×630 card (regenerate: screenshot og-image.html → og-image.png). -->
+  <meta property="og:image" content="https://www.spliceditor.xyz/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:alt" content="Splice — one window, every project. The macOS terminal workspace for AI-assisted development." />
 
-  <!-- Twitter -->
+  <!-- Twitter / X -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Splice — Terminal workspace for macOS" />
-  <meta name="twitter:description" content="Native macOS developer environment. Isolated workspaces, fast terminal, built for AI-assisted development." />
-  <meta name="twitter:image" content="https://www.spliceditor.xyz/og.svg" />
+  <meta name="twitter:title" content="Splice — The macOS Terminal Workspace for AI Coding" />
+  <meta name="twitter:description" content="Isolated per-project workspaces, a 120fps Rust terminal, and first-class Claude Code + Codex support — all in one window. Free & open source." />
+  <meta name="twitter:image" content="https://www.spliceditor.xyz/og-image.png" />
+
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -31,382 +42,315 @@
     "applicationCategory": "DeveloperApplication",
     "applicationSubCategory": "Terminal Emulator",
     "operatingSystem": "macOS",
-    "softwareVersion": "0.5.1",
-    "description": "Splice is a native macOS developer environment built on Rust and Tauri. Isolated workspaces, a Snakebite-rendered terminal, a built-in code editor, and first-class support for AI coding agents like Claude Code and OpenAI Codex.",
+    "softwareVersion": "0.5.6",
+    "description": "Splice is a native macOS terminal workspace built on Rust and Tauri. Isolated per-project environments, a Snakebite-rendered 120fps terminal, a built-in code editor, and first-class support for AI coding agents like Claude Code and OpenAI Codex.",
     "url": "https://www.spliceditor.xyz/",
-    "downloadUrl": "https://github.com/adrian-kimbrell/splice",
-    "installUrl": "https://github.com/adrian-kimbrell/splice",
+    "downloadUrl": "https://github.com/adrian-kimbrell/splice/releases/latest",
+    "installUrl": "https://github.com/adrian-kimbrell/splice/releases/latest",
     "license": "https://opensource.org/licenses/MIT",
     "isAccessibleForFree": true,
-    "offers": {
-      "@type": "Offer",
-      "price": "0",
-      "priceCurrency": "USD"
-    },
-    "author": {
-      "@type": "Person",
-      "name": "Adrian Kimbrell",
-      "url": "https://github.com/adrian-kimbrell"
-    },
-    "keywords": "terminal emulator, macOS developer tool, workspace manager, Claude Code, AI coding, Rust, Tauri, open source"
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "Adrian Kimbrell", "url": "https://github.com/adrian-kimbrell" },
+    "keywords": "terminal emulator, macOS developer tool, workspace manager, Claude Code, OpenAI Codex, AI coding, Rust, Tauri, open source"
   }
   </script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="tailwind.css">
+
   <style>
-    :root { --accent: #00ff88; }
-    body { background: #1e1e1e; }
-    .btn-orange { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
-    .btn-orange:hover { background: rgba(0,255,136,0.1); }
-    .text-orange { color: #00ff88; }
-    .border-orange { border-color: #00ff88; }
-    .bg-card { background: #252526; }
-    .bg-raised { background: #2d2d30; }
-    .border-dim { border-color: #3c3c3c; }
-    .glow-orange { box-shadow: 0 0 40px rgba(0,255,136,0.08); }
-    body { opacity: 0; animation: fadein 0.15s ease forwards; }
-    @keyframes fadein { to { opacity: 1; } }
+    *{box-sizing:border-box}
+    html,body{margin:0}
+    body{background:#0b0c0e;color:#c3c5cb;font-family:'Space Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:#3bffa6;text-decoration:none}
+    a:hover{color:#8affca}
+    ::selection{background:#00ff88;color:#08130d}
+
+    /* Hover behaviors flattened from the builder's style-hover attributes */
+    .dl{transition:background .18s ease}
+    .dl:hover{background:#4dffab}
+    .ghost{transition:border-color .18s ease,color .18s ease}
+    .ghost:hover{border-color:#00ff88;color:#8affca}
+    .lift{transition:border-color .2s ease,transform .2s ease}
+    .lift:hover{border-color:rgba(0,255,136,.35);transform:translateY(-2px)}
+    .hi{transition:border-color .2s ease}
+    .hi:hover{border-color:rgba(0,255,136,.3)}
+    .navlink{transition:color .18s ease}
+    .navlink:hover{color:#e6e8ec}
+
+    @keyframes blink{50%{opacity:0}}
+    @keyframes lineIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+    @keyframes dotPulse{0%,100%{opacity:.3;transform:scale(1)}50%{opacity:1;transform:scale(1.35)}}
+    @keyframes ambient{0%,100%{opacity:.45}50%{opacity:.9}}
+    @keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+    @keyframes ring{0%{box-shadow:0 0 0 0 rgba(0,255,136,.5)}100%{box-shadow:0 0 0 14px rgba(0,255,136,0)}}
+    @media (prefers-reduced-motion:reduce){*{animation:none !important}}
   </style>
 </head>
-<body class="text-zinc-100 antialiased" style="background:#1e1e1e">
+<body>
 
-  <!-- Nav -->
-  <header style="border-bottom:1px solid #3c3c3c">
-    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-      <a href="#" class="flex items-center gap-2">
-        <img src="logo.png" alt="Splice" class="w-9 h-9" style="filter:brightness(0) invert(1)" />
-        <span class="font-mono text-sm font-medium tracking-widest uppercase text-orange">Splice</span>
+<div style="position:relative;background:#0b0c0e;min-height:100vh;overflow:hidden">
+
+  <!-- AMBIENT BACKDROP -->
+  <div style="position:absolute;inset:0;pointer-events:none;background:radial-gradient(700px 420px at 18% -4%,rgba(0,255,136,.10),transparent 60%),radial-gradient(760px 520px at 92% 6%,rgba(0,209,255,.07),transparent 60%);animation:ambient 9s ease-in-out infinite"></div>
+  <div style="position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);background-size:56px 56px;mask-image:radial-gradient(900px 620px at 50% 0%,#000,transparent 78%);-webkit-mask-image:radial-gradient(900px 620px at 50% 0%,#000,transparent 78%)"></div>
+
+  <div style="position:relative">
+
+  <!-- NAV -->
+  <header style="position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);background:rgba(11,12,14,.72);border-bottom:1px solid #1b1e24">
+    <div style="max-width:1200px;margin:0 auto;padding:15px 28px;display:flex;align-items:center;gap:32px">
+      <a href="/" style="display:flex;align-items:center;gap:9px;color:inherit">
+        <img src="logo.png" alt="Splice — macOS terminal workspace" style="width:30px;height:30px;filter:brightness(0) invert(1)">
+        <span style="font:600 13px 'JetBrains Mono',monospace;letter-spacing:.2em;text-transform:uppercase;color:#eef0f2">Splice</span>
       </a>
-      <nav class="flex items-center gap-8 text-sm text-zinc-500">
-        <a href="#workspaces" class="hover:text-zinc-200 transition-colors">Workspaces</a>
-        <a href="#features" class="hover:text-zinc-200 transition-colors">Features</a>
-        <a href="/blog" class="hover:text-zinc-200 transition-colors">Blog</a>
-        <a href="/releases" class="hover:text-zinc-200 transition-colors">Releases</a>
-        <a href="/architecture" class="hover:text-zinc-200 transition-colors">Architecture</a>
-        <a href="/themes" class="hover:text-zinc-200 transition-colors">Themes</a>
-        <a href="/experimental" class="hover:text-zinc-200 transition-colors">Experimental</a>
-        <a href="https://github.com/adrian-kimbrell/splice" class="hover:text-zinc-200 transition-colors font-mono text-xs">GitHub</a>
-        <a href="#download" class="btn-orange text-white px-4 py-1.5 text-xs font-mono tracking-wide transition-colors">Download</a>
+      <nav style="display:flex;align-items:center;gap:24px;font-size:13.5px;color:#83868f">
+        <a class="navlink" href="#workspaces" style="color:#83868f">Workspaces</a>
+        <a class="navlink" href="#features" style="color:#83868f">Features</a>
+        <a class="navlink" href="#agents" style="color:#83868f">AI agents</a>
+        <a class="navlink" href="/blog" style="color:#83868f">Blog</a>
+        <a class="navlink" href="/releases" style="color:#83868f">Releases</a>
+        <a class="navlink" href="/architecture" style="color:#83868f">Architecture</a>
       </nav>
+      <div style="flex:1"></div>
+      <a class="navlink" href="https://github.com/adrian-kimbrell/splice" style="font:400 12.5px 'JetBrains Mono',monospace;color:#83868f;display:flex;align-items:center;gap:6px"><i class="bi bi-github"></i> Star</a>
+      <a class="dl" href="#download" style="font:500 12.5px 'JetBrains Mono',monospace;color:#08130d;background:#00ff88;padding:8px 16px;border-radius:8px;box-shadow:0 0 22px -4px rgba(0,255,136,.55)">Download</a>
     </div>
   </header>
 
-  <!-- Hero -->
-  <section class="max-w-6xl mx-auto px-6 py-28" style="border-bottom:1px solid #3c3c3c">
-    <div class="max-w-3xl">
-      <p class="font-mono text-xs text-orange tracking-widest uppercase mb-6">Free & open source · macOS</p>
-      <h1 class="text-5xl font-bold tracking-tight leading-tight mb-6 text-white">
-        One window.<br>Every project.
-      </h1>
-      <p class="text-xl text-zinc-400 leading-relaxed mb-10 max-w-2xl">
-        Keep all your work in motion at once. Splice gives each project its own fully isolated workspace — terminals running, files open, layout intact. Switch in a keystroke. Pick up exactly where you left off.
-      </p>
-      <div class="flex items-center gap-4">
-        <a href="#download" class="btn-orange text-white px-6 py-3 text-sm font-mono tracking-wide transition-colors">Download for macOS</a>
-        <a href="https://github.com/adrian-kimbrell/splice" class="text-sm text-zinc-500 hover:text-zinc-200 transition-colors font-mono">View source →</a>
+  <!-- HERO -->
+  <section style="max-width:1200px;margin:0 auto;padding:96px 28px 40px;text-align:center">
+    <div style="display:inline-flex;align-items:center;gap:9px;font:500 12px 'JetBrains Mono',monospace;color:#8affca;background:rgba(0,255,136,.07);border:1px solid rgba(0,255,136,.22);padding:6px 14px;border-radius:100px;letter-spacing:.04em">
+      <span style="width:6px;height:6px;border-radius:50%;background:#00ff88;box-shadow:0 0 10px #00ff88"></span>v0.5.6 · Free &amp; open source · macOS
+    </div>
+    <h1 style="font-size:clamp(44px,7vw,78px);font-weight:600;letter-spacing:-.035em;line-height:1.02;color:#f6f7f8;margin:26px auto 0;max-width:900px">One window.<br><span style="background:linear-gradient(105deg,#00ff88,#00e0ff 60%,#7bffd0);-webkit-background-clip:text;background-clip:text;color:transparent">Every project, in motion.</span></h1>
+    <p style="font-size:19px;line-height:1.6;color:#9a9da5;max-width:640px;margin:24px auto 0">The native macOS terminal workspace built for AI-assisted development. Isolated per-project environments, a 120fps Rust terminal, and first-class Claude Code &amp; Codex support — all in one window.</p>
+    <div style="display:flex;gap:13px;justify-content:center;margin-top:34px;flex-wrap:wrap">
+      <a class="dl" href="https://github.com/adrian-kimbrell/splice/releases/latest" style="font:500 14.5px 'JetBrains Mono',monospace;color:#08130d;background:#00ff88;padding:13px 26px;border-radius:10px;box-shadow:0 0 34px -6px rgba(0,255,136,.6);display:inline-flex;align-items:center;gap:9px"><i class="bi bi-apple"></i> Download for macOS</a>
+      <a class="ghost" href="https://github.com/adrian-kimbrell/splice" style="font:500 14.5px 'JetBrains Mono',monospace;color:#dfe1e5;padding:13px 26px;border-radius:10px;border:1px solid #2b2f37">View source →</a>
+    </div>
+    <div style="margin-top:20px;font:400 12px 'JetBrains Mono',monospace;color:#6a6d76">Apple Silicon &amp; Intel · .dmg · MIT licensed · no telemetry</div>
+
+    <!-- APP WINDOW -->
+    <div style="position:relative;max-width:1080px;margin:64px auto 0">
+      <div style="border-radius:14px;overflow:hidden;border:1px solid #23262d;background:#0e0f12;box-shadow:0 50px 130px -50px rgba(0,0,0,.9),0 0 0 1px rgba(0,255,136,.04);text-align:left">
+        <div style="display:flex;align-items:center;gap:8px;padding:11px 15px;background:#141519;border-bottom:1px solid #1f2228">
+          <span style="width:11px;height:11px;border-radius:50%;background:#ff5f57"></span>
+          <span style="width:11px;height:11px;border-radius:50%;background:#febc2e"></span>
+          <span style="width:11px;height:11px;border-radius:50%;background:#28c840"></span>
+          <span style="font:500 11px 'JetBrains Mono',monospace;color:#6a6d76;margin-left:12px">splice — 3 workspaces active</span>
+        </div>
+        <img src="screenshots/main_title_shot.png" alt="Splice showing file explorer, code editor, and multiple terminal panes in one window" style="width:100%;display:block">
+      </div>
+      <!-- floating chips -->
+      <div style="position:absolute;top:54px;right:-14px;background:rgba(17,19,23,.92);backdrop-filter:blur(8px);border:1px solid #2a2e36;border-radius:11px;padding:11px 13px;box-shadow:0 20px 50px -20px rgba(0,0,0,.8);animation:floatY 6s ease-in-out infinite;text-align:left">
+        <div style="font:500 10px 'JetBrains Mono',monospace;color:#6a6d76;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px">Workspaces</div>
+        <div style="display:flex;flex-direction:column;gap:6px;font:500 12px 'JetBrains Mono',monospace">
+          <div style="display:flex;align-items:center;gap:7px;color:#eef0f2"><span style="width:7px;height:7px;border-radius:50%;background:#00ff88;box-shadow:0 0 8px #00ff88"></span>api-server</div>
+          <div style="display:flex;align-items:center;gap:7px;color:#83868f"><span style="width:7px;height:7px;border-radius:50%;background:#3a3f48"></span>web-client</div>
+          <div style="display:flex;align-items:center;gap:7px;color:#83868f"><span style="width:7px;height:7px;border-radius:50%;background:#3a3f48"></span>marketing</div>
+        </div>
+      </div>
+      <div style="position:absolute;bottom:26px;left:-16px;background:rgba(17,19,23,.92);backdrop-filter:blur(8px);border:1px solid rgba(0,255,136,.3);border-radius:11px;padding:11px 14px;box-shadow:0 20px 50px -20px rgba(0,0,0,.8);animation:floatY 6s ease-in-out infinite .8s;text-align:left">
+        <div style="display:flex;align-items:center;gap:9px;font:500 12px 'JetBrains Mono',monospace;color:#eef0f2"><span style="width:9px;height:9px;border-radius:50%;background:#00ff88;animation:ring 1.8s ease-out infinite"></span>Claude Code needs you</div>
       </div>
     </div>
   </section>
 
-  <!-- Hero screenshot — full product at a glance -->
-  <section style="background:#111;border-bottom:1px solid #3c3c3c">
-    <div class="max-w-7xl mx-auto px-6 py-10">
-      <img
-        src="screenshots/main_title_shot.png"
-        alt="Splice — file explorer, code editor, and multiple terminal panes"
-        class="w-full"
-      />
+  <!-- TRUST / STATS STRIP -->
+  <section style="max-width:1200px;margin:0 auto;padding:44px 28px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#1b1e24;border:1px solid #1b1e24;border-radius:14px;overflow:hidden">
+      <div style="background:#0d0f12;padding:26px 24px"><div style="font-size:32px;font-weight:600;color:#f6f7f8;letter-spacing:-.02em">∞</div><div style="font-size:13px;color:#7a7d86;margin-top:5px">Projects per window</div></div>
+      <div style="background:#0d0f12;padding:26px 24px"><div style="font-size:32px;font-weight:600;color:#f6f7f8;letter-spacing:-.02em">120<span style="font-size:18px;color:#00ff88">fps</span></div><div style="font-size:13px;color:#7a7d86;margin-top:5px">Snakebite terminal</div></div>
+      <div style="background:#0d0f12;padding:26px 24px"><div style="font-size:32px;font-weight:600;color:#f6f7f8;letter-spacing:-.02em">0<span style="font-size:18px;color:#00ff88"> ms</span></div><div style="font-size:13px;color:#7a7d86;margin-top:5px">Context-switch cost</div></div>
+      <div style="background:#0d0f12;padding:26px 24px"><div style="font-size:32px;font-weight:600;color:#f6f7f8;letter-spacing:-.02em">No Electron</div><div style="font-size:13px;color:#7a7d86;margin-top:5px">Rust + system WebView</div></div>
     </div>
   </section>
 
-  <!-- Stats bar -->
-  <section style="border-bottom:1px solid #3c3c3c">
-    <div class="max-w-6xl mx-auto px-6 py-10 grid grid-cols-2 md:grid-cols-4 gap-8">
+  <!-- WORKSPACE -->
+  <section id="workspaces" style="max-width:1200px;margin:0 auto;padding:104px 28px">
+    <div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;letter-spacing:.16em;text-transform:uppercase">01 — The workspace</div>
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:60px;align-items:start;margin-top:20px">
       <div>
-        <p class="text-3xl font-bold tabular-nums text-orange">∞</p>
-        <p class="text-sm text-zinc-500 mt-1">Projects per window</p>
+        <h2 style="font-size:40px;font-weight:600;letter-spacing:-.025em;color:#f6f7f8;margin:0;max-width:520px;line-height:1.08">Your work is parallel. Your editor should be too.</h2>
+        <p style="font-size:16px;line-height:1.7;color:#9a9da5;margin:22px 0 0">Most editors give you one context. You juggle windows, fight for screen space, and lose your train of thought. Splice gives you workspaces — each a fully isolated environment with its own project folder, terminals, open files, and layout.</p>
+        <p style="font-size:16px;line-height:1.7;color:#9a9da5;margin:16px 0 0">Frontend in one, backend in another. Client A and client B. A long build running while you write code. Everything in one window — organized, not crammed. Switch in a keystroke; the state you left is exactly where you left it.</p>
       </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="lift" style="padding:22px;background:#101216;border:1px solid #1f232a;border-radius:13px"><div style="display:flex;align-items:center;gap:11px;margin-bottom:9px"><div style="width:36px;height:36px;border-radius:9px;background:rgba(0,255,136,.09);border:1px solid rgba(0,255,136,.2);display:flex;align-items:center;justify-content:center;color:#00ff88"><i class="bi bi-box-seam"></i></div><div style="font-size:16px;font-weight:600;color:#eef0f2">Full isolation</div></div><p style="font-size:14px;line-height:1.6;color:#83868f;margin:0">Own project folder, file tree, open files, terminals, and layout. Nothing bleeds between workspaces.</p></div>
+        <div class="lift" style="padding:22px;background:#101216;border:1px solid #1f232a;border-radius:13px"><div style="display:flex;align-items:center;gap:11px;margin-bottom:9px"><div style="width:36px;height:36px;border-radius:9px;background:rgba(0,255,136,.09);border:1px solid rgba(0,255,136,.2);display:flex;align-items:center;justify-content:center;color:#00ff88"><i class="bi bi-arrow-left-right"></i></div><div style="font-size:16px;font-weight:600;color:#eef0f2">Instant switch</div></div><p style="font-size:14px;line-height:1.6;color:#83868f;margin:0">Jump between workspaces with a shortcut. Terminals keep running, editors hold state. No reload, no lost context.</p></div>
+        <div class="lift" style="padding:22px;background:#101216;border:1px solid #1f232a;border-radius:13px"><div style="display:flex;align-items:center;gap:11px;margin-bottom:9px"><div style="width:36px;height:36px;border-radius:9px;background:rgba(0,255,136,.09);border:1px solid rgba(0,255,136,.2);display:flex;align-items:center;justify-content:center;color:#00ff88"><i class="bi bi-layout-three-columns"></i></div><div style="font-size:16px;font-weight:600;color:#eef0f2">Your layout, your way</div></div><p style="font-size:14px;line-height:1.6;color:#83868f;margin:0">Split terminals and editors any way you want. Drag to resize, zoom any pane full screen. Each workspace remembers its arrangement.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AI AGENTS -->
+  <section id="agents" style="border-top:1px solid #16181d;border-bottom:1px solid #16181d;background:linear-gradient(180deg,#0d0f12,#0b0c0e)">
+    <div style="max-width:1200px;margin:0 auto;padding:104px 28px;display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center">
       <div>
-        <p class="text-3xl font-bold tabular-nums text-orange">Zero</p>
-        <p class="text-sm text-zinc-500 mt-1">Context switch cost</p>
-      </div>
-      <div>
-        <p class="text-3xl font-bold tabular-nums text-orange">No Electron</p>
-        <p class="text-sm text-zinc-500 mt-1">Rust backend, system WebView</p>
-      </div>
-      <div>
-        <p class="text-3xl font-bold tabular-nums text-orange">Always on</p>
-        <p class="text-sm text-zinc-500 mt-1">Terminals keep running</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Workspace concept -->
-  <section id="workspaces" class="max-w-6xl mx-auto px-6 py-24" style="border-bottom:1px solid #3c3c3c">
-
-    <div class="grid md:grid-cols-2 gap-16 items-start">
-      <div>
-        <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">The workspace</p>
-        <h2 class="text-3xl font-bold tracking-tight mb-6 text-white">Your work is parallel. Your editor should be too.</h2>
-        <p class="text-zinc-400 leading-relaxed mb-4">
-          Most editors give you one context. You juggle windows, fight for screen space, and lose your train of thought. Splice gives you workspaces — each one a fully isolated environment with its own project folder, terminals, open files, and layout.
-        </p>
-        <p class="text-zinc-400 leading-relaxed mb-4">
-          Frontend in one workspace, backend in another. Client A and client B. A long-running build in one terminal while you write code in another. Everything lives in one window — organized, not crammed.
-        </p>
-        <p class="text-zinc-400 leading-relaxed">
-          Switch workspaces in a keystroke. The state you left is exactly where you left it.
-        </p>
-      </div>
-      <div class="space-y-3">
-        <div class="p-5" style="background:#252526;border:1px solid #3c3c3c">
-          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2 flex items-center gap-2">
-            <i class="bi bi-box-seam"></i> Full isolation
-          </p>
-          <p class="text-sm text-zinc-400 leading-relaxed">Every workspace has its own project folder, file tree, open files, terminals, and layout. Nothing bleeds between them.</p>
+        <div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;letter-spacing:.16em;text-transform:uppercase">02 — AI-native workflows</div>
+        <h2 style="font-size:38px;font-weight:600;letter-spacing:-.025em;color:#f6f7f8;margin:18px 0 0;line-height:1.1">Run agents across projects. Know the moment they need you.</h2>
+        <p style="font-size:16px;line-height:1.7;color:#9a9da5;margin:20px 0 0">Spin up Claude Code across multiple terminals and projects, then stay focused on your own work. When an agent needs a decision or hits a permission prompt, Splice surfaces it — immediately, clearly, without breaking your flow.</p>
+        <p style="font-size:15px;line-height:1.6;color:#7a7d86;margin:16px 0 24px">Works with <span style="color:#8affca">Claude Code</span> and <span style="color:#8affca">OpenAI Codex</span> out of the box. Zero configuration.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <span style="font:500 12px 'JetBrains Mono',monospace;color:#c3c5cb;border:1px solid #2b2f37;border-radius:8px;padding:7px 12px;display:inline-flex;align-items:center;gap:7px"><span style="width:6px;height:6px;border-radius:50%;background:#00ff88"></span>Auto-detect activity</span>
+          <span style="font:500 12px 'JetBrains Mono',monospace;color:#c3c5cb;border:1px solid #2b2f37;border-radius:8px;padding:7px 12px;display:inline-flex;align-items:center;gap:7px"><span style="width:6px;height:6px;border-radius:50%;background:#00ff88"></span>Permission prompts</span>
+          <span style="font:500 12px 'JetBrains Mono',monospace;color:#c3c5cb;border:1px solid #2b2f37;border-radius:8px;padding:7px 12px;display:inline-flex;align-items:center;gap:7px"><span style="width:6px;height:6px;border-radius:50%;background:#00ff88"></span>Stays out of the way</span>
         </div>
-        <div class="p-5" style="background:#252526;border:1px solid #3c3c3c">
-          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2 flex items-center gap-2">
-            <i class="bi bi-arrow-left-right"></i> Instant switch
-          </p>
-          <p class="text-sm text-zinc-400 leading-relaxed">Jump between workspaces with a keyboard shortcut. Your terminals keep running. Your editors hold their state. No reload, no lost context.</p>
+      </div>
+      <!-- LIVE AGENT MONITOR -->
+      <div style="border:1px solid #23262d;border-radius:14px;background:#0a0b0d;box-shadow:0 40px 100px -50px rgba(0,0,0,.9);overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#101216;border-bottom:1px solid #1c1f25;font:500 11px 'JetBrains Mono',monospace;color:#6a6d76">
+          <span>AGENT MONITOR</span><span style="color:#00ff88">● live</span>
         </div>
-        <div class="p-5" style="background:#252526;border:1px solid #3c3c3c">
-          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2 flex items-center gap-2">
-            <i class="bi bi-layout-three-columns"></i> Your layout, your way
-          </p>
-          <p class="text-sm text-zinc-400 leading-relaxed">Split terminals and editors side by side, any way you want. Resize with a drag. Zoom any pane full screen with a keystroke. Each workspace remembers its own arrangement.</p>
+        <div style="padding:14px;display:flex;flex-direction:column;gap:9px;font:500 12.5px 'JetBrains Mono',monospace">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-radius:9px;background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.28)"><span style="color:#eef0f2;display:flex;align-items:center;gap:9px"><span style="width:8px;height:8px;border-radius:50%;background:#00ff88;animation:dotPulse 1.4s ease-in-out infinite"></span>api-server · Claude Code</span><span style="color:#8affca">needs approval</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-radius:9px;border:1px solid #1c1f25;color:#83868f"><span style="display:flex;align-items:center;gap:9px"><span style="width:8px;height:8px;border-radius:50%;background:#00e0ff;animation:dotPulse 1.4s ease-in-out infinite .5s"></span>web-client · Codex</span><span>running…</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-radius:9px;border:1px solid #1c1f25;color:#83868f"><span style="display:flex;align-items:center;gap:9px"><span style="width:8px;height:8px;border-radius:50%;background:#3a3f48"></span>marketing · Claude Code</span><span>idle</span></div>
+        </div>
+        <div style="padding:0 14px 16px;font:400 12px 'JetBrains Mono',monospace;color:#5f636c;line-height:1.7">
+          <div style="border-top:1px solid #16181d;padding-top:12px;color:#5f636c">
+            <div style="opacity:0;animation:lineIn .4s ease forwards .2s"><span style="color:#00ff88">➜</span> api-server <span style="color:#c3c5cb">tests passed (42)</span></div>
+            <div style="opacity:0;animation:lineIn .4s ease forwards .9s"><span style="color:#00e0ff">➜</span> web-client <span style="color:#c3c5cb">building bundle…</span></div>
+            <div style="opacity:0;animation:lineIn .4s ease forwards 1.6s"><span style="color:#00ff88">?</span> waiting on you <span style="animation:blink 1s step-end infinite;color:#00ff88">▍</span></div>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Claude / AI workflows -->
-  <section style="background:#252526;border-bottom:1px solid #3c3c3c">
-    <div class="max-w-6xl mx-auto px-6 py-24">
-      <p class="font-mono text-xs tracking-widest uppercase mb-4 text-orange">AI-native workflows</p>
-      <h2 class="text-3xl font-bold tracking-tight text-white mb-4">Run agents across projects. Know the moment they need you.</h2>
-      <p class="text-zinc-400 text-base leading-relaxed mb-12 max-w-2xl">
-        Splice is built for the way AI-assisted development actually works. Spin up Claude Code across multiple terminals and projects, then stay focused on your own work. When an agent needs a decision or hits a permission prompt, Splice surfaces it — immediately, clearly, and without breaking your flow.
-      </p>
+  <!-- FEATURES BENTO -->
+  <section id="features" style="max-width:1200px;margin:0 auto;padding:104px 28px">
+    <div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;letter-spacing:.16em;text-transform:uppercase">03 — Features</div>
+    <h2 style="font-size:40px;font-weight:600;letter-spacing:-.025em;color:#f6f7f8;margin:16px 0 44px;line-height:1.08">Everything you need. Nothing you don't.</h2>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:14px">
 
-      <div class="p-5" style="background:#252526;border:1px solid #3c3c3c">
-        <p class="text-sm text-zinc-300 leading-relaxed">Works with <span class="text-orange">Claude Code</span> and <span class="text-orange">OpenAI Codex</span> out of the box. No configuration required — Splice detects agent activity automatically and gets out of the way when nothing needs your attention.</p>
+      <!-- Terminal (large) -->
+      <div class="hi" style="grid-column:span 4;background:#101216;border:1px solid #1f232a;border-radius:15px;padding:26px;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div><div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;display:flex;align-items:center;gap:8px"><i class="bi bi-terminal-fill"></i> Terminal</div><div style="font-size:21px;font-weight:600;color:#f6f7f8;margin-top:7px">Fast. Really fast.</div></div>
+          <div style="font:600 13px 'JetBrains Mono',monospace;color:#08130d;background:#00ff88;padding:5px 11px;border-radius:100px">120fps</div>
+        </div>
+        <p style="font-size:14px;line-height:1.6;color:#83868f;margin:12px 0 16px;max-width:440px">Renders to canvas at up to 120fps, handles 10,000 lines of scrollback, and speaks full colour. Includes in-terminal search with live match count.</p>
+        <div style="border-radius:10px;background:#08090b;border:1px solid #1a1d22;padding:13px 15px;font:400 12px 'JetBrains Mono',monospace;color:#7c8a86;line-height:1.7">
+          <div><span style="color:#00ff88">➜</span> ~/dev/api <span style="color:#dfe1e5">cargo run --release</span></div>
+          <div style="color:#5f636c">   Compiling api-server v0.1.0</div>
+          <div style="color:#8affca">   Finished release in 1.2s ✓</div>
+          <div><span style="color:#00ff88">➜</span> listening on :8080 <span style="animation:blink 1s step-end infinite">▍</span></div>
+        </div>
+      </div>
+
+      <!-- Flexible layouts -->
+      <div class="hi" style="grid-column:span 2;background:#101216;border:1px solid #1f232a;border-radius:15px;padding:24px">
+        <div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;display:flex;align-items:center;gap:8px"><i class="bi bi-layout-split"></i> Flexible layouts</div>
+        <div style="font-size:18px;font-weight:600;color:#f6f7f8;margin:7px 0 12px">Split anything, anywhere.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:5px;height:96px">
+          <div style="background:#181b20;border:1px solid #262a31;border-radius:6px"></div>
+          <div style="background:#181b20;border:1px solid #262a31;border-radius:6px;grid-row:span 2"></div>
+          <div style="background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);border-radius:6px"></div>
+        </div>
+        <p style="font-size:13px;line-height:1.55;color:#83868f;margin:13px 0 0">H/V splits, drag-resize, pane zoom, full keyboard nav.</p>
+      </div>
+
+      <!-- Code editor -->
+      <div class="hi" style="grid-column:span 3;background:#101216;border:1px solid #1f232a;border-radius:15px;padding:24px">
+        <div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;display:flex;align-items:center;gap:8px"><i class="bi bi-code-slash"></i> Code editor</div>
+        <div style="font-size:18px;font-weight:600;color:#f6f7f8;margin:7px 0 12px">Right beside your terminal.</div>
+        <div style="border-radius:9px;background:#08090b;border:1px solid #1a1d22;padding:12px 14px;font:400 12px 'JetBrains Mono',monospace;line-height:1.65">
+          <div><span style="color:#c98fe0">fn</span> <span style="color:#8affca">main</span>() {</div>
+          <div style="padding-left:16px"><span style="color:#c98fe0">let</span> app = Router::new()</div>
+          <div style="padding-left:32px">.route(<span style="color:#e0c37a">"/health"</span>, get(ok));</div>
+          <div>}</div>
+        </div>
+        <p style="font-size:13px;line-height:1.55;color:#83868f;margin:13px 0 0">Syntax highlighting, minimap, breadcrumbs, tab drag &amp; drop. Image + Markdown preview built in.</p>
+      </div>
+
+      <!-- Command palette -->
+      <div class="hi" style="grid-column:span 3;background:#101216;border:1px solid #1f232a;border-radius:15px;padding:24px">
+        <div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;display:flex;align-items:center;gap:8px"><i class="bi bi-command"></i> Command palette</div>
+        <div style="font-size:18px;font-weight:600;color:#f6f7f8;margin:7px 0 12px">Keyboard-first, always.</div>
+        <div style="border-radius:9px;background:#08090b;border:1px solid #1a1d22;padding:11px 13px">
+          <div style="display:flex;align-items:center;gap:8px;font:400 12px 'JetBrains Mono',monospace;color:#83868f;border-bottom:1px solid #16181d;padding-bottom:9px"><i class="bi bi-search"></i> Split pane right…</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;font:400 12px 'JetBrains Mono',monospace;color:#c3c5cb;padding:9px 0 3px"><span>New workspace</span><span style="display:flex;gap:4px"><span style="background:#181b20;border:1px solid #2b2f37;border-radius:5px;padding:2px 7px;color:#8affca">⌘</span><span style="background:#181b20;border:1px solid #2b2f37;border-radius:5px;padding:2px 7px;color:#8affca">P</span></span></div>
+        </div>
+        <p style="font-size:13px;line-height:1.55;color:#83868f;margin:13px 0 0">Every action one shortcut away — hands never leave the keyboard.</p>
+      </div>
+
+      <!-- File explorer -->
+      <div class="hi" style="grid-column:span 3;background:#101216;border:1px solid #1f232a;border-radius:15px;padding:24px">
+        <div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;display:flex;align-items:center;gap:8px"><i class="bi bi-folder2-open"></i> File explorer</div>
+        <div style="font-size:18px;font-weight:600;color:#f6f7f8;margin:7px 0 12px">Scoped to your project.</div>
+        <p style="font-size:13.5px;line-height:1.6;color:#83868f;margin:0 0 14px">Each workspace opens its own folder. The tree stays in sync as files change on disk. Single-click to preview, double-click to keep.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:7px"><span style="font:400 11px 'JetBrains Mono',monospace;color:#9a9da5;border:1px solid #262a31;border-radius:6px;padding:3px 9px">Per-workspace</span><span style="font:400 11px 'JetBrains Mono',monospace;color:#9a9da5;border:1px solid #262a31;border-radius:6px;padding:3px 9px">Auto-sync</span><span style="font:400 11px 'JetBrains Mono',monospace;color:#9a9da5;border:1px solid #262a31;border-radius:6px;padding:3px 9px">Preview tabs</span></div>
+      </div>
+
+      <!-- Session restore -->
+      <div class="hi" style="grid-column:span 3;background:#101216;border:1px solid #1f232a;border-radius:15px;padding:24px">
+        <div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;display:flex;align-items:center;gap:8px"><i class="bi bi-arrow-counterclockwise"></i> Session restore</div>
+        <div style="font-size:18px;font-weight:600;color:#f6f7f8;margin:7px 0 12px">Pick up where you left off.</div>
+        <p style="font-size:13.5px;line-height:1.6;color:#83868f;margin:0 0 14px">Relaunch and everything is exactly as you left it — workspaces, layouts, open files, terminal directories. Restored automatically.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:7px"><span style="font:400 11px 'JetBrains Mono',monospace;color:#9a9da5;border:1px solid #262a31;border-radius:6px;padding:3px 9px">Auto-save</span><span style="font:400 11px 'JetBrains Mono',monospace;color:#9a9da5;border:1px solid #262a31;border-radius:6px;padding:3px 9px">Layout restore</span><span style="font:400 11px 'JetBrains Mono',monospace;color:#9a9da5;border:1px solid #262a31;border-radius:6px;padding:3px 9px">Terminal state</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- WHY -->
+  <section id="why" style="border-top:1px solid #16181d;background:#0d0f12">
+    <div style="max-width:1200px;margin:0 auto;padding:104px 28px">
+      <div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;letter-spacing:.16em;text-transform:uppercase">04 — Why Splice</div>
+      <h2 style="font-size:40px;font-weight:600;letter-spacing:-.025em;color:#f6f7f8;margin:16px 0 16px;line-height:1.08;max-width:600px">Native performance. No compromises.</h2>
+      <p style="font-size:16px;line-height:1.7;color:#9a9da5;max-width:660px;margin:0 0 44px">Built on Tauri — a Rust-powered framework that uses your system's WebView instead of bundling Chromium. The heavy lifting happens in Rust: terminals, file watching, workspace state, agent tracking. Starts fast, runs lean, none of Electron's overhead.</p>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+        <div style="border:1px solid #1f232a;border-radius:13px;padding:22px;background:#0a0b0d"><div style="width:36px;height:36px;border-radius:9px;background:rgba(0,255,136,.09);border:1px solid rgba(0,255,136,.2);display:flex;align-items:center;justify-content:center;color:#00ff88;margin-bottom:13px"><i class="bi bi-cpu"></i></div><div style="font-size:16px;font-weight:600;color:#eef0f2;margin-bottom:8px">Built in Rust</div><p style="font-size:13.5px;line-height:1.6;color:#83868f;margin:0">Terminals, file system, workspace state — all Rust. No GC pauses, no leaks, no "it's an Electron app" excuses.</p></div>
+        <div style="border:1px solid #1f232a;border-radius:13px;padding:22px;background:#0a0b0d"><div style="width:36px;height:36px;border-radius:9px;background:rgba(0,255,136,.09);border:1px solid rgba(0,255,136,.2);display:flex;align-items:center;justify-content:center;color:#00ff88;margin-bottom:13px"><i class="bi bi-display"></i></div><div style="font-size:16px;font-weight:600;color:#eef0f2;margin-bottom:8px">Snakebite terminal</div><p style="font-size:13.5px;line-height:1.6;color:#83868f;margin:0">Renders directly to canvas — no DOM per character. Smooth at 120fps even when build output floods the screen.</p></div>
+        <div style="border:1px solid #1f232a;border-radius:13px;padding:22px;background:#0a0b0d"><div style="width:36px;height:36px;border-radius:9px;background:rgba(0,255,136,.09);border:1px solid rgba(0,255,136,.2);display:flex;align-items:center;justify-content:center;color:#00ff88;margin-bottom:13px"><i class="bi bi-lightning-charge"></i></div><div style="font-size:16px;font-weight:600;color:#eef0f2;margin-bottom:8px">Lean frontend</div><p style="font-size:13.5px;line-height:1.6;color:#83868f;margin:0">Fine-grained reactivity — only what needs to update does. No full-page re-renders, no jank switching panes.</p></div>
+        <div style="border:1px solid #1f232a;border-radius:13px;padding:22px;background:#0a0b0d"><div style="width:36px;height:36px;border-radius:9px;background:rgba(0,255,136,.09);border:1px solid rgba(0,255,136,.2);display:flex;align-items:center;justify-content:center;color:#00ff88;margin-bottom:13px"><i class="bi bi-braces"></i></div><div style="font-size:16px;font-weight:600;color:#eef0f2;margin-bottom:8px">Smart editor</div><p style="font-size:13.5px;line-height:1.6;color:#83868f;margin:0">A battle-tested, extensible core. Syntax highlighting, LSP-ready, minimal footprint — not an IDE you fight with.</p></div>
       </div>
     </div>
   </section>
 
-  <!-- Features -->
-  <section id="features" style="border-bottom:1px solid #3c3c3c">
-    <div class="max-w-6xl mx-auto px-6 py-24">
-      <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Features</p>
-      <h2 class="text-3xl font-bold tracking-tight mb-12 text-white">Everything you need. Nothing you don't.</h2>
-
-      <div class="space-y-px">
-
-        <div class="p-6 grid md:grid-cols-3 gap-6" style="background:#252526;border:1px solid #3c3c3c;margin-bottom:2px">
-          <div>
-            <p class="font-mono text-sm font-medium text-white mb-1 flex items-center gap-2">
-              <i class="bi bi-terminal-fill text-orange"></i> Terminal
-            </p>
-            <p class="font-mono text-xs text-zinc-500">Fast. Really fast.</p>
-          </div>
-          <div class="md:col-span-2">
-            <p class="text-sm text-zinc-400 leading-relaxed mb-3">A terminal that feels as fast as it looks. Renders at up to 120fps, handles 10,000 lines of scrollback, and speaks the full colour language your shell, editors, and build tools expect. Includes in-terminal search with live match count and prev/next navigation.</p>
-            <div class="flex flex-wrap gap-2">
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Full colour support</span>
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">10K scrollback</span>
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Up to 120fps</span>
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">In-terminal search</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="p-6 grid md:grid-cols-3 gap-6" style="background:#252526;border:1px solid #3c3c3c;margin-bottom:2px">
-          <div>
-            <p class="font-mono text-sm font-medium text-white mb-1 flex items-center gap-2">
-              <i class="bi bi-layout-split text-orange"></i> Flexible layouts
-            </p>
-            <p class="font-mono text-xs text-zinc-500">Split anything, anywhere.</p>
-          </div>
-          <div class="md:col-span-2">
-            <p class="text-sm text-zinc-400 leading-relaxed mb-3">Split any pane into a terminal or editor, horizontally or vertically. Drag to resize. Zoom any pane to full screen with a single keystroke, then back. Navigate between panes without ever touching the mouse.</p>
-            <div class="flex flex-wrap gap-2">
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">H / V splits</span>
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Drag resize</span>
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Pane zoom</span>
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Keyboard nav</span>
-            </div>
-          </div>
-        </div>
-
-        <div style="background:#252526;border:1px solid #3c3c3c;margin-bottom:2px">
-          <div class="p-6 grid md:grid-cols-3 gap-6">
-            <div>
-              <p class="font-mono text-sm font-medium text-white mb-1 flex items-center gap-2">
-                <i class="bi bi-code-slash text-orange"></i> Code editor
-              </p>
-              <p class="font-mono text-xs text-zinc-500">Right beside your terminal.</p>
-            </div>
-            <div class="md:col-span-2">
-              <p class="text-sm text-zinc-400 leading-relaxed mb-3">A full-featured editor without the IDE weight. Syntax highlighting for the languages you actually use, a minimap, bracket matching, and breadcrumb navigation. Drag tabs between panes or drop one to an edge to create a new split. Image and Markdown preview built in.</p>
-              <div class="flex flex-wrap gap-2">
-                <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">TypeScript · Rust · Python</span>
-                <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Minimap</span>
-                <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Image preview</span>
-                <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Markdown preview</span>
-                <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Tab drag & drop</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div style="background:#252526;border:1px solid #3c3c3c;margin-bottom:2px">
-          <div class="p-6 grid md:grid-cols-3 gap-6">
-            <div>
-              <p class="font-mono text-sm font-medium text-white mb-1 flex items-center gap-2">
-                <i class="bi bi-folder2-open text-orange"></i> File explorer
-              </p>
-              <p class="font-mono text-xs text-zinc-500">Scoped to your project.</p>
-            </div>
-            <div class="md:col-span-2">
-              <p class="text-sm text-zinc-400 leading-relaxed mb-3">Each workspace opens its own project folder. The file tree stays in sync automatically as files change on disk. Single-click to preview, double-click to keep. The explorer belongs to the workspace — not a shared global panel.</p>
-              <div class="flex flex-wrap gap-2">
-                <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Per-workspace</span>
-                <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Auto-sync</span>
-                <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Preview tabs</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="p-6 grid md:grid-cols-3 gap-6" style="background:#252526;border:1px solid #3c3c3c;margin-bottom:2px">
-          <div>
-            <p class="font-mono text-sm font-medium text-white mb-1 flex items-center gap-2">
-              <i class="bi bi-arrow-counterclockwise text-orange"></i> Session restore
-            </p>
-            <p class="font-mono text-xs text-zinc-500">Pick up where you left off.</p>
-          </div>
-          <div class="md:col-span-2">
-            <p class="text-sm text-zinc-400 leading-relaxed mb-3">Relaunch Splice and everything is exactly as you left it. Workspaces, pane layouts, open files, terminal directories — all restored automatically. No manual setup, no lost context.</p>
-            <div class="flex flex-wrap gap-2">
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Auto-save</span>
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Layout restore</span>
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Terminal state</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="p-6 grid md:grid-cols-3 gap-6" style="background:#252526;border:1px solid #3c3c3c">
-          <div>
-            <p class="font-mono text-sm font-medium text-white mb-1 flex items-center gap-2">
-              <i class="bi bi-search text-orange"></i> Command palette
-            </p>
-            <p class="font-mono text-xs text-zinc-500">Keyboard-first, always.</p>
-          </div>
-          <div class="md:col-span-2">
-            <p class="text-sm text-zinc-400 leading-relaxed mb-3">Every action is one shortcut away. New terminal, new file, split pane, open folder, switch workspace — all reachable without navigating menus or lifting your hands from the keyboard.</p>
-            <div class="flex flex-wrap gap-2">
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Cmd+P</span>
-              <span class="font-mono text-xs px-2 py-1 text-zinc-400" style="background:#2d2d30">Keyboard-first</span>
-            </div>
-          </div>
-        </div>
-
+  <!-- DOWNLOAD CTA -->
+  <section id="download" style="position:relative;border-top:1px solid #16181d">
+    <div style="max-width:1200px;margin:0 auto;padding:110px 28px;text-align:center">
+      <div style="font:500 12px 'JetBrains Mono',monospace;color:#00ff88;letter-spacing:.16em;text-transform:uppercase">05 — Download</div>
+      <h2 style="font-size:clamp(40px,6vw,60px);font-weight:600;letter-spacing:-.03em;color:#f6f7f8;margin:16px 0 0">Get Splice.</h2>
+      <p style="font-size:17px;color:#9a9da5;margin:16px auto 34px;max-width:520px">Free, open source, and native. One window for every project you're working on.</p>
+      <div style="display:flex;gap:13px;justify-content:center;flex-wrap:wrap">
+        <a class="dl" href="https://github.com/adrian-kimbrell/splice/releases/latest" style="font:500 15px 'JetBrains Mono',monospace;color:#08130d;background:#00ff88;padding:14px 28px;border-radius:11px;box-shadow:0 0 40px -6px rgba(0,255,136,.6);display:inline-flex;align-items:center;gap:9px"><i class="bi bi-apple"></i> Download for macOS</a>
+        <a class="ghost" href="https://github.com/adrian-kimbrell/splice" style="font:500 15px 'JetBrains Mono',monospace;color:#dfe1e5;padding:14px 28px;border-radius:11px;border:1px solid #2b2f37"><i class="bi bi-github"></i> Star on GitHub</a>
       </div>
+      <div style="font:400 12px 'JetBrains Mono',monospace;color:#6a6d76;margin-top:18px">v0.5.6 · Apple Silicon &amp; Intel · .dmg · MIT · <a href="/releases" style="color:#83868f">release history →</a></div>
+
+      <div style="max-width:640px;margin:44px auto 0;text-align:left;border-radius:12px;background:#08090b;border:1px solid #1a1d22;padding:18px 20px;font:400 13px 'JetBrains Mono',monospace;color:#c3c5cb;line-height:1.8">
+        <div style="color:#5f636c"># build from source</div>
+        <div><span style="color:#00ff88">$</span> git clone https://github.com/adrian-kimbrell/splice</div>
+        <div><span style="color:#00ff88">$</span> npm install &amp;&amp; cargo tauri dev</div>
+      </div>
+      <p style="max-width:640px;margin:14px auto 0;text-align:left;font:400 12px 'JetBrains Mono',monospace;color:#6a6d76;line-height:1.6">Unsigned build — on first launch, right-click the app and choose <span style="color:#c3c5cb">Open</span>, or run <span style="color:#c3c5cb">xattr -cr /Applications/Splice.app</span>.</p>
     </div>
   </section>
 
-
-  <!-- Why Splice -->
-  <section id="why" style="background:#252526;border-bottom:1px solid #3c3c3c">
-    <div class="max-w-6xl mx-auto px-6 py-24">
-      <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Why Splice</p>
-      <h2 class="text-3xl font-bold tracking-tight mb-4 text-white">Native performance. No compromises.</h2>
-      <p class="text-zinc-400 text-base leading-relaxed mb-12 max-w-2xl">
-        Splice is built on Tauri — a Rust-powered desktop framework that uses your system's built-in WebView instead of bundling a copy of Chromium. The heavy lifting happens in Rust: terminal sessions, file watching, workspace state, and agent tracking. The result is an app that starts fast, runs lean, and carries none of Electron's overhead.
-      </p>
-
-      <div class="grid md:grid-cols-2 gap-px" style="border:1px solid #3c3c3c">
-        <div class="p-6" style="background:#252526;border-bottom:1px solid #3c3c3c;border-right:1px solid #3c3c3c">
-          <p class="font-mono text-sm font-medium mb-2 flex items-center gap-2 text-white">
-            <i class="bi bi-cpu text-orange"></i> Built in Rust
-          </p>
-          <p class="text-sm text-zinc-400">The backend that powers your terminals, file system, and workspace state is written in Rust. No garbage collection pauses, no memory leaks, no "it's an Electron app" excuses.</p>
-        </div>
-        <div class="p-6" style="background:#252526;border-bottom:1px solid #3c3c3c">
-          <p class="font-mono text-sm font-medium mb-2 flex items-center gap-2 text-white">
-            <i class="bi bi-display text-orange"></i> Snakebite terminal
-          </p>
-          <p class="text-sm text-zinc-400">Snakebite renders directly to a canvas — no DOM elements per character, no layout thrashing. It stays smooth at 120fps even when your build output is flooding the screen.</p>
-        </div>
-        <div class="p-6" style="background:#252526;border-right:1px solid #3c3c3c">
-          <p class="font-mono text-sm font-medium mb-2 flex items-center gap-2 text-white">
-            <i class="bi bi-lightning-charge text-orange"></i> Lean frontend
-          </p>
-          <p class="text-sm text-zinc-400">The UI is built with fine-grained reactivity — only the components that need to update do. No full-page re-renders, no jank, no stutter when switching between panes.</p>
-        </div>
-        <div class="p-6" style="background:#252526">
-          <p class="font-mono text-sm font-medium mb-2 flex items-center gap-2 text-white">
-            <i class="bi bi-braces text-orange"></i> Smart editor
-          </p>
-          <p class="text-sm text-zinc-400">Editor panes are powered by a battle-tested, extensible core. Syntax highlighting, LSP-ready, minimal footprint. The right amount of editor — not an IDE you have to fight with.</p>
-        </div>
+  <!-- FOOTER -->
+  <footer style="border-top:1px solid #16181d;background:#0a0b0d">
+    <div style="max-width:1200px;margin:0 auto;padding:44px 28px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:18px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <img src="logo.png" alt="Splice" style="width:26px;height:26px;filter:brightness(0) invert(1)">
+        <span style="font:600 12px 'JetBrains Mono',monospace;letter-spacing:.2em;text-transform:uppercase;color:#eef0f2">Splice</span>
       </div>
+      <div style="font:400 12px 'JetBrains Mono',monospace;color:#5f636c">The terminal workspace for AI-assisted development · macOS · MIT</div>
+      <div style="display:flex;gap:20px;font-size:13px"><a href="https://github.com/adrian-kimbrell/splice">GitHub</a><a href="/releases">Releases</a><a href="/blog">Blog</a></div>
     </div>
-  </section>
-
-  <!-- Download -->
-  <section id="download" class="max-w-6xl mx-auto px-6 py-24" style="border-bottom:1px solid #3c3c3c">
-    <p class="font-mono text-xs text-orange tracking-widest uppercase mb-4">Download</p>
-    <h2 class="text-3xl font-bold tracking-tight mb-12 text-white">Get Splice.</h2>
-
-    <div class="grid md:grid-cols-3 gap-8">
-      <div class="md:col-span-2 space-y-6">
-        <div>
-          <p class="font-mono text-xs text-zinc-500 uppercase tracking-widest mb-3">Build from source</p>
-          <div class="text-zinc-300 font-mono text-sm p-4 space-y-1" style="background:#1e1e1e;border:1px solid #3c3c3c">
-            <p class="text-zinc-600"># Prerequisites: Node.js 18+, Rust stable, Tauri CLI</p>
-            <p>git clone https://github.com/adrian-kimbrell/splice</p>
-            <p>npm install</p>
-            <p>cargo tauri dev</p>
-          </div>
-        </div>
-        <div>
-          <p class="font-mono text-xs text-zinc-500 uppercase tracking-widest mb-3">Production build</p>
-          <div class="text-zinc-300 font-mono text-sm p-4" style="background:#1e1e1e;border:1px solid #3c3c3c">
-            cargo tauri build
-          </div>
-        </div>
-      </div>
-
-      <div class="space-y-3">
-        <div class="p-5" style="background:#252526;border:1px solid #3c3c3c">
-          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2">Platform</p>
-          <p class="text-sm text-zinc-400">macOS. Linux and Windows support planned.</p>
-        </div>
-        <div class="p-5" style="background:#252526;border:1px solid #3c3c3c">
-          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2">License</p>
-          <p class="text-sm text-zinc-400">MIT. Free to use, fork, and modify.</p>
-        </div>
-        <div class="p-5" style="background:#252526;border:1px solid #3c3c3c">
-          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-2">Source</p>
-          <p class="font-mono text-xs text-zinc-500 mt-1">github.com/adrian-kimbrell/splice</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Footer -->
-  <footer class="max-w-6xl mx-auto px-6 py-10 flex items-center justify-between text-xs text-zinc-600 font-mono">
-    <span class="tracking-widest uppercase text-orange">Splice</span>
-    <span>One window for all your work</span>
   </footer>
 
-  <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
-  <script defer src="/_vercel/insights/script.js"></script>
+  </div>
+</div>
+
+<!-- Vercel Web Analytics -->
+<script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

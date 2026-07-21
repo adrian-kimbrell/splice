@@ -1,0 +1,19 @@
+<!-- @dsCard group="Actions" -->
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  body{background:#1e1e1e;color:#f4f4f5;font-family:'JetBrains Mono',monospace}
+  .btn{background:transparent;color:#00ff88;border:1px solid #00ff88;font-family:'JetBrains Mono',monospace;letter-spacing:.05em;transition:background .15s}
+  .btn:hover{background:rgba(0,255,136,0.1)}
+  .ghost{color:#71717a;transition:color .15s}.ghost:hover{color:#f4f4f5}
+</style></head>
+<body class="p-10">
+  <p class="text-xs uppercase tracking-[0.2em] mb-6" style="color:#00ff88">Actions</p>
+  <div class="flex items-center gap-5 flex-wrap">
+    <a class="btn px-6 py-3 text-sm">Download for macOS</a>
+    <a class="btn px-4 py-1.5 text-xs">Download</a>
+    <a class="ghost text-sm">View source →</a>
+  </div>
+  <p class="text-xs mt-6" style="color:#71717a">Primary = outlined brand (#00ff88), fills to 10% on hover. Ghost = zinc-500 text link.</p>
+</body></html>

@@ -81,6 +81,38 @@ pub(crate) async fn handle_attention_request(app: &AppHandle, json: serde_json::
     }
 }
 
+/// Extract a positive `terminal_id` from a hook payload, or `None` if absent/zero.
+fn extract_terminal_id(json: &serde_json::Value) -> Option<u32> {
+    json.get("terminal_id")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32)
+        .filter(|id| *id > 0)
+}
+
+/// True if the terminal is still live in this Splice instance.
+fn terminal_exists(app: &AppHandle, terminal_id: u32) -> bool {
+    let state = app.state::<Mutex<AppState>>();
+    state
+        .lock()
+        .map(|s| s.terminals.contains_key(&terminal_id))
+        .unwrap_or(false)
+}
+
+/// statusLine command → `claude:status`. Forwards Claude's stable status JSON
+/// (model, cost, context-window usage, rate limits) for the live HUD. The whole
+/// payload is passed through so the frontend can read whichever fields it renders.
+pub(crate) async fn handle_status_request(app: &AppHandle, json: serde_json::Value) {
+    let Some(terminal_id) = extract_terminal_id(&json) else {
+        return;
+    };
+    if !terminal_exists(app, terminal_id) {
+        return;
+    }
+    if let Err(e) = app.emit("claude:status", &json) {
+        warn!("Failed to emit claude:status: {}", e);
+    }
+}
+
 pub(crate) async fn handle_session_request(app: &AppHandle, json: serde_json::Value) {
     let session_id = match json.get("session_id").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
