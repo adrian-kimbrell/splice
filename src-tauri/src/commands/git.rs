@@ -4,6 +4,7 @@
 //! Git is invoked as a subprocess (not via git2) for consistency with the existing
 //! `get_git_branch` command and to avoid a heavy native dependency.
 
+use crate::process_ext::NoWindow;
 use crate::state::validate_path;
 use crate::state::AppState;
 use serde::Serialize;
@@ -18,6 +19,7 @@ async fn run_git(dir: &PathBuf, args: &[&str]) -> Result<std::process::Output, S
     let child = tokio::process::Command::new("git")
         .args(args)
         .current_dir(dir)
+        .no_window()
         .output();
     tokio::time::timeout(std::time::Duration::from_secs(GIT_TIMEOUT_SECS), child)
         .await

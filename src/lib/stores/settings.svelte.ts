@@ -22,6 +22,8 @@
  * @exports flushSettingsSave - Immediate write-back for shutdown paths
  */
 
+import { isWindows } from "../utils/platform";
+
 export interface Settings {
   general: {
     auto_save: "off" | "onFocusChange" | "afterDelay";
@@ -95,7 +97,7 @@ const defaultSettings: Settings = {
     workspaces_width: 220,
   },
   terminal: {
-    default_shell: "/bin/zsh",
+    default_shell: isWindows ? "powershell.exe" : "/bin/zsh",
     font_size: 15,
     cursor_style: "Block",
     cursor_blink: true,

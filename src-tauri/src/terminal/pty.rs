@@ -72,7 +72,11 @@ impl PtySession {
 
         let mut cmd = CommandBuilder::new(shell);
         if extra_args.is_empty() {
-            cmd.arg("-l"); // login shell: sources ~/.zprofile / ~/.profile so PATH is fully set up
+            // login shell: sources ~/.zprofile / ~/.profile so PATH is fully set up.
+            // `-l` is a Unix shell flag — cmd.exe / PowerShell reject it and exit
+            // immediately (the terminal would flash open and close on Windows).
+            #[cfg(not(target_os = "windows"))]
+            cmd.arg("-l");
         } else {
             for arg in extra_args {
                 cmd.arg(arg);

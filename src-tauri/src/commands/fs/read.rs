@@ -1,4 +1,5 @@
 use base64::Engine;
+use crate::process_ext::NoWindow;
 use crate::state::{validate_path, AppState};
 use ignore::WalkBuilder;
 use std::fs;
@@ -122,6 +123,7 @@ pub async fn get_git_branch(
     let child = tokio::process::Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .current_dir(&canonical)
+        .no_window()
         .output();
     let output = tokio::time::timeout(std::time::Duration::from_secs(5), child)
         .await

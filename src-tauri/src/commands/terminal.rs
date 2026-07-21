@@ -29,7 +29,19 @@ const ALLOWED_SHELLS: &[&str] = &[
     "/usr/local/bin/fish",
     "/opt/homebrew/bin/fish",
     "/usr/bin/ssh",
+    // Windows shells (resolved via PATH by the PTY). ssh.exe covers remote workspaces.
+    "powershell.exe",
+    "pwsh.exe",
+    "cmd.exe",
+    "ssh.exe",
 ];
+
+/// Default shell for the host OS — used when the requested shell isn't valid
+/// (e.g. a persisted Unix path like `/bin/zsh` carried onto a Windows machine).
+#[cfg(target_os = "windows")]
+const DEFAULT_SHELL: &str = "powershell.exe";
+#[cfg(not(target_os = "windows"))]
+const DEFAULT_SHELL: &str = "/bin/zsh";
 
 const MAX_TERMINAL_COLS: u16 = 350;
 const MAX_TERMINAL_ROWS: u16 = 200;
@@ -52,11 +64,15 @@ pub fn spawn_terminal(
     terminal_id: Option<u32>,
 ) -> Result<u32, String> {
     let extra_args = extra_args.unwrap_or_default();
-    // Validate shell
-    if !ALLOWED_SHELLS.contains(&shell.as_str()) {
-        warn!(shell = %shell, "Rejected disallowed shell");
-        return Err(format!("Shell not allowed: '{}'. Allowed: {:?}", shell, ALLOWED_SHELLS));
-    }
+    // A persisted/default shell may be a Unix path (e.g. /bin/zsh) that doesn't exist
+    // on this OS — most commonly a settings.json carried onto Windows. Fall back to the
+    // host default so terminals actually spawn instead of erroring out.
+    let shell = if ALLOWED_SHELLS.contains(&shell.as_str()) {
+        shell
+    } else {
+        warn!(shell = %shell, default = %DEFAULT_SHELL, "Shell not allowed; using host default");
+        DEFAULT_SHELL.to_string()
+    };
 
     // Validate CWD: must exist and be under home directory. Fall back to HOME if invalid.
     // In debug builds the restriction is relaxed to allow any valid directory (e.g. /tmp).

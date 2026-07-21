@@ -26,6 +26,7 @@ use tauri::{Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
+use crate::process_ext::NoWindow;
 
 pub struct LspSession {
     pub stdin_tx: mpsc::UnboundedSender<Vec<u8>>,
@@ -254,6 +255,7 @@ impl LspSession {
         command
             .args(&args)
             .env("PATH", augmented_path())
+            .no_window()
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null());
@@ -473,6 +475,7 @@ pub async fn lsp_install(language_id: String) -> Result<(), String> {
     let output = Command::new(&cmd)
         .args(&args)
         .env("PATH", augmented_path())
+        .no_window()
         .output()
         .await
         .map_err(|e| format!("Failed to run installer: {}", e))?;

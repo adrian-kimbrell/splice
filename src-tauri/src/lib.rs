@@ -15,6 +15,7 @@
 
 mod attention;
 mod commands;
+mod process_ext;
 #[cfg(target_os = "macos")]
 mod dock;
 pub mod lsp;
@@ -175,6 +176,9 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             if let Some(main_window) = app.get_webview_window("main") {
                 let _ = main_window.set_decorations(false);
+                // Dropping decorations can clear the Windows maximize-box style, which
+                // makes the custom maximize button a no-op — re-assert it explicitly.
+                let _ = main_window.set_maximizable(true);
             }
 
             // Set up native menu bar
