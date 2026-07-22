@@ -41,7 +41,11 @@ jobs:
 
       - name: Clippy
         working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        # Advisory, not blocking: CI installs the latest stable clippy, so `-D warnings`
+        # turned every newly-added upstream lint into a release-blocking failure even
+        # when nothing in our code changed. Warnings still print; only genuine clippy
+        # *errors* (deny-by-default) fail the job. Pin a toolchain if strictness is wanted.
+        run: cargo clippy --all-targets
 
       - name: Tests
         working-directory: src-tauri
