@@ -294,20 +294,32 @@
   function handleSidebarResizeDown(side: "left" | "right", e: MouseEvent) {
     e.preventDefault();
     draggingSidebar = side;
+    ui.sidebarResizing = true;
     const startX = e.clientX;
     const startWidth = side === "left" ? leftWidth : rightWidth;
     const min = side === "left" ? leftMinWidth : rightMinWidth;
 
-    function onMove(e: MouseEvent) {
-      const delta = e.clientX - startX;
+    // Coalesce mousemove → one width write per animation frame. The width feeds the
+    // top-level grid, so an unthrottled write reflowed the whole editor area on every
+    // mouse event; RAF-batching caps it at one reflow per painted frame.
+    let pendingX = startX;
+    let rafPending = false;
+    function applyWidth() {
+      rafPending = false;
+      const delta = pendingX - startX;
       const newWidth = side === "left" ? startWidth + delta : startWidth - delta;
       const clamped = Math.max(min, Math.min(500, newWidth));
       if (side === "left") setLeftWidth(clamped);
       else setRightWidth(clamped);
     }
+    function onMove(e: MouseEvent) {
+      pendingX = e.clientX;
+      if (!rafPending) { rafPending = true; requestAnimationFrame(applyWidth); }
+    }
 
     function onUp() {
       draggingSidebar = null;
+      ui.sidebarResizing = false;
       // Explorer width is per-workspace: store it on the active workspace and persist.
       const activeWs = workspaceManager.activeWorkspace;
       if (activeWs && workspaceManager.activeWorkspaceId) {

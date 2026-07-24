@@ -110,6 +110,9 @@
   let rafId = 0;
   let scrollRafId = 0;
   let resizeRafId = 0;
+  // Set when a resize is skipped because a sidebar drag is in progress; flushed once
+  // the drag ends (see the $effect below) so the terminal ends at the correct size.
+  let pendingResize = false;
 
   // Convert TerminalSearchMatch[] → SearchMatch[] and push to renderer.
   // Uses renderer.currentScrollbackLen for the historyRow conversion.
@@ -219,6 +222,11 @@
 
   function handleResize() {
     if (!containerEl || !canvasEl || !renderer || !cachedResizeTerminal) return;
+    // While a sidebar divider is being dragged, defer the expensive refit (a
+    // resizeTerminal IPC / PTY round-trip). The canvas just visually stretches;
+    // the real refit runs once when the drag ends. Without this, dragging the
+    // sidebar fired a PTY resize per terminal per frame.
+    if (ui.sidebarResizing) { pendingResize = true; return; }
     // Use offsetWidth/offsetHeight (CSS layout dimensions) rather than
     // getBoundingClientRect() (viewport coordinates). getBCR is scaled by
     // document.documentElement.style.zoom, but canvas.style.width is set in
@@ -236,6 +244,15 @@
       cachedResizeTerminal(terminalId, cols, rows).catch(console.error);
     }
   }
+
+  // Flush the deferred refit once a sidebar drag ends. Only re-runs when
+  // ui.sidebarResizing toggles (pendingResize is intentionally non-reactive).
+  $effect(() => {
+    if (!ui.sidebarResizing && pendingResize) {
+      pendingResize = false;
+      handleResize();
+    }
+  });
 
   function resetBlinkTimer() {
     if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null; }
