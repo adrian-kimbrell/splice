@@ -15,9 +15,21 @@
  * through here instead of re-deriving the math. All helpers are a no-op at zoom 1.
  */
 
-/** CSS zoom (ui_scale) on the document root; 1 when unzoomed. */
+/** CSS zoom (ui_scale) on the document root; 1 when unzoomed.
+ *
+ * Read the INLINE style, not getComputedStyle: macOS WKWebView applies the zoom
+ * (the UI visibly scales) but does NOT report `zoom` back through getComputedStyle,
+ * so the computed read returns "" → parseFloat → NaN → we'd silently fall back to 1.
+ * A docZoom() that reads 1 while the real scale is e.g. 1.1 throws off every
+ * zoom-aware coordinate by (zoom-1)×distance-from-origin — the splitter drifting
+ * right of the cursor, worst on a wide monitor. App.svelte writes `style.zoom`
+ * directly, so the inline value is the reliable source of truth. [[zoom-coords]] */
 export function docZoom(): number {
-  return parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+  return (
+    parseFloat(document.documentElement.style.zoom) ||
+    parseFloat(getComputedStyle(document.documentElement).zoom) ||
+    1
+  );
 }
 
 /**

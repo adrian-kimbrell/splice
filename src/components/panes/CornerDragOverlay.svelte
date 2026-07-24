@@ -58,7 +58,7 @@
   function handleMouseDown(inter: Intersection, e: MouseEvent) {
     e.stopPropagation();
     e.preventDefault();
-    beginCornerDrag(inter, e);
+    beginCornerDrag(inter, e, containerEl);
   }
 </script>
 
