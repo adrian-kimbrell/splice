@@ -22,6 +22,7 @@
   import { pushToast } from "../../lib/stores/toasts.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { getExtForPath, getLanguageExtension } from "../../lib/editor/language-loader";
+  import { saveEditorView, restoreEditorView } from "../../lib/editor/view-state";
   import { lspKindToType, lspServerName, buildLspCompletionSource, buildHoverExtension } from "../../lib/editor/lsp-extensions";
 
   let {
@@ -294,8 +295,14 @@
       },
     });
 
+    // Restore scroll + selection from a prior mount of this pane/file (workspace
+    // switch remounts editors). Clamp positions in case the doc changed meanwhile.
+    const saved = restoreEditorView(paneId, filePath);
     const state = EditorState.create({
       doc: content,
+      selection: saved
+        ? { anchor: Math.min(saved.anchor, content.length), head: Math.min(saved.head, content.length) }
+        : undefined,
       extensions: [
         editorTheme,
         ...editorHighlighting,
@@ -375,7 +382,22 @@
     }
     viewReady = true;
 
+    // Restore scroll after layout has settled (scrollTop needs measured content).
+    if (saved && saved.top > 0) {
+      requestAnimationFrame(() => { if (view) view.scrollDOM.scrollTop = saved.top; });
+    }
+
     return () => {
+      // Persist scroll + selection so remounting this pane/file (e.g. returning to
+      // a workspace) lands where we left off. lastSyncedPath is the file actually
+      // shown (may differ from the initial filePath after in-pane tab switches).
+      if (view) {
+        saveEditorView(paneId, lastSyncedPath || filePath, {
+          top: view.scrollDOM.scrollTop,
+          anchor: view.state.selection.main.anchor,
+          head: view.state.selection.main.head,
+        });
+      }
       stateCache.clear();
       view?.destroy();
       if (prevLspPath) lspClient.didClose(prevLspPath).catch(() => {});
