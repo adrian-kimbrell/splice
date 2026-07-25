@@ -1078,6 +1078,10 @@
         class="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0"
         style:display={isActive ? "flex" : "none"}
       >
+        <!-- Only the active workspace mounts its panes. Inactive workspaces render
+             nothing (their PTYs stay alive in Rust; terminals repaint on remount via
+             the onMount resize). Keeps switch cost O(active) instead of O(all open). -->
+        {#if isActive}
         {#if hasContent}
           {#snippet paneSnippet(config: PaneConfig)}
             {#if config.kind === "editor"}
@@ -1203,6 +1207,7 @@
               </div>
             </div>
           </div>
+        {/if}
         {/if}
         {/if}
       </div>
