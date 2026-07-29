@@ -46,7 +46,7 @@
   import { initKeybindings, enterZenMode, exitZenMode, bumpFocusedPaneFont, resetFocusedPaneFont } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
   import type { PaneConfig, SplitDirection } from "../lib/stores/layout.svelte";
-  import { collectLeafIdsOrdered } from "../lib/stores/layout.svelte";
+  import { collectLeafIds } from "../lib/stores/layout.svelte";
   import { type DropZone, setDropCallback } from "../lib/stores/drag.svelte";
   import type { TabDragData } from "../lib/stores/drag.svelte";
   import { workspaceManager } from "../lib/stores/workspace.svelte";
@@ -1143,7 +1143,10 @@
           {/snippet}
           {#if workspace.layout}
           {#if workspace.viewMode === "single"}
-          {@const leafIds = collectLeafIdsOrdered(workspace.layout)}
+          <!-- Switcher order = pane creation order (panes-map insertion order),
+               not tree geometry, which zigzags as splits target the shallowest leaf. -->
+          {@const leafSet = collectLeafIds(workspace.layout)}
+          {@const leafIds = Object.keys(workspace.panes).filter((id) => leafSet.has(id))}
           {@const singleActiveId = (workspace.activePaneId && workspace.panes[workspace.activePaneId]) ? workspace.activePaneId : leafIds[0]}
           <div class="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0">
             <SingleViewBar

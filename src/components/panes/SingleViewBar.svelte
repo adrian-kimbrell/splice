@@ -37,41 +37,44 @@
   }
 </script>
 
-<div class="single-view-bar flex items-center gap-1 px-2 py-1 shrink-0 overflow-x-auto">
-  {#each leafIds as id, i (id)}
-    {@const config = panes[id]}
-    {#if config}
-      <button
-        class="sv-tab flex items-center gap-1.5 shrink-0"
-        class:sv-tab--active={id === activeId}
-        title={labelFor(config)}
-        onclick={() => onSelect(id)}
-        onauxclick={(e) => { if (e.button === 1) { e.preventDefault(); onClose(id); } }}
-      >
-        <span class="sv-index text-[10px] tabular-nums opacity-50">{i + 1}</span>
-        <i class="bi {iconFor(config)} text-[11px]"></i>
-        <span class="sv-label truncate max-w-[160px]">{labelFor(config)}</span>
-        {#if leafIds.length > 1}
-          <span
-            class="sv-close"
-            role="button"
-            tabindex="-1"
-            title="Close pane"
-            onclick={(e) => { e.stopPropagation(); onClose(id); }}
-            onkeydown={() => {}}
-          >
-            <i class="bi bi-x"></i>
-          </span>
-        {/if}
-      </button>
-    {/if}
-  {/each}
+<div class="single-view-bar flex items-center gap-2 px-2 py-1 shrink-0">
+  <!-- Tabs keep their natural width and scroll horizontally when they overflow.
+       The scroll region has its own bottom padding so the thin themed scrollbar
+       sits in dedicated space instead of crowding the tabs. -->
+  <div class="sv-tabs flex items-center gap-1 flex-1 min-w-0">
+    {#each leafIds as id, i (id)}
+      {@const config = panes[id]}
+      {#if config}
+        <button
+          class="sv-tab flex items-center gap-1.5 shrink-0"
+          class:sv-tab--active={id === activeId}
+          title={labelFor(config)}
+          onclick={() => onSelect(id)}
+          onauxclick={(e) => { if (e.button === 1) { e.preventDefault(); onClose(id); } }}
+        >
+          <span class="sv-index text-[10px] tabular-nums opacity-50 shrink-0">{i + 1}</span>
+          <i class="bi {iconFor(config)} text-[11px] shrink-0"></i>
+          <span class="sv-label truncate">{labelFor(config)}</span>
+          {#if leafIds.length > 1}
+            <span
+              class="sv-close shrink-0"
+              role="button"
+              tabindex="-1"
+              title="Close pane"
+              onclick={(e) => { e.stopPropagation(); onClose(id); }}
+              onkeydown={() => {}}
+            >
+              <i class="bi bi-x"></i>
+            </span>
+          {/if}
+        </button>
+      {/if}
+    {/each}
 
-  <button class="sv-icon-btn shrink-0" title="New terminal" onclick={onAdd}>
-    <i class="bi bi-plus-lg"></i>
-  </button>
-
-  <div class="flex-1"></div>
+    <button class="sv-icon-btn shrink-0" title="New terminal" onclick={onAdd}>
+      <i class="bi bi-plus-lg"></i>
+    </button>
+  </div>
 
   <button class="sv-exit shrink-0 flex items-center gap-1.5" title="Back to split view (⌘⇧\)" onclick={onExit}>
     <i class="bi bi-layout-split text-[11px]"></i>
@@ -83,7 +86,35 @@
   .single-view-bar {
     background: var(--bg-secondary, transparent);
     border-bottom: 1px solid color-mix(in srgb, var(--text-dim) 18%, transparent);
+  }
+
+  /* Horizontal-only scroll for the tab row. The bottom padding reserves room for
+     the scrollbar so it never overlaps the tabs; a matching negative margin keeps
+     the bar's overall height unchanged. */
+  .sv-tabs {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 6px;
+    margin-bottom: -6px;
     scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text-dim) 35%, transparent) transparent;
+  }
+  .sv-tabs::-webkit-scrollbar {
+    height: 6px;
+  }
+  .sv-tabs::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .sv-tabs::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-dim) 30%, transparent);
+    border-radius: 999px;
+  }
+  .sv-tabs::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--text-dim) 55%, transparent);
+  }
+
+  .sv-label {
+    max-width: 160px;
   }
 
   .sv-tab {
