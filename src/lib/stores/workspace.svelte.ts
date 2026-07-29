@@ -130,6 +130,20 @@ class WorkspaceManager {
     ws.nameManuallySet = true;
   }
 
+  /** Rename a pane (e.g. a terminal). Empty/whitespace titles are ignored so a
+   *  pane is never left blank. Persists so the custom name survives restart. */
+  renamePane(paneId: string, title: string, workspaceId?: string): void {
+    const wsId = workspaceId ?? this.activeWorkspaceId;
+    if (!wsId) return;
+    const ws = this.workspaces[wsId];
+    const pane = ws?.panes[paneId];
+    if (!pane) return;
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    pane.title = trimmed;
+    this.debouncedPersistWorkspace(wsId);
+  }
+
   switchWorkspace(id: string): void {
     if (!(id in this.workspaces)) return;
     // Save current workspace's sidebar state

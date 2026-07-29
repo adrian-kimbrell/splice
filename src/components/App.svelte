@@ -1130,6 +1130,7 @@
                 onSplit={workspace.viewMode === "single" ? undefined : (dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}
                 onAction={handlePaneAction}
+                onRename={(t) => workspaceManager.renamePane(config.id, t)}
               />
             {/if}
           {/snippet}

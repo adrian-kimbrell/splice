@@ -18,6 +18,7 @@
     onSplit,
     onClose,
     onAction,
+    onRename,
   }: {
     title: string;
     cwd?: string;
@@ -27,7 +28,28 @@
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
     onAction?: (action: string) => void;
+    onRename?: (title: string) => void;
   } = $props();
+
+  // Inline title rename (double-click the title). Commits on Enter/blur, cancels on Esc.
+  let editing = $state(false);
+  let editValue = $state("");
+
+  function startRename() {
+    if (!onRename) return;
+    editValue = title;
+    editing = true;
+  }
+  function commitRename() {
+    if (!editing) return;
+    editing = false;
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== title) onRename?.(trimmed);
+  }
+  function renameKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+    else if (e.key === "Escape") { e.preventDefault(); editing = false; }
+  }
 
   const isBeingDragged = $derived.by(() => {
     if (!isDragging()) return false;
@@ -149,9 +171,27 @@
   style="height: var(--titlebar-height); min-height: var(--titlebar-height); padding-left: calc(0.625rem + var(--header-traffic-offset, 0px)); transition: padding-left 150ms ease;{isBeingDragged ? ' opacity: 0.35;' : ''}"
   onmousedown={handleMouseDown}
 >
-  <span class="text-txt-bright font-medium whitespace-nowrap mr-2 overflow-hidden text-ellipsis min-w-0"
-    >{title}</span
-  >
+  {#if editing}
+    <!-- svelte-ignore a11y_autofocus -->
+    <input
+      class="terminal-rename-input font-medium mr-2 min-w-0"
+      bind:value={editValue}
+      onkeydown={renameKeydown}
+      onblur={commitRename}
+      onmousedown={(e) => e.stopPropagation()}
+      ondblclick={(e) => e.stopPropagation()}
+      autofocus
+    />
+  {:else}
+    <span
+      class="text-txt-bright font-medium whitespace-nowrap mr-2 overflow-hidden text-ellipsis min-w-0"
+      class:cursor-text={!!onRename}
+      title={onRename ? "Double-click to rename" : undefined}
+      ondblclick={(e) => { e.stopPropagation(); startRename(); }}
+      role="button"
+      tabindex="-1"
+    >{title}</span>
+  {/if}
   {#if notification}
     <span
       class="attention-bell shrink-0 mr-2 flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
@@ -224,6 +264,18 @@
 </div>
 
 <style>
+  .terminal-rename-input {
+    font-size: var(--ui-body);
+    color: var(--text-bright);
+    background: var(--bg-input);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 0 5px;
+    height: 20px;
+    max-width: 200px;
+    outline: none;
+  }
+
   .attention-bell {
     animation: bell-pulse 1.2s ease-in-out infinite;
   }

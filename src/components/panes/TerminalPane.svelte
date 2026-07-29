@@ -34,6 +34,7 @@
     onSplit,
     onClose,
     onAction,
+    onRename,
   }: {
     title: string;
     cwd?: string;
@@ -44,6 +45,7 @@
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
     onAction?: (action: string) => void;
+    onRename?: (title: string) => void;
   } = $props();
 
   const notification = $derived(attentionStore.notifications[terminalId] ?? null);
@@ -87,7 +89,7 @@
   class:flash-idle={notification?.type === 'idle'}
   onkeydown={handleKeyDown}
 >
-  <TerminalTitlebar {title} {cwd} {gitBranch} {paneId} {onSplit} {onClose} {onAction} {notification} />
+  <TerminalTitlebar {title} {cwd} {gitBranch} {paneId} {onSplit} {onClose} {onAction} {onRename} {notification} />
   <div bind:this={contentAreaEl} class="flex-1 flex flex-col overflow-hidden min-h-0">
     <TerminalSearch
       {terminalId}
