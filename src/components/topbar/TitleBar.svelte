@@ -116,27 +116,6 @@
 
 <div class="titlebar-shell">
 <div class="title-bar" class:title-bar--drawer-open={ui.settingsDrawerOpen}>
-  <!-- Left drawer toggles. Offset right to clear the macOS traffic lights when the
-       left drawer is collapsed (the bar then extends under them). -->
-  <div class="title-left" class:title-left--offset={!leftDrawerOpen}>
-    <button
-      class="title-btn"
-      class:title-btn--active={leftDrawerOpen}
-      title="Toggle left panel"
-      onclick={toggleLeftDrawer}
-    >
-      <i class="bi bi-layout-sidebar"></i>
-    </button>
-    <button
-      class="title-btn"
-      class:title-btn--active={rightDrawerOpen}
-      title="Toggle right panel"
-      onclick={toggleRightDrawer}
-    >
-      <i class="bi bi-layout-sidebar-reverse"></i>
-    </button>
-  </div>
-
   <!-- Drag region fills remaining space -->
   <div class="title-center" data-tauri-drag-region></div>
 
@@ -184,14 +163,31 @@
     </div>
   {/if}
 
-  <!-- Right actions — always pinned, never pushed out -->
+  <!-- Right actions — always pinned, never pushed out.
+       Order: terminal, folder, left drawer, right drawer, settings. -->
   <div class="title-actions">
     {#if hasWorkspace}
+      <button class="title-btn" title="New Terminal" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
+        <i class="bi bi-terminal"></i>
+      </button>
       <button class="title-btn" title="Open Folder" onclick={handleOpenFolder}>
         <i class="bi bi-folder2-open"></i>
       </button>
-      <button class="title-btn" title="New Terminal" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
-        <i class="bi bi-terminal"></i>
+      <button
+        class="title-btn"
+        class:title-btn--active={leftDrawerOpen}
+        title="Toggle left panel"
+        onclick={toggleLeftDrawer}
+      >
+        <i class="bi bi-layout-sidebar"></i>
+      </button>
+      <button
+        class="title-btn"
+        class:title-btn--active={rightDrawerOpen}
+        title="Toggle right panel"
+        onclick={toggleRightDrawer}
+      >
+        <i class="bi bi-layout-sidebar-reverse"></i>
       </button>
     {/if}
     <button
@@ -429,24 +425,7 @@
   }
   .notif-dismiss:hover { color: var(--text); background: var(--bg-hover); }
 
-  /* ── Left drawer toggles ───────────────────────────────── */
-  .title-left {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-    gap: 0;
-    padding-left: 4px;
-  }
-  /* Snug pair — narrower than the right-hand action buttons. */
-  .title-left .title-btn {
-    width: 19px;
-  }
-  /* When the left drawer is collapsed the bar slides under the macOS traffic
-     lights, so tuck the icons in just to their right. Snaps (no transition) so it
-     doesn't bounce while resizing. */
-  .title-left--offset {
-    padding-left: 62px;
-  }
+  /* Active (toggled-on) state — shared by the drawer toggle buttons. */
   .title-btn--active {
     color: var(--accent);
     background: var(--accent-subtle);
