@@ -154,10 +154,10 @@
       <button class="title-btn" title="Open Folder" onclick={handleOpenFolder}>
         <i class="bi bi-folder2-open"></i>
       </button>
+      <button class="title-btn" title="New Terminal" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
+        <i class="bi bi-terminal"></i>
+      </button>
     {/if}
-    <button class="title-btn" title="New Terminal" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
-      <i class="bi bi-terminal"></i>
-    </button>
     <button
       class="title-btn title-btn--settings"
       class:title-btn--settings-open={ui.settingsDrawerOpen}
