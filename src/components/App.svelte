@@ -1060,19 +1060,10 @@
 
   <!-- CENTER: PANE GRID — render ALL workspaces, hide inactive with display:none -->
   <div class="flex flex-col min-w-0" style="grid-column: 3; grid-row: 1; overflow: hidden;">
-    {#if ws && (ws.rootPath || ws.layout !== null || ws.sshConfig)}
-      <TitleBar />
-    {:else}
-      <!-- Welcome screen has no TitleBar; provide an invisible drag strip so
-           the user can still drag the window from the top edge. Height matches
-           the TitleBar (32px + 6px margin) so the traffic-light area is fully
-           covered. -->
-      <div
-        data-tauri-drag-region
-        style="height: 38px; flex-shrink: 0;"
-        aria-hidden="true"
-      ></div>
-    {/if}
+    <!-- TitleBar is always mounted (even with no workspace / on the welcome screen)
+         so its settings drawer can always slide down into the main area. It handles
+         the no-workspace case internally (hasWorkspace gates workspace-only actions). -->
+    <TitleBar />
 
     {#each Object.entries(workspaceManager.workspaces) as [wsId, workspace] (wsId)}
       {@const isActive = wsId === workspaceManager.activeWorkspaceId}
