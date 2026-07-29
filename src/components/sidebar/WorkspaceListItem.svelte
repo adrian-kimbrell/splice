@@ -31,6 +31,29 @@
   let editing = $state(false);
   let editValue = $state("");
 
+  // Per-item (terminal) rename state — only one item edits at a time.
+  let editingItemId = $state<string | null>(null);
+  let editItemValue = $state("");
+
+  function startItemEdit(itemId: string, name: string) {
+    editItemValue = name;
+    editingItemId = itemId;
+  }
+  function commitItemEdit(paneId: string) {
+    if (editingItemId !== paneId) return;
+    editingItemId = null;
+    const trimmed = editItemValue.trim();
+    if (trimmed) workspaceManager.renamePane(paneId, trimmed, workspace.id);
+  }
+  function itemEditKeydown(e: KeyboardEvent, paneId: string) {
+    if (e.key === "Enter") { e.preventDefault(); commitItemEdit(paneId); }
+    else if (e.key === "Escape") { e.preventDefault(); editingItemId = null; }
+  }
+  function focusSelect(node: HTMLInputElement) {
+    node.focus();
+    node.select();
+  }
+
   function startEditing() {
     editValue = workspace.name;
     editing = true;
@@ -156,7 +179,8 @@
       class:attention-permission={attention?.type === 'permission'}
       class:attention-idle={attention?.type === 'idle'}
       onclick={() => onItemClick(workspace.id, item.id)}
-      title={item.name}
+      ondblclick={item.type === 'terminal' ? (e) => { e.stopPropagation(); startItemEdit(item.id, item.name); } : undefined}
+      title={item.type === 'terminal' ? 'Double-click to rename' : item.name}
     >
       <div class="session-tree-bar">
         <div class="tree-vertical-line"></div>
@@ -174,9 +198,21 @@
       </div>
       {#if !compact}
         <div class="session-info">
-          <div class="session-title" style={attention ? `color: ${attention.type === 'permission' ? 'var(--ansi-red)' : 'var(--ansi-yellow)'}` : ''}>
-            {item.name}
-          </div>
+          {#if editingItemId === item.id}
+            <input
+              class="session-rename-input"
+              bind:value={editItemValue}
+              onkeydown={(e) => itemEditKeydown(e, item.id)}
+              onblur={() => commitItemEdit(item.id)}
+              onclick={(e) => e.stopPropagation()}
+              ondblclick={(e) => e.stopPropagation()}
+              use:focusSelect
+            />
+          {:else}
+            <div class="session-title" style={attention ? `color: ${attention.type === 'permission' ? 'var(--ansi-red)' : 'var(--ansi-yellow)'}` : ''}>
+              {item.name}
+            </div>
+          {/if}
         </div>
       {/if}
     </div>

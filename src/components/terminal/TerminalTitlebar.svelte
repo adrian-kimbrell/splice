@@ -50,6 +50,12 @@
     if (e.key === "Enter") { e.preventDefault(); commitRename(); }
     else if (e.key === "Escape") { e.preventDefault(); editing = false; }
   }
+  // Focus + select-all when the input mounts, so the current name is highlighted
+  // and typing replaces it. More reliable than the autofocus attribute.
+  function focusSelect(node: HTMLInputElement) {
+    node.focus();
+    node.select();
+  }
 
   const isBeingDragged = $derived.by(() => {
     if (!isDragging()) return false;
@@ -77,6 +83,10 @@
   function handleMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button")) return;
+    // The title is a rename target (double-click), not a drag handle — so a
+    // double-click doesn't fight the drag logic. Drag still works from the rest
+    // of the bar. Only applies when renaming is enabled.
+    if (onRename && (e.target as HTMLElement).closest("[data-rename]")) return;
     e.preventDefault();
     beginDrag({ filePath: "", fileName: title, sourcePaneId: paneId, kind: "terminal" }, e);
   }
@@ -172,7 +182,6 @@
   onmousedown={handleMouseDown}
 >
   {#if editing}
-    <!-- svelte-ignore a11y_autofocus -->
     <input
       class="terminal-rename-input font-medium mr-2 min-w-0"
       bind:value={editValue}
@@ -180,10 +189,11 @@
       onblur={commitRename}
       onmousedown={(e) => e.stopPropagation()}
       ondblclick={(e) => e.stopPropagation()}
-      autofocus
+      use:focusSelect
     />
   {:else}
     <span
+      data-rename
       class="text-txt-bright font-medium whitespace-nowrap mr-2 overflow-hidden text-ellipsis min-w-0"
       class:cursor-text={!!onRename}
       title={onRename ? "Double-click to rename" : undefined}
