@@ -37,6 +37,7 @@
     { key: "general.auto_save_delay", category: "General", title: "Auto Save Delay", description: "Delay in milliseconds before auto-saving after a change.", control: { type: "number", min: 100, max: 10000, step: 100 } },
     { key: "general.restore_previous_session", category: "General", title: "Restore Previous Session", description: "Reopen the previous workspace on startup.", control: { type: "toggle" } },
     { key: "general.claude_notifications", category: "General", title: "Claude Notifications", description: "Send a macOS notification when Claude is waiting for input and Splice is in the background.", control: { type: "toggle" } },
+    { key: "general.default_single_view", category: "General", title: "Default to Single View", description: "New workspaces open in single-view mode — one pane at a time instead of the split grid.", control: { type: "toggle" } },
 
     // Appearance
     { key: "appearance.theme", category: "Appearance", title: "Theme", description: "The color theme for the editor and UI.", control: { type: "select", options: themeNames } },

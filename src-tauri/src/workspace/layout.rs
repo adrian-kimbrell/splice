@@ -109,6 +109,8 @@ pub struct GeneralSettings {
     pub restore_previous_session: bool,
     #[serde(default = "default_true")]
     pub claude_notifications: bool,
+    #[serde(default)]
+    pub default_single_view: bool,
 }
 
 fn default_auto_save() -> String {
@@ -126,6 +128,7 @@ impl Default for GeneralSettings {
             auto_save_delay: default_auto_save_delay(),
             restore_previous_session: true,
             claude_notifications: true,
+            default_single_view: false,
         }
     }
 }

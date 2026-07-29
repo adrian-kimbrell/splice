@@ -28,6 +28,8 @@ export interface Settings {
     auto_save_delay: number;
     restore_previous_session: boolean;
     claude_notifications: boolean;
+    /** New workspaces open in single-view mode (one pane at a time) instead of the split grid. */
+    default_single_view: boolean;
   };
   editor: {
     font_family: string;
@@ -70,6 +72,7 @@ const defaultSettings: Settings = {
     auto_save_delay: 1000,
     restore_previous_session: true,
     claude_notifications: true,
+    default_single_view: false,
   },
   editor: {
     font_family: "Menlo",

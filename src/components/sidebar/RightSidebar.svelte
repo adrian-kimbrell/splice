@@ -153,6 +153,7 @@
       else if (action === "new-file") workspaceManager.newUntitledFile();
       else if (action === "new-terminal") workspaceManager.spawnTerminalInWorkspace();
       else if (action === "open-file") handleOpenFile();
+      else if (action === "toggle-view-mode" && targetWsId) workspaceManager.toggleViewMode(targetWsId);
       removeCtxMenu();
     });
     document.body.appendChild(ctxMenuEl);
@@ -167,10 +168,14 @@
   }
 
   function handleWorkspaceContextMenu(e: MouseEvent, wsId: string) {
+    const isSingle = workspaceManager.workspaces[wsId]?.viewMode === "single";
     showCtxMenu(e, [
       { icon: "bi-file-earmark-plus", label: "New File", action: "new-file" },
       { icon: "bi-terminal", label: "New Terminal", action: "new-terminal" },
       { icon: "bi-folder2-open", label: "Open File", action: "open-file" },
+      isSingle
+        ? { icon: "bi-layout-split", label: "Split View", action: "toggle-view-mode" }
+        : { icon: "bi-square", label: "Single View", action: "toggle-view-mode" },
     ], wsId);
   }
 

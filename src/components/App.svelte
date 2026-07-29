@@ -33,7 +33,8 @@
   import TerminalPane from "./panes/TerminalPane.svelte";
   import DiffPane from "./panes/DiffPane.svelte";
   import PaneGrid from "./panes/PaneGrid.svelte";
-  import SingleViewBar from "./panes/SingleViewBar.svelte";
+  // SingleViewBar (top tab switcher) is temporarily unused — switching is driven
+  // from the workspace sidebar. Re-import + re-add in the single-view branch to revive.
   import CommandPalette from "./overlays/CommandPalette.svelte";
   import SshConnectForm from "./overlays/SshConnectForm.svelte";
   import Toasts from "./overlays/Toasts.svelte";
@@ -1148,28 +1149,19 @@
           {@const leafSet = collectLeafIds(workspace.layout)}
           {@const leafIds = Object.keys(workspace.panes).filter((id) => leafSet.has(id))}
           {@const singleActiveId = (workspace.activePaneId && workspace.panes[workspace.activePaneId]) ? workspace.activePaneId : leafIds[0]}
-          <div class="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0">
-            <SingleViewBar
-              {leafIds}
-              panes={workspace.panes}
-              activeId={singleActiveId}
-              onSelect={(id) => handlePaneClick(id)}
-              onClose={(id) => handleClosePane(id)}
-              onAdd={() => workspaceManager.spawnTerminalInWorkspace()}
-            />
-            <div class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
-              <!-- Wrap in a leaf-styled container so the pane keeps the normal
-                   rounded border + active glow. Only the active leaf mounts;
-                   keyed by paneId so switching mounts a fresh instance
-                   (CanvasTerminal binds its terminalId once at mount). -->
-              {#if singleActiveId && workspace.panes[singleActiveId]}
-                <div class="single-pane flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
-                  {#key singleActiveId}
-                    {@render paneSnippet(workspace.panes[singleActiveId])}
-                  {/key}
-                </div>
-              {/if}
-            </div>
+          <!-- Top tab switcher (SingleViewBar) is hidden for now — pane switching
+               is driven from the workspace sidebar. Kept the component for later.
+               Wrap in a leaf-styled container so the pane keeps the normal rounded
+               border + active glow. Only the active leaf mounts; keyed by paneId so
+               switching mounts a fresh instance (CanvasTerminal binds terminalId once). -->
+          <div class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
+            {#if singleActiveId && workspace.panes[singleActiveId]}
+              <div class="single-pane flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
+                {#key singleActiveId}
+                  {@render paneSnippet(workspace.panes[singleActiveId])}
+                {/key}
+              </div>
+            {/if}
           </div>
           {:else}
           <div class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
