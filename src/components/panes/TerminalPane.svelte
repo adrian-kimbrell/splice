@@ -22,6 +22,9 @@
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import { attentionStore } from "../../lib/stores/attention.svelte";
   import { registerPaneContent, unregisterPaneContent } from "../../lib/stores/drag.svelte";
+  import { effectiveSettings } from "../../lib/stores/settings.svelte";
+  import { workspaceManager } from "../../lib/stores/workspace.svelte";
+  import { onTerminalCwd } from "../../lib/ipc/events";
   import type { TerminalSearchMatch } from "../../lib/ipc/commands";
 
   let {
@@ -58,6 +61,20 @@
     if (!contentAreaEl || !paneId) return;
     registerPaneContent(paneId, contentAreaEl);
     return () => unregisterPaneContent(paneId);
+  });
+
+  // "Name follows folder" mode: when the shell's cwd changes, rename this pane to
+  // the folder's basename. Gated on the setting; the Rust event fires regardless.
+  $effect(() => {
+    if (!terminalId || !paneId) return;
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    onTerminalCwd(terminalId, (cwd) => {
+      if (!effectiveSettings.terminal.name_follows_cwd) return;
+      const base = cwd.split("/").filter(Boolean).pop() || cwd;
+      workspaceManager.renamePane(paneId, base);
+    }).then((u) => { if (disposed) u(); else unlisten = u; });
+    return () => { disposed = true; unlisten?.(); };
   });
 
   function handleKeyDown(e: KeyboardEvent) {

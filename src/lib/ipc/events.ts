@@ -38,6 +38,13 @@ export function onTerminalClipboard(id: number, callback: (text: string) => void
   });
 }
 
+/** Fires when the shell's working directory changes (for "name follows folder" mode). */
+export function onTerminalCwd(id: number, callback: (cwd: string) => void) {
+  return listen<string>(`terminal:cwd:${id}`, (event) => {
+    callback(event.payload);
+  });
+}
+
 export interface AttentionPayload {
   terminal_id: number;
   notification_type: string;

@@ -63,6 +63,7 @@ export interface Settings {
     font_family: string;
     copy_on_select: boolean;
     show_full_path: boolean;
+    name_follows_cwd: boolean;
   };
 }
 
@@ -106,6 +107,7 @@ const defaultSettings: Settings = {
     font_family: "Menlo",
     copy_on_select: false,
     show_full_path: false,
+    name_follows_cwd: false,
   },
 };
 
