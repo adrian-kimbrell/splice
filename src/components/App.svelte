@@ -1100,7 +1100,7 @@
                 onTabClick={(path) => handleTabClick(path, config.id)}
                 onTabClose={(path) => handleTabClose(path, config.id)}
                 onTabDoubleClick={handleTabDoubleClick}
-                onSplit={(dir, side) => handleSplitPane(config.id, dir, side)}
+                onSplit={workspace.viewMode === "single" ? undefined : (dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}
                 onAction={handlePaneAction}
                 onTabContextAction={(action, path) => handleTabContextAction(action, path, config.id)}
@@ -1135,7 +1135,7 @@
                 terminalId={config.terminalId ?? 0}
                 paneId={config.id}
                 active={isActive}
-                onSplit={(dir, side) => handleSplitPane(config.id, dir, side)}
+                onSplit={workspace.viewMode === "single" ? undefined : (dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}
                 onAction={handlePaneAction}
               />
@@ -1156,15 +1156,18 @@
               onSelect={(id) => handlePaneClick(id)}
               onClose={(id) => handleClosePane(id)}
               onAdd={() => workspaceManager.spawnTerminalInWorkspace()}
-              onExit={() => workspaceManager.setViewMode("split")}
             />
             <div class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
-              <!-- Only the active leaf mounts. Keyed by paneId so switching mounts a
-                   fresh instance (CanvasTerminal binds its terminalId once at mount). -->
+              <!-- Wrap in a leaf-styled container so the pane keeps the normal
+                   rounded border + active glow. Only the active leaf mounts;
+                   keyed by paneId so switching mounts a fresh instance
+                   (CanvasTerminal binds its terminalId once at mount). -->
               {#if singleActiveId && workspace.panes[singleActiveId]}
-                {#key singleActiveId}
-                  {@render paneSnippet(workspace.panes[singleActiveId])}
-                {/key}
+                <div class="single-pane flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
+                  {#key singleActiveId}
+                    {@render paneSnippet(workspace.panes[singleActiveId])}
+                  {/key}
+                </div>
               {/if}
             </div>
           </div>
@@ -1365,6 +1368,17 @@
 </div>
 
 <style>
+  /* Single-view active pane: mirror .pane-leaf--active from PaneGrid so the lone
+     pane keeps the normal rounded border + accent glow. */
+  .single-pane {
+    contain: layout style paint;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--accent-border);
+    outline: 2px solid var(--accent-subtle);
+    outline-offset: -2px;
+    box-shadow: var(--accent-glow);
+  }
+
   @keyframes welcome-in {
     from { opacity: 0; transform: translateY(16px); }
     to   { opacity: 1; transform: translateY(0); }

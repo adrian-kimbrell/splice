@@ -8,7 +8,6 @@
     onSelect,
     onClose,
     onAdd,
-    onExit,
   }: {
     leafIds: string[];
     panes: Record<string, PaneConfig>;
@@ -16,8 +15,21 @@
     onSelect: (id: string) => void;
     onClose: (id: string) => void;
     onAdd: () => void;
-    onExit: () => void;
   } = $props();
+
+  let tabsEl = $state<HTMLDivElement>();
+
+  // When the active tab changes (e.g. after +, which appends and activates a new
+  // pane), scroll it into view so the newly highlighted tab is always visible.
+  $effect(() => {
+    activeId; // track
+    const el = tabsEl;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.querySelector<HTMLElement>('[data-active="true"]')
+        ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+    });
+  });
 
   function iconFor(config: PaneConfig): string {
     if (config.kind === "terminal") return "bi-terminal";
@@ -41,13 +53,14 @@
   <!-- Only the tabs scroll (horizontally). A soft right-edge fade hints at
        overflow; the scrollbar itself is hidden. The +, divider and exit
        controls are pinned outside the scroll region so they stay visible. -->
-  <div class="sv-tabs flex items-center gap-1 flex-1 min-w-0">
+  <div bind:this={tabsEl} class="sv-tabs flex items-center gap-1 flex-1 min-w-0">
     {#each leafIds as id, i (id)}
       {@const config = panes[id]}
       {#if config}
         <button
           class="sv-tab flex items-center gap-1.5 shrink-0"
           class:sv-tab--active={id === activeId}
+          data-active={id === activeId}
           title={labelFor(config)}
           onclick={() => onSelect(id)}
           onauxclick={(e) => { if (e.button === 1) { e.preventDefault(); onClose(id); } }}
@@ -75,13 +88,6 @@
   <button class="sv-icon-btn shrink-0" title="New terminal" onclick={onAdd}>
     <i class="bi bi-plus-lg"></i>
   </button>
-
-  <div class="sv-divider shrink-0"></div>
-
-  <button class="sv-exit shrink-0 flex items-center gap-1.5" title="Back to split view (⌘⇧\)" onclick={onExit}>
-    <i class="bi bi-layout-split text-[11px]"></i>
-    <span class="text-[11px]">Split view</span>
-  </button>
 </div>
 
 <style>
@@ -107,13 +113,6 @@
 
   .sv-label {
     max-width: 160px;
-  }
-
-  .sv-divider {
-    width: 1px;
-    height: 16px;
-    background: color-mix(in srgb, var(--text-dim) 24%, transparent);
-    margin: 0 2px;
   }
 
   .sv-tab {
@@ -164,17 +163,6 @@
     background: transparent;
   }
   .sv-icon-btn:hover {
-    color: var(--text-bright);
-    background: color-mix(in srgb, var(--text-dim) 12%, transparent);
-  }
-
-  .sv-exit {
-    padding: 3px 8px;
-    border-radius: var(--radius-md, 6px);
-    color: var(--text-dim);
-    background: transparent;
-  }
-  .sv-exit:hover {
     color: var(--text-bright);
     background: color-mix(in srgb, var(--text-dim) 12%, transparent);
   }
