@@ -37,10 +37,10 @@
   }
 </script>
 
-<div class="single-view-bar flex items-center gap-2 px-2 py-1 shrink-0">
-  <!-- Tabs keep their natural width and scroll horizontally when they overflow.
-       The scroll region has its own bottom padding so the thin themed scrollbar
-       sits in dedicated space instead of crowding the tabs. -->
+<div class="single-view-bar flex items-center gap-1.5 px-2 shrink-0">
+  <!-- Only the tabs scroll (horizontally). A soft right-edge fade hints at
+       overflow; the scrollbar itself is hidden. The +, divider and exit
+       controls are pinned outside the scroll region so they stay visible. -->
   <div class="sv-tabs flex items-center gap-1 flex-1 min-w-0">
     {#each leafIds as id, i (id)}
       {@const config = panes[id]}
@@ -70,11 +70,13 @@
         </button>
       {/if}
     {/each}
-
-    <button class="sv-icon-btn shrink-0" title="New terminal" onclick={onAdd}>
-      <i class="bi bi-plus-lg"></i>
-    </button>
   </div>
+
+  <button class="sv-icon-btn shrink-0" title="New terminal" onclick={onAdd}>
+    <i class="bi bi-plus-lg"></i>
+  </button>
+
+  <div class="sv-divider shrink-0"></div>
 
   <button class="sv-exit shrink-0 flex items-center gap-1.5" title="Back to split view (⌘⇧\)" onclick={onExit}>
     <i class="bi bi-layout-split text-[11px]"></i>
@@ -84,37 +86,34 @@
 
 <style>
   .single-view-bar {
+    height: 34px;
     background: var(--bg-secondary, transparent);
     border-bottom: 1px solid color-mix(in srgb, var(--text-dim) 18%, transparent);
   }
 
-  /* Horizontal-only scroll for the tab row. The bottom padding reserves room for
-     the scrollbar so it never overlaps the tabs; a matching negative margin keeps
-     the bar's overall height unchanged. */
+  /* Horizontal-only scroll for the tab row, with the scrollbar hidden. A soft
+     right-edge mask fades the last tab when the row overflows, hinting there's
+     more to scroll to (falls over empty space when it doesn't overflow). */
   .sv-tabs {
     overflow-x: auto;
     overflow-y: hidden;
-    padding-bottom: 6px;
-    margin-bottom: -6px;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-dim) 35%, transparent) transparent;
+    scrollbar-width: none; /* Firefox */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
   }
   .sv-tabs::-webkit-scrollbar {
-    height: 6px;
-  }
-  .sv-tabs::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .sv-tabs::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--text-dim) 30%, transparent);
-    border-radius: 999px;
-  }
-  .sv-tabs::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in srgb, var(--text-dim) 55%, transparent);
+    display: none; /* WebKit */
   }
 
   .sv-label {
     max-width: 160px;
+  }
+
+  .sv-divider {
+    width: 1px;
+    height: 16px;
+    background: color-mix(in srgb, var(--text-dim) 24%, transparent);
+    margin: 0 2px;
   }
 
   .sv-tab {
