@@ -439,13 +439,13 @@
   }
   /* Snug pair — narrower than the right-hand action buttons. */
   .title-left .title-btn {
-    width: 22px;
+    width: 19px;
   }
   /* When the left drawer is collapsed the bar slides under the macOS traffic
      lights, so tuck the icons in just to their right. Snaps (no transition) so it
      doesn't bounce while resizing. */
   .title-left--offset {
-    padding-left: 70px;
+    padding-left: 62px;
   }
   .title-btn--active {
     color: var(--accent);
