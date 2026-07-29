@@ -884,6 +884,28 @@ class WorkspaceManager {
     this.debouncedPersistWorkspace(wsId);
   }
 
+  /** Set the workspace view mode. "single" renders only the active leaf; if none
+   *  is active yet, fall back to the first leaf so single view has something to show. */
+  setViewMode(mode: "split" | "single", workspaceId?: string): void {
+    const wsId = workspaceId ?? this.activeWorkspaceId;
+    if (!wsId) return;
+    const ws = this.workspaces[wsId];
+    if (!ws) return;
+    ws.viewMode = mode;
+    if (mode === "single" && (!ws.activePaneId || !ws.panes[ws.activePaneId])) {
+      ws.activePaneId = findFirstLeaf(ws.layout);
+    }
+    this.debouncedPersistWorkspace(wsId);
+  }
+
+  toggleViewMode(workspaceId?: string): void {
+    const wsId = workspaceId ?? this.activeWorkspaceId;
+    if (!wsId) return;
+    const ws = this.workspaces[wsId];
+    if (!ws) return;
+    this.setViewMode(ws.viewMode === "single" ? "split" : "single", wsId);
+  }
+
   // --- Layout actions on active workspace ---
 
   setLayout(layout: LayoutNode): void {

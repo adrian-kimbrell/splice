@@ -33,6 +33,7 @@
   import TerminalPane from "./panes/TerminalPane.svelte";
   import DiffPane from "./panes/DiffPane.svelte";
   import PaneGrid from "./panes/PaneGrid.svelte";
+  import SingleViewBar from "./panes/SingleViewBar.svelte";
   import CommandPalette from "./overlays/CommandPalette.svelte";
   import SshConnectForm from "./overlays/SshConnectForm.svelte";
   import Toasts from "./overlays/Toasts.svelte";
@@ -45,6 +46,7 @@
   import { initKeybindings, enterZenMode, exitZenMode, bumpFocusedPaneFont, resetFocusedPaneFont } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
   import type { PaneConfig, SplitDirection } from "../lib/stores/layout.svelte";
+  import { collectLeafIdsOrdered } from "../lib/stores/layout.svelte";
   import { type DropZone, setDropCallback } from "../lib/stores/drag.svelte";
   import type { TabDragData } from "../lib/stores/drag.svelte";
   import { workspaceManager } from "../lib/stores/workspace.svelte";
@@ -1140,6 +1142,30 @@
             {/if}
           {/snippet}
           {#if workspace.layout}
+          {#if workspace.viewMode === "single"}
+          {@const leafIds = collectLeafIdsOrdered(workspace.layout)}
+          {@const singleActiveId = (workspace.activePaneId && workspace.panes[workspace.activePaneId]) ? workspace.activePaneId : leafIds[0]}
+          <div class="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0">
+            <SingleViewBar
+              {leafIds}
+              panes={workspace.panes}
+              activeId={singleActiveId}
+              onSelect={(id) => handlePaneClick(id)}
+              onClose={(id) => handleClosePane(id)}
+              onAdd={() => workspaceManager.spawnTerminalInWorkspace()}
+              onExit={() => workspaceManager.setViewMode("split")}
+            />
+            <div class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
+              <!-- Only the active leaf mounts. Keyed by paneId so switching mounts a
+                   fresh instance (CanvasTerminal binds its terminalId once at mount). -->
+              {#if singleActiveId && workspace.panes[singleActiveId]}
+                {#key singleActiveId}
+                  {@render paneSnippet(workspace.panes[singleActiveId])}
+                {/key}
+              {/if}
+            </div>
+          </div>
+          {:else}
           <div class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
             <div class="flex-1 flex overflow-hidden min-w-0 min-h-0" style:visibility={isActive && ui.zoomedPaneId && workspace.panes[ui.zoomedPaneId] ? 'hidden' : 'visible'}>
               <PaneGrid
@@ -1161,6 +1187,7 @@
               </div>
             {/if}
           </div>
+          {/if}
           {:else}
           <div
             class="flex-1 flex items-center justify-center"

@@ -72,6 +72,17 @@ export function findShallowestLeaf(node: LayoutNode): string {
     : findShallowestLeaf(node.children[1]);
 }
 
+/** Leaf paneIds in in-order (left-to-right, top-to-bottom) traversal order.
+ *  Single-view mode presents the tree's leaves as a flat, ordered switcher. */
+export function collectLeafIdsOrdered(node: LayoutNode | null | undefined): string[] {
+  if (!node) return [];
+  if (node.type === "leaf") return [node.paneId];
+  return [
+    ...collectLeafIdsOrdered(node.children[0]),
+    ...collectLeafIdsOrdered(node.children[1]),
+  ];
+}
+
 export function collectLeafIds(node: LayoutNode): Set<string> {
   if (node.type === "leaf") return new Set([node.paneId]);
   const left = collectLeafIds(node.children[0]);

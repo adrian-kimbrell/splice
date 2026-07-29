@@ -380,6 +380,15 @@ export function initKeybindings(): () => void {
       })();
     }
 
+    // Cmd/Ctrl + Shift + \: Toggle single-view mode for the active workspace
+    // (renders one pane at a time with a switcher strip; the tree is preserved).
+    if (mod && e.shiftKey && e.code === "Backslash") {
+      e.preventDefault();
+      ui.zoomedPaneId = null; // single view supersedes transient zoom
+      workspaceManager.toggleViewMode();
+      return;
+    }
+
     // Cmd/Ctrl + Z: Toggle pane zoom (only when NOT inside a CodeMirror editor, where it means Undo)
     // Cmd/Ctrl + \: Toggle pane zoom (works everywhere — no Undo conflict)
     if (mod && !e.shiftKey && (
