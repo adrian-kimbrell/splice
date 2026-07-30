@@ -192,11 +192,35 @@ pub fn take_pending_open_paths(
 /// frontend to drain the buffer. Called from the `RunEvent::Opened` loop in lib.rs.
 #[cfg(target_os = "macos")]
 pub fn handle_opened(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
+    let paths = urls.iter().filter_map(|u| u.to_file_path().ok()).collect();
+    buffer_open_targets(app, paths);
+}
+
+/// Same, for the paths a launch hands us on the command line.
+///
+/// Windows has no `RunEvent::Opened` — "Open With", dragging onto the exe, and
+/// `splice .` from a shell all arrive as argv instead, so without this the
+/// equivalent of macOS's Finder integration would do nothing. Harmless elsewhere:
+/// a normal launch has no file arguments.
+pub fn handle_cli_args(app: &tauri::AppHandle) {
+    let paths: Vec<std::path::PathBuf> = std::env::args_os()
+        .skip(1) // argv[0] is the executable
+        .map(std::path::PathBuf::from)
+        // Ignore flags and anything that isn't an existing file/folder — WebView2 and
+        // Tauri both pass switches through, and they are not paths to open.
+        .filter(|p| !p.to_string_lossy().starts_with('-') && p.exists())
+        .collect();
+    if !paths.is_empty() {
+        buffer_open_targets(app, paths);
+    }
+}
+
+/// Buffer paths for the frontend to drain, granting read access to each one's root.
+fn buffer_open_targets(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
     use tauri::{Emitter, Manager};
     let mut any = false;
     if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
-        for url in urls {
-            let Ok(path) = url.to_file_path() else { continue };
+        for path in paths {
             let is_dir = path.is_dir();
             let root = if is_dir {
                 path.clone()

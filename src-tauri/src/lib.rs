@@ -181,9 +181,20 @@ pub fn run() {
                 let _ = main_window.set_maximizable(true);
             }
 
-            // Set up native menu bar
-            let menu = build_menu(app)?;
-            app.set_menu(menu)?;
+            // Set up native menu bar. macOS puts this in the system menu bar, where it
+            // belongs; on Windows a menu becomes a strip *inside* the window, which
+            // would sit under our custom title bar and duplicate controls the UI
+            // already has. Every item is reachable from the title bar and keyboard
+            // shortcuts there, so Windows gets no native menu.
+            #[cfg(not(target_os = "windows"))]
+            {
+                let menu = build_menu(app)?;
+                app.set_menu(menu)?;
+            }
+
+            // Files this launch was asked to open. macOS also delivers these via
+            // RunEvent::Opened once running; on Windows argv is the only channel.
+            commands::workspace::handle_cli_args(app.handle());
 
             // macOS dock right-click menu ("New Window")
             #[cfg(target_os = "macos")]

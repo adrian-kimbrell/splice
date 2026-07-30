@@ -47,6 +47,21 @@
       "entitlements": "Entitlements.plist",
       "minimumSystemVersion": "11.0",
       "signingIdentity": "-"
-    }
+    },
+    "fileAssociations": [
+      {
+        "name": "Source Code",
+        "description": "Source code file",
+        "role": "Editor",
+        "mimeType": "text/plain",
+        "ext": [
+          "txt", "md", "json", "jsonc", "yaml", "yml", "toml", "ini", "xml", "csv",
+          "js", "jsx", "mjs", "cjs", "ts", "tsx", "svelte", "vue",
+          "html", "css", "scss", "sass", "less",
+          "rs", "go", "py", "rb", "java", "kt", "swift", "c", "h", "cpp", "hpp", "cs",
+          "php", "lua", "sh", "bash", "zsh", "fish", "sql", "graphql", "proto"
+        ]
+      }
+    ]
   }
 }
