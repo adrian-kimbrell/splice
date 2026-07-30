@@ -261,11 +261,12 @@ impl PtySession {
                             let _ = app_clone.emit(&clipboard_event, text);
                         }
 
-                        // After output settles (e.g. a new prompt from `cd`), check whether
-                        // the shell's cwd changed and tell the frontend. Throttled so a flood
-                        // of output doesn't spam the syscall.
+                        // Check whether the shell's cwd changed and tell the frontend.
+                        // Always check on small batches (a `cd`'s new prompt, keystroke
+                        // echoes) so the name updates immediately; only throttle large
+                        // batches so a flood of output doesn't spam the syscall.
                         if let Some(pid) = cwd_pid {
-                            if last_cwd_check.elapsed() >= Duration::from_millis(250) {
+                            if n <= 1024 || last_cwd_check.elapsed() >= Duration::from_millis(200) {
                                 last_cwd_check = Instant::now();
                                 if let Some(cwd) = pid_cwd(pid) {
                                     if last_cwd.as_deref() != Some(cwd.as_str()) {
