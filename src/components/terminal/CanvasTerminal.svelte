@@ -36,6 +36,7 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { showContextMenu } from "../../lib/utils/context-menu";
   import { clientToLayoutOffset } from "../../lib/utils/zoom";
+  import { isMac } from "../../lib/utils/platform";
   import { savedPrompts } from "../../lib/stores/prompts.svelte";
 
   function parseHexColor(hex: string): [number, number, number] | null {
@@ -466,8 +467,12 @@
 
     // Keyboard handler
     const onKeyDown = async (e: KeyboardEvent) => {
-      // Cmd+C with selection → copy
-      if (e.metaKey && e.key.toLowerCase() === "c" && renderer?.selectionStart) {
+      // Copy/paste modifier: Cmd on macOS, Ctrl+Shift elsewhere — plain Ctrl+C must
+      // still reach the shell as SIGINT (same reason Windows Terminal uses Ctrl+Shift).
+      const copyMod = isMac ? e.metaKey : (e.ctrlKey && e.shiftKey);
+
+      // Cmd / Ctrl+Shift + C with selection → copy
+      if (copyMod && e.key.toLowerCase() === "c" && renderer?.selectionStart) {
         e.preventDefault();
         const text = await extractSelectionText();
         if (text) {
@@ -476,9 +481,12 @@
         return;
       }
 
-      // Cmd+V → flag this terminal as the paste target, then let the browser fire
-      // the paste event (intercepted at document capture level by onPaste below).
-      if (e.metaKey && e.key === "v") {
+      // Paste → flag this terminal as the paste target, then let the browser fire the
+      // paste event (intercepted at document capture level by onPaste). Paste has to
+      // ride a native accelerator for that event to fire, so on Windows/Linux it's
+      // Ctrl+V *and* Ctrl+Shift+V (Chromium fires paste for both) — which costs the
+      // shell readline's quoted-insert, the same trade Windows Terminal makes.
+      if ((isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === "v") {
         pendingPaste = true;
         setTimeout(() => { pendingPaste = false; }, 100);
         return;

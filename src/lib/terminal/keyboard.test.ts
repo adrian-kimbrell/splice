@@ -150,6 +150,23 @@ describe("control sequences", () => {
     expect(keyToBytes(key("d", { ctrlKey: true }), false)).toEqual(new Uint8Array([4]));
   });
 
+  // Windows/Linux reserve Ctrl+Shift+letter for Splice shortcuts (happy-dom's UA is
+  // not a Mac, so these exercise the non-mac branch).
+  it("Ctrl+Shift+C → null (reserved for the app, never SIGINT)", () => {
+    expect(keyToBytes(key("C", { ctrlKey: true, shiftKey: true }), false)).toBeNull();
+  });
+
+  it("Ctrl+Shift+P → null (reserved), while Ctrl+P still sends DLE", () => {
+    expect(keyToBytes(key("P", { ctrlKey: true, shiftKey: true }), false)).toBeNull();
+    expect(keyToBytes(key("p", { ctrlKey: true }), false)).toEqual(new Uint8Array([0x10]));
+  });
+
+  it("Ctrl+^ still sends RS — the reservation is letters only", () => {
+    expect(keyToBytes(key("^", { ctrlKey: true, shiftKey: true }), false)).toEqual(
+      new Uint8Array([0x1e]),
+    );
+  });
+
   it("Alt+Backspace → ESC DEL (backward-kill-word)", () => {
     expect(keyToBytes(key("Backspace", { altKey: true }), false)).toEqual(
       new Uint8Array([0x1b, 0x7f]),

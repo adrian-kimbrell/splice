@@ -13,6 +13,8 @@
  * Mouse encoding is handled separately in `CanvasTerminal.svelte`.
  */
 
+import { isMac } from "../utils/platform";
+
 const textEncoder = new TextEncoder();
 
 // xterm modifier param: 1 + (shift?1:0) + (alt?2:0) + (ctrl?4:0)
@@ -168,6 +170,13 @@ export function keyToBytes(e: KeyboardEvent, appCursorKeys: boolean): Uint8Array
   // 13. Ctrl+key combinations
   if (e.ctrlKey && !e.altKey) {
     const key = e.key.toLowerCase();
+    // Windows/Linux have no spare Cmd, so Ctrl+Shift+letter is reserved for Splice
+    // shortcuts (see keybindings.ts) and must not reach the shell. Nothing is lost:
+    // a PTY sees the same byte for Ctrl+X and Ctrl+Shift+X, so the unshifted form
+    // still sends it. Non-letters are untouched — Ctrl+^ and Ctrl+_ need Shift.
+    if (!isMac && e.shiftKey && key.length === 1 && key >= "a" && key <= "z") {
+      return null;
+    }
     if (key.length === 1 && key >= "a" && key <= "z") {
       return new Uint8Array([key.charCodeAt(0) - 96]);
     }

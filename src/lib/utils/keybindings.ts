@@ -7,14 +7,17 @@
  * {@link nearestLeaf}), zen mode with fullscreen toggle, pane zoom, tab
  * cycling by index, UI scale adjustment, and dev-only screenshot utilities.
  *
- * Inside terminal panes only `Cmd` (metaKey) activates shortcuts so that
- * `Ctrl+key` passes through to the shell.
+ * Inside terminal panes `Ctrl+key` must pass through to the shell, so shortcuts
+ * there need a different modifier: `Cmd` on macOS, `Ctrl+Shift` on Windows/Linux
+ * (which have no spare Cmd). Because Shift is then part of the modifier itself, the
+ * shifted shortcuts (Save As, Find in Files, …) are reachable outside terminals only.
  *
  * {@link initKeybindings} returns a cleanup function that removes the listener.
  */
 import { ui } from "../stores/ui.svelte";
 import { workspaceManager } from "../stores/workspace.svelte";
 import { settings, debouncedSaveSettings } from "../stores/settings.svelte";
+import { isMac } from "./platform";
 import type { LayoutNode } from "../stores/layout.svelte";
 
 function isInsideCodeMirror(el: Element | null): boolean {
@@ -249,14 +252,26 @@ export function initKeybindings(): () => void {
       return;
     }
 
-    // When focus is inside a terminal canvas, only Cmd (metaKey) triggers Splice shortcuts.
-    // Ctrl+key must pass through to the terminal for Claude Code / readline / shell use.
+    // Splice's shortcut modifier depends on where focus is, because plain Ctrl+key
+    // must pass through to the terminal (Claude Code / readline / shell):
+    //   outside a terminal  — Cmd or Ctrl
+    //   terminal, macOS     — Cmd (Ctrl stays free for the shell)
+    //   terminal, Win/Linux — Ctrl+Shift (no Cmd to spare; keyboard.ts drops these
+    //                         so they don't also reach the shell)
     const inTerminal = isInsideTerminal(document.activeElement);
-    const mod = inTerminal ? e.metaKey : (e.metaKey || e.ctrlKey);
+    const ctrlShiftMod = inTerminal && !isMac;
+    const mod = inTerminal
+      ? (isMac ? e.metaKey : e.ctrlKey && e.shiftKey)
+      : (e.metaKey || e.ctrlKey);
+    // Where Ctrl+Shift *is* the modifier, Shift is spent — it can't also distinguish
+    // shifted shortcuts, so those (Save As, Find in Files, …) are editor-side only.
+    const shift = e.shiftKey && !ctrlShiftMod;
+    // Shift uppercases e.key, so match on a normalized key and use `shift` explicitly.
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
 
     // Block reload (Cmd+R, Cmd+Shift+R) and devtools (Cmd+Option+I, F12)
-    if (mod && (e.key === "r" || e.key === "R")) { e.preventDefault(); return; }
-    if (mod && e.altKey && (e.key === "i" || e.key === "I")) { e.preventDefault(); return; }
+    if (mod && key === "r") { e.preventDefault(); return; }
+    if (mod && e.altKey && key === "i") { e.preventDefault(); return; }
     if (e.key === "F12") { e.preventDefault(); return; }
 
     // Numpad 3 — take a screenshot and save to docs/screenshots/
@@ -290,19 +305,19 @@ export function initKeybindings(): () => void {
     }
 
     // Cmd/Ctrl + S: Save Active File
-    if (mod && e.key === "s") {
+    if (mod && !shift && key === "s") {
       e.preventDefault();
       workspaceManager.saveActiveFile();
     }
 
     // Cmd/Ctrl + N: New File
-    if (mod && e.key === "n") {
+    if (mod && key === "n") {
       e.preventDefault();
       workspaceManager.newUntitledFile();
     }
 
     // Cmd/Ctrl + K: Chord prefix
-    if (mod && !e.shiftKey && !e.altKey && e.key === "k") {
+    if (mod && !shift && !e.altKey && key === "k") {
       e.preventDefault();
       chordPending = true;
       chordTimeout = setTimeout(() => resetChord(), CHORD_TIMEOUT);
@@ -310,13 +325,13 @@ export function initKeybindings(): () => void {
     }
 
     // Cmd/Ctrl + P: Command Palette
-    if (mod && e.key === "p") {
+    if (mod && key === "p") {
       e.preventDefault();
       ui.commandPaletteOpen = !ui.commandPaletteOpen;
     }
 
     // Alt/Option + Cmd/Ctrl + T: Close Others
-    if (mod && e.altKey && !e.shiftKey && e.code === "KeyT") {
+    if (mod && e.altKey && !shift && e.code === "KeyT") {
       e.preventDefault();
       const ws = workspaceManager.activeWorkspace;
       if (ws?.activePaneId) {
@@ -340,7 +355,7 @@ export function initKeybindings(): () => void {
     }
 
     // Cmd/Ctrl + Shift + Enter: Toggle zen mode
-    if (mod && e.shiftKey && e.key === "Enter") {
+    if (mod && shift && key === "Enter") {
       e.preventDefault();
       if (ui.zenMode) {
         exitZenMode();
@@ -349,20 +364,20 @@ export function initKeybindings(): () => void {
       }
     }
 
-    // Cmd + B: Toggle explorer
-    if (e.metaKey && e.key === "b") {
+    // Cmd/Ctrl + B: Toggle explorer
+    if (mod && key === "b") {
       e.preventDefault();
       ui.explorerVisible = !ui.explorerVisible;
     }
 
     // Cmd/Ctrl + ,: Toggle the settings drawer
-    if (mod && !e.shiftKey && e.code === "Comma") {
+    if (mod && !shift && e.code === "Comma") {
       e.preventDefault();
       ui.settingsDrawerOpen = !ui.settingsDrawerOpen;
     }
 
     // Cmd/Ctrl + Shift + ,: Open workspace settings (.splice/settings.json)
-    if (mod && e.shiftKey && e.code === "Comma") {
+    if (mod && shift && e.code === "Comma") {
       e.preventDefault();
       void (async () => {
         const ws = workspaceManager.activeWorkspace;
@@ -382,7 +397,7 @@ export function initKeybindings(): () => void {
 
     // Cmd/Ctrl + Shift + \: Toggle single-view mode for the active workspace
     // (renders one pane at a time with a switcher strip; the tree is preserved).
-    if (mod && e.shiftKey && e.code === "Backslash") {
+    if (mod && shift && e.code === "Backslash") {
       e.preventDefault();
       ui.zoomedPaneId = null; // single view supersedes transient zoom
       workspaceManager.toggleViewMode();
@@ -391,7 +406,7 @@ export function initKeybindings(): () => void {
 
     // Cmd/Ctrl + Z: Toggle pane zoom (only when NOT inside a CodeMirror editor, where it means Undo)
     // Cmd/Ctrl + \: Toggle pane zoom (works everywhere — no Undo conflict)
-    if (mod && !e.shiftKey && (
+    if (mod && !shift && (
       (e.code === "KeyZ" && !isInsideCodeMirror(document.activeElement)) ||
       e.code === "Backslash"
     )) {
@@ -411,39 +426,39 @@ export function initKeybindings(): () => void {
     }
 
     // Cmd/Ctrl + W: Close active tab
-    if (mod && !e.shiftKey && e.key === "w") {
+    if (mod && !shift && key === "w") {
       e.preventDefault();
       document.dispatchEvent(new CustomEvent("splice:close-active-tab"));
     }
 
     // Cmd/Ctrl + Shift + S: Save As
-    if (mod && e.shiftKey && !e.altKey && e.key === "S") {
+    if (mod && shift && !e.altKey && key === "s") {
       e.preventDefault();
       workspaceManager.saveActiveFileAs();
     }
 
     // Cmd/Ctrl + Alt + S: Save All
-    if (mod && e.altKey && !e.shiftKey && e.key === "s") {
+    if (mod && e.altKey && !shift && key === "s") {
       e.preventDefault();
       workspaceManager.saveAllDirtyFiles();
     }
 
     // Cmd/Ctrl + Shift + F: Find in Files
-    if (mod && e.shiftKey && e.key === "F") {
+    if (mod && shift && key === "f") {
       e.preventDefault();
       ui.sidebarMode = "search";
       ui.explorerVisible = true;
     }
 
     // Cmd/Ctrl + Shift + M: Problems panel
-    if (mod && e.shiftKey && e.key === "M") {
+    if (mod && shift && key === "m") {
       e.preventDefault();
       ui.sidebarMode = ui.sidebarMode === "problems" ? "files" : "problems";
       ui.explorerVisible = true;
     }
 
     // Cmd/Ctrl + Shift + H: Find & Replace
-    if (mod && e.shiftKey && e.key === "H") {
+    if (mod && shift && key === "h") {
       e.preventDefault();
       ui.sidebarMode = "search";
       ui.explorerVisible = true;
@@ -451,7 +466,7 @@ export function initKeybindings(): () => void {
     }
 
     // Cmd/Ctrl + 1-9: Switch to pane by index
-    if (mod && !e.shiftKey && e.code >= "Digit1" && e.code <= "Digit9") {
+    if (mod && !shift && e.code >= "Digit1" && e.code <= "Digit9") {
       const ws = workspaceManager.activeWorkspace;
       if (ws?.layout) {
         const index = parseInt(e.code.charAt(5)) - 1;
@@ -468,7 +483,7 @@ export function initKeybindings(): () => void {
     }
 
     // Cmd/Ctrl + Option/Alt + Arrow: Spatial pane navigation
-    if (mod && e.altKey && !e.shiftKey &&
+    if (mod && e.altKey && !shift &&
         (e.code === "ArrowLeft" || e.code === "ArrowRight" ||
          e.code === "ArrowUp" || e.code === "ArrowDown")) {
       const ws = workspaceManager.activeWorkspace;
@@ -490,25 +505,25 @@ export function initKeybindings(): () => void {
     }
 
     // Cmd/Ctrl + =: Zoom in the focused pane's font
-    if (mod && (e.key === "=" || e.key === "+")) {
+    if (mod && (key === "=" || key === "+")) {
       e.preventDefault();
       bumpFocusedPaneFont(1);
     }
 
     // Cmd/Ctrl + -: Zoom out the focused pane's font
-    if (mod && e.key === "-") {
+    if (mod && key === "-") {
       e.preventDefault();
       bumpFocusedPaneFont(-1);
     }
 
     // Cmd/Ctrl + 0: Reset focused pane's font
-    if (mod && e.key === "0") {
+    if (mod && key === "0") {
       e.preventDefault();
       resetFocusedPaneFont();
     }
 
     // Cmd/Ctrl + Option/Alt + Shift + Left/Right: Switch workspace prev/next
-    if (mod && e.altKey && e.shiftKey &&
+    if (mod && e.altKey && shift &&
         (e.code === "ArrowLeft" || e.code === "ArrowRight")) {
       const list = workspaceManager.workspaceList;
       if (list.length > 1) {
