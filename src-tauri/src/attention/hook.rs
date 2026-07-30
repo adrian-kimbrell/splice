@@ -1,8 +1,10 @@
 //! Manages Claude Code hook script installation in `~/.claude/settings.json`.
 //!
 //! Splice registers two hooks: `Notification` (attention alerts) and
-//! `SessionStart` (session tracking). Each hook is an inline Python one-liner
-//! that POSTs JSON to the local attention server via `urllib.request`.
+//! `SessionStart` (session tracking). Each POSTs JSON to the local attention server:
+//! on Unix as an inline Python one-liner, on Windows by invoking the PowerShell
+//! helper script (Python generally isn't installed there, and `python3` resolves to
+//! a Microsoft Store stub).
 //!
 //! Hook entries are identified by a trailing marker comment (e.g.
 //! `splice-attention-hook-v4`). On install, old markers from previous versions
@@ -54,7 +56,9 @@ pub(crate) fn install_hook_entry(
     hook_key: &str,
     url_path: &str,
     marker: &str,
+    hook_script_path: Option<&str>,
 ) {
+    let _ = hook_script_path; // only the Windows command needs it
     // Only allow safe, pre-approved paths
     if !matches!(url_path, "attention" | "session") {
         warn!(url_path, "Refusing to install hook for unknown path");
@@ -106,6 +110,21 @@ pub(crate) fn install_hook_entry(
     //
     // terminal_id is read from SPLICE_TERMINAL_ID (also injected by the PTY spawner).
     // claude_pid (os.getppid()) is sent for informational/session-persistence purposes only.
+    //
+    // Windows can't carry this as an inline one-liner: `python3` there is a Store
+    // alias rather than an interpreter, and cmd.exe won't accept a quoted argument
+    // containing newlines. It runs the same logic from the helper script instead —
+    // the marker rides along as an ignored argument so it stays greppable in
+    // settings.json, since `#` isn't a comment to cmd.
+    #[cfg(windows)]
+    let command = {
+        let script = hook_script_path.unwrap_or_default();
+        format!(
+            "powershell -NoProfile -ExecutionPolicy Bypass -File \"{script}\" {url_path} {marker}"
+        )
+    };
+
+    #[cfg(not(windows))]
     let command = format!(
         "python3 -c \"import sys,json,urllib.request,os,os.path as op\n\
          d=json.load(sys.stdin)\n\
@@ -182,15 +201,69 @@ if port:
 # Intentionally no stdout — see header comment.
 "#;
 
-/// Write the statusLine helper script next to the Claude settings file and return its path.
+/// PowerShell twin of `SPLICE_HOOK_SCRIPT`, used for every hook on Windows —
+/// notification, session, and statusLine — with the endpoint passed as `$Path`.
+///
+/// PowerShell is the one interpreter guaranteed to be present on Windows; Python
+/// usually isn't, and `python3` resolves to a Microsoft Store stub that would open
+/// the Store rather than run anything. Like the Python version it prints nothing:
+/// the readout is rendered in Splice's own header.
+#[cfg(windows)]
+const SPLICE_HOOK_SCRIPT_PS1: &str = r#"# Splice Claude Code hook helper. Auto-generated; do not edit (overwritten on launch).
+# POST-only: feeds Splice's header HUD and prints nothing, so Claude's own status
+# line stays empty rather than duplicating the readout shown in Splice's header.
+param([string]$Path = 'attention', [string]$Marker = '')
+$ErrorActionPreference = 'SilentlyContinue'
+
+$raw = [Console]::In.ReadToEnd()
+try { $d = $raw | ConvertFrom-Json -ErrorAction Stop } catch { $d = $null }
+if ($null -eq $d) { $d = [pscustomobject]@{} }
+
+$tid = 0
+[int]::TryParse($env:SPLICE_TERMINAL_ID, [ref]$tid) | Out-Null
+$d | Add-Member -Force -NotePropertyName terminal_id -NotePropertyValue $tid
+
+# Claude is this script's parent process; sent for session persistence only.
+$parent = (Get-CimInstance Win32_Process -Filter "ProcessId = $PID").ParentProcessId
+if ($parent) { $d | Add-Member -Force -NotePropertyName claude_pid -NotePropertyValue ([int]$parent) }
+
+# Per-instance env vars first, so each terminal reaches its own Splice; the shared
+# config files are the fallback when the hook runs outside a Splice terminal.
+$token = $env:SPLICE_ATTENTION_TOKEN
+$port = $env:SPLICE_ATTENTION_PORT
+if (-not $port -or -not $token) {
+    foreach ($cd in @((Join-Path $env:APPDATA 'Splice'), (Join-Path $env:USERPROFILE '.config\Splice'))) {
+        if (-not $token) { $token = (Get-Content (Join-Path $cd '.attention_token') -Raw) -replace '\s', '' }
+        if (-not $port) { $port = (Get-Content (Join-Path $cd '.attention_port') -Raw) -replace '\s', '' }
+    }
+}
+
+if ($port) {
+    $body = $d | ConvertTo-Json -Depth 20 -Compress
+    try {
+        Invoke-RestMethod -Uri "http://127.0.0.1:$port/$Path" -Method Post -Body $body `
+            -ContentType 'application/json' -Headers @{ 'X-Splice-Token' = $token } `
+            -TimeoutSec 1 | Out-Null
+    } catch { }
+}
+
+# Intentionally no stdout — see header comment.
+"#;
+
+/// Write the hook helper script next to the Claude settings file and return its path.
 fn write_hook_script(settings_path: &std::path::Path) -> Result<String, String> {
     let dir = settings_path
         .parent()
         .ok_or("settings path has no parent")?
         .join("splice-hooks");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let script = dir.join("splice_hook.py");
-    std::fs::write(&script, SPLICE_HOOK_SCRIPT).map_err(|e| e.to_string())?;
+
+    #[cfg(windows)]
+    let (script, body) = (dir.join("splice_hook.ps1"), SPLICE_HOOK_SCRIPT_PS1);
+    #[cfg(not(windows))]
+    let (script, body) = (dir.join("splice_hook.py"), SPLICE_HOOK_SCRIPT);
+
+    std::fs::write(&script, body).map_err(|e| e.to_string())?;
     Ok(script.to_string_lossy().into_owned())
 }
 
@@ -200,21 +273,30 @@ fn write_hook_script(settings_path: &std::path::Path) -> Result<String, String> 
 pub(crate) fn install_statusline(root: &mut serde_json::Value, script_path: &str) {
     let Some(obj) = root.as_object_mut() else { return };
     if let Some(existing) = obj.get("statusLine") {
+        // Match either helper — a settings.json synced from the other OS still
+        // counts as ours, and would otherwise be mistaken for a user's own.
         let is_ours = existing
             .get("command")
             .and_then(|c| c.as_str())
-            .map(|s| s.contains("splice_hook.py"))
+            .map(|s| s.contains("splice_hook.py") || s.contains("splice_hook.ps1"))
             .unwrap_or(false);
         if !is_ours {
             info!("Leaving existing custom statusLine untouched");
             return;
         }
     }
+
+    #[cfg(windows)]
+    let command =
+        format!("powershell -NoProfile -ExecutionPolicy Bypass -File \"{script_path}\" status");
+    #[cfg(not(windows))]
+    let command = format!("python3 \"{script_path}\" status");
+
     obj.insert(
         "statusLine".to_string(),
         serde_json::json!({
             "type": "command",
-            "command": format!("python3 \"{script_path}\" status"),
+            "command": command,
             "padding": 0
         }),
     );
@@ -290,12 +372,27 @@ pub fn install_hook_at(settings_path: &std::path::Path) -> Result<(), String> {
         }
     }
 
-    install_hook_entry(hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
-    install_hook_entry(hooks_obj, "SessionStart", "session", "splice-session-hook-v4");
+    // Written before the entries are built: on Windows they invoke this script by
+    // path rather than carrying the logic inline.
+    let script_path = write_hook_script(settings_path)?;
+
+    install_hook_entry(
+        hooks_obj,
+        "Notification",
+        "attention",
+        "splice-attention-hook-v4",
+        Some(&script_path),
+    );
+    install_hook_entry(
+        hooks_obj,
+        "SessionStart",
+        "session",
+        "splice-session-hook-v4",
+        Some(&script_path),
+    );
 
     // Drive the live status HUD via Claude's statusLine command (the helper script
     // POSTs the statusLine JSON to /status and prints a concise line for Claude's UI).
-    let script_path = write_hook_script(settings_path)?;
     install_statusline(&mut root, &script_path);
     info!("Splice hooks configured in ~/.claude/settings.json");
 
@@ -627,7 +724,7 @@ mod tests {
     #[test]
     fn install_hook_entry_rejects_unknown_path() {
         let mut hooks_obj = serde_json::Map::new();
-        install_hook_entry(&mut hooks_obj, "Notification", "malicious/../path", "test-marker");
+        install_hook_entry(&mut hooks_obj, "Notification", "malicious/../path", "test-marker", None);
         // Must be a no-op — no entries inserted for unknown paths
         let is_empty = hooks_obj
             .get("Notification")
@@ -648,7 +745,7 @@ mod tests {
         });
         hooks_obj.insert("Notification".to_string(), serde_json::json!([outdated]));
 
-        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
+        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v4", None);
 
         let arr = hooks_obj["Notification"].as_array().unwrap();
         assert_eq!(arr.len(), 1, "outdated entry should be replaced, not duplicated");
@@ -673,8 +770,8 @@ mod tests {
         // Once an up-to-date entry (with SPLICE_ATTENTION_PORT) is present, a second
         // call to install_hook_entry must not add a duplicate.
         let mut hooks_obj = serde_json::Map::new();
-        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
-        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v4");
+        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v4", None);
+        install_hook_entry(&mut hooks_obj, "Notification", "attention", "splice-attention-hook-v4", None);
         let arr = hooks_obj["Notification"].as_array().unwrap();
         assert_eq!(arr.len(), 1, "calling install_hook_entry twice must not duplicate the entry");
     }
