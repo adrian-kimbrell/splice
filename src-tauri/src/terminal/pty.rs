@@ -25,52 +25,6 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
-/// Return the current working directory of a process, or None if it can't be read.
-/// Used to make a terminal's name follow the shell's folder as the user `cd`s.
-#[cfg(target_os = "macos")]
-fn pid_cwd(pid: u32) -> Option<String> {
-    use std::os::raw::{c_int, c_void};
-    // proc_pidinfo(PROC_PIDVNODEPATHINFO) fills a `struct proc_vnodepathinfo`
-    // (2352 bytes). Its first member, pvi_cdir.vip_path, is the cwd C-string; the
-    // vnode_info preceding it is 152 bytes, so the path starts at byte offset 152.
-    const PROC_PIDVNODEPATHINFO: c_int = 9;
-    const BUF_SIZE: usize = 2352;
-    const VIP_PATH_OFFSET: usize = 152;
-    extern "C" {
-        fn proc_pidinfo(
-            pid: c_int,
-            flavor: c_int,
-            arg: u64,
-            buffer: *mut c_void,
-            buffersize: c_int,
-        ) -> c_int;
-    }
-    let mut buf = [0u8; BUF_SIZE];
-    let ret = unsafe {
-        proc_pidinfo(
-            pid as c_int,
-            PROC_PIDVNODEPATHINFO,
-            0,
-            buf.as_mut_ptr() as *mut c_void,
-            BUF_SIZE as c_int,
-        )
-    };
-    if ret <= 0 {
-        return None;
-    }
-    let path = &buf[VIP_PATH_OFFSET..];
-    let end = path.iter().position(|&b| b == 0).unwrap_or(0);
-    if end == 0 {
-        return None;
-    }
-    std::str::from_utf8(&path[..end]).ok().map(str::to_string)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn pid_cwd(_pid: u32) -> Option<String> {
-    None
-}
-
 pub struct PtySession {
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pub child_pid: Option<u32>,
@@ -81,6 +35,10 @@ pub struct PtySession {
     pub version: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
     pub scroll_offset: Arc<AtomicI32>,
+    /// Last directory the shell reported via OSC 7 / OSC 9;9. Kept so the workspace
+    /// can be persisted with each terminal's real directory even where the OS won't
+    /// report a process's cwd (Windows) or the shell is remote (SSH).
+    pub last_reported_cwd: Arc<Mutex<Option<String>>>,
     pub notify: Arc<EmitterNotify>,
     _reader_handle: JoinHandle<()>,
     _emitter_handle: JoinHandle<()>,
@@ -124,6 +82,33 @@ impl PtySession {
             // immediately (the terminal would flash open and close on Windows).
             #[cfg(not(target_os = "windows"))]
             cmd.arg("-l");
+
+            // Windows shells don't report their directory the way macOS zsh does, so
+            // ask them to. This is what "Name Follows Folder" reads (OSC 9;9), and
+            // without it the feature would silently do nothing on Windows.
+            //
+            // ponytail: wraps whatever prompt the profile already set rather than
+            // replacing it. If a user's prompt is later rebuilt from scratch the
+            // wrapper is lost — the fix then is PowerShell's own
+            // Enable-PSShellIntegration, not more injection here.
+            #[cfg(target_os = "windows")]
+            {
+                let lower = shell.to_ascii_lowercase();
+                if lower.contains("powershell") || lower.contains("pwsh") {
+                    cmd.arg("-NoExit");
+                    cmd.arg("-Command");
+                    cmd.arg(concat!(
+                        "$__splice_prompt = $function:prompt; ",
+                        "function global:prompt { ",
+                        "Write-Host -NoNewline ([char]27 + ']9;9;' + $PWD.ProviderPath + [char]7); ",
+                        "& $__splice_prompt }"
+                    ));
+                } else if lower.contains("cmd") {
+                    // cmd.exe has no prompt hook, but PROMPT understands $e (ESC) and
+                    // $P (current directory), which is all OSC 9;9 needs.
+                    cmd.env("PROMPT", "$e]9;9;$P$e\\$P$G");
+                }
+            }
         } else {
             for arg in extra_args {
                 cmd.arg(arg);
@@ -163,6 +148,7 @@ impl PtySession {
         let version = Arc::new(AtomicU32::new(0));
         let running = Arc::new(AtomicBool::new(true));
         let scroll_offset = Arc::new(AtomicI32::new(0));
+        let last_reported_cwd: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let notify = Arc::new(EmitterNotify::new());
 
         // Reader thread: read PTY bytes and feed to emulator
@@ -172,6 +158,7 @@ impl PtySession {
         let reader_writer = Arc::clone(&writer);
         let reader_notify = Arc::clone(&notify);
         let reader_scroll_offset = Arc::clone(&scroll_offset);
+        let reader_reported_cwd = Arc::clone(&last_reported_cwd);
         let exit_event = format!("terminal:exit:{}", id);
         let title_event = format!("terminal:title:{}", id);
         let bell_event = format!("terminal:bell:{}", id);
@@ -227,10 +214,11 @@ impl PtySession {
                             let title = emu.pending_title.take();
                             let bell = std::mem::replace(&mut emu.pending_bell, false);
                             let clipboard = emu.pending_clipboard.take();
+                            let reported_cwd = emu.pending_cwd.take();
                             let sb_delta = new_sb.saturating_sub(old_sb) as i32;
-                            (reply, title, bell, clipboard, sb_delta)
+                            (reply, title, bell, clipboard, reported_cwd, sb_delta)
                         }));
-                        let (reply, title, bell, clipboard, sb_delta) = match outcome {
+                        let (reply, title, bell, clipboard, reported_cwd, sb_delta) = match outcome {
                             Ok(t) => t,
                             Err(_) => {
                                 reader_emulator.clear_poison();
@@ -265,19 +253,38 @@ impl PtySession {
                             let _ = app_clone.emit(&clipboard_event, text);
                         }
 
-                        // Check whether the shell's cwd changed and tell the frontend.
-                        // Always check on small batches (a `cd`'s new prompt, keystroke
-                        // echoes) so the name updates immediately; only throttle large
-                        // batches so a flood of output doesn't spam the syscall.
-                        if let Some(pid) = cwd_pid {
-                            if n <= 1024 || last_cwd_check.elapsed() >= Duration::from_millis(200) {
+                        // Tell the frontend when the shell's cwd changes, for "name
+                        // follows folder". Two sources, preferring the shell's own word:
+                        //
+                        //  1. OSC 7 / OSC 9;9, if the shell reports it. Authoritative and
+                        //     instant, works for any shell that reports — including over
+                        //     SSH, and including PowerShell, which never updates its
+                        //     process cwd on `cd` so polling can't see it move.
+                        //  2. Polling the child's cwd, where the OS can tell us.
+                        //
+                        // The poll runs on small batches (a `cd`'s new prompt, keystroke
+                        // echoes) so the name updates immediately, and is throttled on
+                        // large batches so a flood of output doesn't spam the syscall.
+                        // A shell-reported cwd is also the best answer for persistence,
+                        // so keep the newest one where get_terminal_cwd can read it.
+                        if let Some(c) = &reported_cwd {
+                            if let Ok(mut slot) = reader_reported_cwd.lock() {
+                                *slot = Some(c.clone());
+                            }
+                        }
+                        let cwd_now = reported_cwd.or_else(|| {
+                            cwd_pid.filter(|_| {
+                                n <= 1024 || last_cwd_check.elapsed() >= Duration::from_millis(200)
+                            })
+                            .and_then(|pid| {
                                 last_cwd_check = Instant::now();
-                                if let Some(cwd) = pid_cwd(pid) {
-                                    if last_cwd.as_deref() != Some(cwd.as_str()) {
-                                        last_cwd = Some(cwd.clone());
-                                        let _ = app_clone.emit(&cwd_event, cwd);
-                                    }
-                                }
+                                crate::process_ext::process_cwd(pid)
+                            })
+                        });
+                        if let Some(cwd) = cwd_now {
+                            if last_cwd.as_deref() != Some(cwd.as_str()) {
+                                last_cwd = Some(cwd.clone());
+                                let _ = app_clone.emit(&cwd_event, cwd);
                             }
                         }
 
@@ -313,6 +320,7 @@ impl PtySession {
             version,
             running,
             scroll_offset,
+            last_reported_cwd,
             notify,
             _reader_handle: reader_handle,
             _emitter_handle: emitter_handle,

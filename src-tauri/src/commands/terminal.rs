@@ -353,34 +353,16 @@ pub fn get_terminal_cwd(state: State<'_, Mutex<AppState>>, id: u32) -> Option<St
     let state = state.lock().ok()?;
     let session = state.terminals.get(&id)?;
     let pid = session.child_pid?;
-    cwd_of_pid(pid)
-}
-
-#[cfg(target_os = "macos")]
-fn cwd_of_pid(pid: u32) -> Option<String> {
-    // lsof -a -p PID -d cwd -Fn  →  lines: "p<pid>", "fcwd", "n<path>"
-    let out = std::process::Command::new("lsof")
-        .args(["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"])
-        .output().ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    for line in text.lines() {
-        if let Some(path) = line.strip_prefix('n') {
-            let s = path.trim().to_string();
-            if !s.is_empty() { return Some(s); }
-        }
-    }
-    None
-}
-
-#[cfg(target_os = "linux")]
-fn cwd_of_pid(pid: u32) -> Option<String> {
-    std::fs::read_link(format!("/proc/{}/cwd", pid))
+    // Prefer the directory the shell reported via OSC 7 / OSC 9;9 — it's the shell's
+    // own answer, and it's the only one available where the OS won't say (Windows) or
+    // where the shell is remote (SSH). Falls back to asking the OS about the child.
+    session
+        .last_reported_cwd
+        .lock()
         .ok()
-        .and_then(|p| p.to_str().map(str::to_string))
+        .and_then(|c| c.clone())
+        .or_else(|| crate::process_ext::process_cwd(pid))
 }
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn cwd_of_pid(_pid: u32) -> Option<String> { None }
 
 /// Returns lines for the given history row range, ordered top-to-bottom (oldest first).
 /// `history_start` and `history_end` are direct indices into the combined

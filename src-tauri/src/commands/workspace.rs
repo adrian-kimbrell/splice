@@ -490,27 +490,7 @@ pub fn check_pid_alive(pid: u32) -> bool {
     is_pid_alive(pid)
 }
 
-/// Check whether a process is alive using POSIX `kill(pid, 0)` via libc.
-/// Returns true if the process exists (even if we don't own it — EPERM case).
-#[cfg(unix)]
-fn is_pid_alive(pid: u32) -> bool {
-    // SAFETY: kill(pid, 0) is a read-only check — it never delivers a signal.
-    let ret = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    if ret == 0 {
-        return true;
-    }
-    let errno = std::io::Error::last_os_error()
-        .raw_os_error()
-        .unwrap_or(0);
-    errno == libc::EPERM
-}
-
-/// On non-unix targets we cannot check process liveness; conservatively assume alive
-/// so that Claude session resume is not silently disabled.
-#[cfg(not(unix))]
-fn is_pid_alive(_pid: u32) -> bool {
-    true
-}
+use crate::process_ext::is_process_alive as is_pid_alive;
 
 #[cfg(test)]
 mod tests {
@@ -537,6 +517,24 @@ mod tests {
     fn pid_one_is_alive() {
         // PID 1 is init/launchd/systemd — always exists
         assert!(is_pid_alive(1));
+    }
+
+    /// The Windows liveness check goes through OpenProcess + GetExitCodeProcess
+    /// rather than kill(0); this is the check that it distinguishes a running
+    /// process from an exited one, since getting it wrong would offer to resume
+    /// Claude sessions that are gone.
+    #[test]
+    #[cfg(windows)]
+    fn exited_process_is_not_alive() {
+        use crate::process_ext::NoWindow;
+        let mut cmd = std::process::Command::new("cmd.exe");
+        cmd.args(["/C", "exit"]);
+        cmd.no_window();
+        let mut child = cmd.spawn().unwrap();
+        let pid = child.id();
+        assert!(is_pid_alive(pid), "child should be alive before it exits");
+        child.wait().unwrap();
+        assert!(!is_pid_alive(pid), "exited child should not report alive");
     }
 
     // -----------------------------------------------------------------------

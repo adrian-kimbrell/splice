@@ -34,6 +34,17 @@ jobs:
 
       - run: npm ci
 
+      # The Windows-only code paths (process liveness, clipboard, ssh.exe session,
+      # hook install) can't be exercised on a macOS dev machine, so this is the only
+      # place they actually run. Tests before the build: a failure here is a real bug,
+      # and finding it after a 10-minute bundle is a waste.
+      - name: Frontend tests
+        run: npm test
+
+      - name: Rust tests
+        run: cargo test
+        working-directory: src-tauri
+
       # WebView2 + MSVC are preinstalled; the Tauri CLI auto-fetches WiX/NSIS.
       - name: Build bundle (MSI + NSIS)
         run: npm run tauri:build

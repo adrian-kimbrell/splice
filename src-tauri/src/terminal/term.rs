@@ -24,6 +24,8 @@ pub struct Emulator {
     pub pending_reply: Vec<u8>,
     pub pending_bell: bool,
     pub pending_clipboard: Option<String>,
+    /// Working directory the shell reported via OSC 7 / OSC 9;9, if any.
+    pub pending_cwd: Option<String>,
 }
 
 impl Emulator {
@@ -35,6 +37,7 @@ impl Emulator {
             pending_reply: Vec::new(),
             pending_bell: false,
             pending_clipboard: None,
+            pending_cwd: None,
         }
     }
 
@@ -47,6 +50,7 @@ impl Emulator {
             pending_reply: &mut self.pending_reply,
             pending_bell: &mut self.pending_bell,
             pending_clipboard: &mut self.pending_clipboard,
+            pending_cwd: &mut self.pending_cwd,
         };
         parser.advance(&mut performer, bytes);
     }
@@ -62,6 +66,48 @@ struct GridPerformer<'a> {
     pending_reply: &'a mut Vec<u8>,
     pending_bell: &'a mut bool,
     pending_clipboard: &'a mut Option<String>,
+    pending_cwd: &'a mut Option<String>,
+}
+
+/// Decode a `file://host/path` URI from OSC 7 into a plain path.
+///
+/// Only local directories are reported: a URI naming another host describes a
+/// directory this machine can't see. An empty host, `localhost`, and the actual
+/// hostname all mean local — but the hostname isn't known here, so anything with a
+/// host is deferred to the caller, which is what the OSC-title path already handles
+/// for SSH sessions.
+fn path_from_file_uri(uri: &str) -> Option<String> {
+    let rest = uri.strip_prefix("file://")?;
+    // Split host from path at the first '/' — the path always starts with one.
+    let slash = rest.find('/')?;
+    let (host, path) = rest.split_at(slash);
+    if !(host.is_empty() || host.eq_ignore_ascii_case("localhost")) {
+        return None;
+    }
+    Some(percent_decode(path))
+}
+
+/// Percent-decode a URI path. Shells escape spaces and non-ASCII bytes, so
+/// `/Users/me/My%20Code` has to come back as `/Users/me/My Code`.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3])
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok());
+            if let Some(b) = hex {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 impl<'a> GridPerformer<'a> {
@@ -485,6 +531,27 @@ impl<'a> vte::Perform for GridPerformer<'a> {
                     *self.pending_title = Some(title.to_string());
                 }
             }
+            // OSC 7: the shell reporting its working directory as a file:// URI.
+            // This is how a shell tells the terminal where it is — zsh does it by
+            // default on macOS, vte.sh does it on Linux, and it works over SSH since
+            // the remote shell is the one emitting it. Drives "Name Follows Folder".
+            b"7" if params.len() > 1 => {
+                if let Ok(uri) = std::str::from_utf8(params[1]) {
+                    if let Some(path) = path_from_file_uri(uri) {
+                        *self.pending_cwd = Some(path);
+                    }
+                }
+            }
+            // OSC 9;9: the same thing in Windows Terminal's shell-integration dialect,
+            // emitted by PowerShell's prompt hook, with a bare path instead of a URI.
+            b"9" if params.len() > 2 && params[1] == b"9" => {
+                if let Ok(path) = std::str::from_utf8(params[2]) {
+                    let path = path.trim_matches('"');
+                    if !path.is_empty() {
+                        *self.pending_cwd = Some(path.replace('\\', "/"));
+                    }
+                }
+            }
             // OSC 52: clipboard write
             // Format: ESC ] 52 ; Pc ; Pd BEL
             // params[1] = selection (e.g. "c" for clipboard), params[2] = base64 data
@@ -657,6 +724,42 @@ mod tests {
         let mut emu = make_emu(80, 24);
         emu.advance(b"\x1b]0;My Title\x07");
         assert_eq!(emu.pending_title, Some("My Title".to_string()));
+    }
+
+    // --- Working-directory OSC (drives "Name Follows Folder") ---
+
+    #[test]
+    fn osc_7_reports_cwd_from_file_uri() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b]7;file://myhost/Users/dev/proj\x07");
+        // A host that isn't this machine describes a directory we can't see.
+        assert_eq!(emu.pending_cwd, None);
+
+        emu.advance(b"\x1b]7;file:///Users/dev/proj\x07");
+        assert_eq!(emu.pending_cwd, Some("/Users/dev/proj".to_string()));
+    }
+
+    #[test]
+    fn osc_7_accepts_localhost_and_decodes_escapes() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b]7;file://localhost/Users/dev/My%20Code\x07");
+        assert_eq!(emu.pending_cwd, Some("/Users/dev/My Code".to_string()));
+    }
+
+    #[test]
+    fn osc_9_9_reports_windows_cwd() {
+        // Windows Terminal's shell-integration dialect: a bare path, not a URI.
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b]9;9;C:\\Users\\dev\\proj\x07");
+        assert_eq!(emu.pending_cwd, Some("C:/Users/dev/proj".to_string()));
+    }
+
+    #[test]
+    fn osc_9_other_subcommands_are_ignored() {
+        // OSC 9 is also used for desktop notifications — only 9;9 is a cwd report.
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b]9;Build finished\x07");
+        assert_eq!(emu.pending_cwd, None);
     }
 
     // --- DEC special graphics charset ---
