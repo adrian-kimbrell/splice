@@ -24,7 +24,7 @@
   import { registerPaneContent, unregisterPaneContent } from "../../lib/stores/drag.svelte";
   import { effectiveSettings } from "../../lib/stores/settings.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
-  import { onTerminalCwd } from "../../lib/ipc/events";
+  import { onTerminalCwd, onTerminalTitle } from "../../lib/ipc/events";
   import type { TerminalSearchMatch } from "../../lib/ipc/commands";
 
   let {
@@ -34,6 +34,7 @@
     terminalId = 0,
     paneId = "",
     active = false,
+    isSsh = false,
     onSplit,
     onClose,
     onAction,
@@ -45,6 +46,7 @@
     terminalId?: number;
     paneId?: string;
     active?: boolean;
+    isSsh?: boolean;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
     onAction?: (action: string) => void;
@@ -63,17 +65,36 @@
     return () => unregisterPaneContent(paneId);
   });
 
-  // "Name follows folder" mode: when the shell's cwd changes, rename this pane to
-  // the folder's basename. Gated on the setting; the Rust event fires regardless.
+  // Derive a folder name from an OSC title. Remote shells commonly set the title
+  // to "user@host: ~/path" (or just "~/path"); take the path part, then basename.
+  function folderFromTitle(t: string): string | null {
+    if (!t) return null;
+    let s = t.trim();
+    const colon = s.lastIndexOf(": ");
+    if (colon >= 0) s = s.slice(colon + 2).trim();
+    const base = s.split("/").filter(Boolean).pop() || s;
+    return base || null;
+  }
+
+  // "Name follows folder" mode. Local terminals use the shell's cwd (polled in
+  // Rust). SSH terminals can't be polled locally — the local child is `ssh` — so
+  // they follow the remote shell's OSC title, which typically carries the cwd.
   $effect(() => {
     if (!terminalId || !paneId) return;
     let unlisten: (() => void) | null = null;
     let disposed = false;
-    onTerminalCwd(terminalId, (cwd) => {
-      if (!effectiveSettings.terminal.name_follows_cwd) return;
-      const base = cwd.split("/").filter(Boolean).pop() || cwd;
-      workspaceManager.renamePane(paneId, base);
-    }).then((u) => { if (disposed) u(); else unlisten = u; });
+    const sub = isSsh
+      ? onTerminalTitle(terminalId, (t) => {
+          if (!effectiveSettings.terminal.name_follows_cwd) return;
+          const base = folderFromTitle(t);
+          if (base) workspaceManager.renamePane(paneId, base);
+        })
+      : onTerminalCwd(terminalId, (c) => {
+          if (!effectiveSettings.terminal.name_follows_cwd) return;
+          const base = c.split("/").filter(Boolean).pop() || c;
+          workspaceManager.renamePane(paneId, base);
+        });
+    sub.then((u) => { if (disposed) u(); else unlisten = u; });
     return () => { disposed = true; unlisten?.(); };
   });
 

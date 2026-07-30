@@ -45,6 +45,14 @@ export function onTerminalCwd(id: number, callback: (cwd: string) => void) {
   });
 }
 
+/** Fires when the shell sets the terminal title via OSC 0/2. Used for the remote
+ *  folder in SSH sessions, where the local cwd poll can't see the remote directory. */
+export function onTerminalTitle(id: number, callback: (title: string) => void) {
+  return listen<string>(`terminal:title:${id}`, (event) => {
+    callback(event.payload);
+  });
+}
+
 export interface AttentionPayload {
   terminal_id: number;
   notification_type: string;
