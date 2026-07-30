@@ -1127,7 +1127,6 @@
                 terminalId={config.terminalId ?? 0}
                 paneId={config.id}
                 active={isActive}
-                isSsh={!!workspace.sshConfig}
                 onSplit={workspace.viewMode === "single" ? undefined : (dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}
                 onAction={handlePaneAction}

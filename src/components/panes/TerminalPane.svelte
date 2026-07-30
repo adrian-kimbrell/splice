@@ -34,7 +34,6 @@
     terminalId = 0,
     paneId = "",
     active = false,
-    isSsh = false,
     onSplit,
     onClose,
     onAction,
@@ -46,7 +45,6 @@
     terminalId?: number;
     paneId?: string;
     active?: boolean;
-    isSsh?: boolean;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
     onAction?: (action: string) => void;
@@ -65,37 +63,37 @@
     return () => unregisterPaneContent(paneId);
   });
 
-  // Derive a folder name from an OSC title. Remote shells commonly set the title
-  // to "user@host: ~/path" (or just "~/path"); take the path part, then basename.
+  // Derive a folder name from an OSC title, or null if the title isn't a path.
+  // Remote shells commonly set the title to "user@host: ~/path"; take the part
+  // after the ": " and only accept it if it looks like a path (starts with / or ~),
+  // so command titles like "vim foo" don't get mistaken for a folder.
   function folderFromTitle(t: string): string | null {
-    if (!t) return null;
-    let s = t.trim();
+    let s = (t ?? "").trim();
     const colon = s.lastIndexOf(": ");
     if (colon >= 0) s = s.slice(colon + 2).trim();
+    if (!(s.startsWith("/") || s.startsWith("~"))) return null;
     const base = s.split("/").filter(Boolean).pop() || s;
     return base || null;
   }
 
-  // "Name follows folder" mode. Local terminals use the shell's cwd (polled in
-  // Rust). SSH terminals can't be polled locally — the local child is `ssh` — so
-  // they follow the remote shell's OSC title, which typically carries the cwd.
+  // "Name follows folder" mode. Listen to both signals for every terminal:
+  //  - the local shell's cwd (polled in Rust) — drives local terminals
+  //  - the shell's OSC title — carries the remote folder once you ssh in (even
+  //    from a plain local terminal, where the local cwd poll can't see it)
+  // Latest event wins, so the name tracks wherever you currently are.
   $effect(() => {
     if (!terminalId || !paneId) return;
-    let unlisten: (() => void) | null = null;
+    const unsubs: Array<() => void> = [];
     let disposed = false;
-    const sub = isSsh
-      ? onTerminalTitle(terminalId, (t) => {
-          if (!effectiveSettings.terminal.name_follows_cwd) return;
-          const base = folderFromTitle(t);
-          if (base) workspaceManager.renamePane(paneId, base);
-        })
-      : onTerminalCwd(terminalId, (c) => {
-          if (!effectiveSettings.terminal.name_follows_cwd) return;
-          const base = c.split("/").filter(Boolean).pop() || c;
-          workspaceManager.renamePane(paneId, base);
-        });
-    sub.then((u) => { if (disposed) u(); else unlisten = u; });
-    return () => { disposed = true; unlisten?.(); };
+    const apply = (name: string | null) => {
+      if (!name || !effectiveSettings.terminal.name_follows_cwd) return;
+      workspaceManager.renamePane(paneId, name);
+    };
+    const track = (p: Promise<() => void>) =>
+      p.then((u) => { if (disposed) u(); else unsubs.push(u); });
+    track(onTerminalCwd(terminalId, (c) => apply(c.split("/").filter(Boolean).pop() || c)));
+    track(onTerminalTitle(terminalId, (t) => apply(folderFromTitle(t))));
+    return () => { disposed = true; unsubs.forEach((u) => u()); };
   });
 
   function handleKeyDown(e: KeyboardEvent) {
