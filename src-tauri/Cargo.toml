@@ -50,7 +50,9 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 # Clipboard for terminal copy. macOS keeps using pbcopy (proven, and avoids the
 # WKWebView user-gesture restriction); everywhere else arboard writes the clipboard
 # directly, so no console window flashes and non-ASCII text survives.
-arboard = "3"
+# default-features brings "image-data", which drags in the whole `image` stack (png,
+# moxcms, flate2 …) for clipboard images we never write — only set_text is used.
+arboard = { version = "3", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

@@ -45,6 +45,23 @@ jobs:
         run: cargo test
         working-directory: src-tauri
 
+      # A test binary can link cleanly and still fail to load (STATUS_ENTRYPOINT_NOT_FOUND)
+      # when an imported symbol isn't in the DLL it was bound to. The loader never names
+      # the culprit, so on failure dump the import table — that's the only way to see it
+      # from a macOS dev machine.
+      - name: Diagnose load failure (imports)
+        if: failure()
+        working-directory: src-tauri
+        shell: pwsh
+        run: |
+          $dumpbin = Get-ChildItem 'C:\Program Files*\Microsoft Visual Studio' -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dumpbin) { Write-Host 'dumpbin not found'; exit 0 }
+          Get-ChildItem target\debug\deps -Filter 'splice_lib-*.exe' | ForEach-Object {
+            Write-Host "== $($_.Name) =="
+            & $dumpbin /imports $_.FullName | Select-String -Pattern '\.dll$|\.dll '
+          }
+
       # WebView2 + MSVC are preinstalled; the Tauri CLI auto-fetches WiX/NSIS.
       - name: Build bundle (MSI + NSIS)
         run: npm run tauri:build
