@@ -1,3 +1,5 @@
+// Only the /dev/urandom fallback path warns, and that path is Unix-only.
+#[cfg(unix)]
 use tracing::warn;
 
 /// Load a persisted token from disk, or create a new random one and save it.

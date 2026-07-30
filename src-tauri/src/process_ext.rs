@@ -133,32 +133,33 @@ pub fn is_process_alive(pid: u32) -> bool {
 }
 
 /// Windows: open the process and ask whether it still has an exit code pending.
-/// `PROCESS_QUERY_LIMITED_INFORMATION` (0x1000) is the least-privileged right that
-/// permits `GetExitCodeProcess`, so this works across integrity levels.
-/// `STILL_ACTIVE` (259) is the sentinel for "hasn't exited".
+///
+/// `PROCESS_QUERY_LIMITED_INFORMATION` is the least-privileged right that permits
+/// `GetExitCodeProcess`, so this works across integrity levels. `STILL_ACTIVE` is
+/// the sentinel for "hasn't exited".
+///
+/// These come from `windows-sys` rather than a hand-written `extern "system"` block:
+/// a bare extern names no DLL, and the resulting binary failed to load at all with
+/// STATUS_ENTRYPOINT_NOT_FOUND. Microsoft's bindings pin each symbol to kernel32.
 #[cfg(windows)]
 pub fn is_process_alive(pid: u32) -> bool {
-    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
-    const STILL_ACTIVE: u32 = 259;
-    extern "system" {
-        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> isize;
-        fn GetExitCodeProcess(handle: isize, code: *mut u32) -> i32;
-        fn CloseHandle(handle: isize) -> i32;
-    }
-    // SAFETY: OpenProcess returns 0 on failure; the handle is closed on every path,
-    // and GetExitCodeProcess only writes to the u32 we hand it.
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    // SAFETY: OpenProcess returns null on failure; the handle is closed on every
+    // path, and GetExitCodeProcess only writes to the u32 we hand it.
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if handle == 0 {
+        if handle.is_null() {
             // Either the process is gone or it's protected. A dead PID is far more
             // likely for a shell we spawned, and claiming "alive" would resurrect a
             // stale Claude session.
             return false;
         }
         let mut code: u32 = 0;
-        let ok = GetExitCodeProcess(handle, &mut code);
+        let ok = windows_sys::Win32::System::Threading::GetExitCodeProcess(handle, &mut code);
         CloseHandle(handle);
-        ok != 0 && code == STILL_ACTIVE
+        ok != 0 && code == STILL_ACTIVE as u32
     }
 }
 

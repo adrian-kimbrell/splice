@@ -4326,6 +4326,7 @@ dependencies = [
  "tracing-subscriber",
  "unicode-width",
  "vte",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

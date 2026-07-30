@@ -30,6 +30,9 @@ use std::sync::Mutex;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 
+/// Windows shows no native menu (it would render inside the frameless window), so
+/// this is dead there — see the `set_menu` call site.
+#[cfg(not(target_os = "windows"))]
 fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
     // App (macOS) submenu
     let app_menu = SubmenuBuilder::new(app, "Splice")

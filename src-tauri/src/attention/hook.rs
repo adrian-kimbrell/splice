@@ -161,6 +161,7 @@ pub(crate) fn install_hook_entry(
 ///
 /// It prints NOTHING to stdout: the data is rendered in Splice's terminal header,
 /// so emitting a line here would duplicate it at the bottom of Claude's own TUI.
+#[cfg(not(windows))]
 const SPLICE_HOOK_SCRIPT: &str = r#"#!/usr/bin/env python3
 # Splice Claude Code statusLine helper. Auto-generated; do not edit (overwritten on launch).
 # POST-only: feeds Splice's header HUD and prints nothing, so Claude's own status
