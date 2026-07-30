@@ -59,7 +59,7 @@
   import { recentFiles, loadRecentFiles, addRecentFile } from "../lib/stores/recent-files.svelte";
   import { recentProjects, loadRecentProjects } from "../lib/stores/recent-projects.svelte";
   import { pushToast } from "../lib/stores/toasts.svelte";
-  import { isUnderRoot } from "../lib/utils/path-utils";
+  import { isUnderRoot, toUiPath } from "../lib/utils/path-utils";
   import { cancelPendingResume } from "../lib/stores/workspace-session";
   import { getRandomTagline } from "../lib/utils/taglines";
   import { getTabsForPane, getActiveTabForPane, getContentForPane } from "../lib/stores/workspace-view-helpers";
@@ -503,7 +503,7 @@
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const selected = await open({ directory: true, multiple: false });
-      if (selected) await openFolderPath(selected as string);
+      if (selected) await openFolderPath(toUiPath(selected as string));
     } catch (e) {
       console.error("Failed to open folder:", e);
     }
@@ -528,7 +528,7 @@
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const selected = await open({ directory: false, multiple: false });
-      if (selected) await openFilePath(selected as string);
+      if (selected) await openFilePath(toUiPath(selected as string));
     } catch (e) {
       if (e && typeof e === "object" && "message" in e && String((e as {message:unknown}).message).includes("cancelled")) return;
       toastFileReadError("", e);
@@ -893,7 +893,8 @@
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
       unlistenDragDrop = await getCurrentWebview().onDragDropEvent(async (event) => {
         if (event.payload.type !== "drop") return;
-        const paths = event.payload.paths;
+        // Dropped paths come from the OS, not from Rust, so they arrive in native form.
+        const paths = event.payload.paths.map(toUiPath);
         if (paths.length === 0) return;
 
         // Tauri reports position in physical pixels; elementFromPoint expects CSS pixels.

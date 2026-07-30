@@ -208,7 +208,7 @@ pub fn handle_opened(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
                 state.allowed_roots.push(canonical);
             }
             state.pending_open_paths.push(crate::state::OpenTarget {
-                path: path.to_string_lossy().into_owned(),
+                path: crate::state::to_ui_path(&path),
                 is_dir,
             });
             any = true;

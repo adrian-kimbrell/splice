@@ -16,7 +16,9 @@ pub fn watch_path(
         s.allowed_roots.clone()
     };
     let canonical = validate_path(&path, &allowed_roots)?;
-    let canonical_str = canonical.to_string_lossy().to_string();
+    // Doubles as the watchers map key and the emitted event payload, so it uses the
+    // frontend path form — unwatch_path normalizes the same way to stay in sync.
+    let canonical_str = crate::state::to_ui_path(&canonical);
 
     // Deduplicate: skip if we're already watching this path
     {
@@ -93,7 +95,7 @@ pub fn unwatch_path(
     // Must canonicalise the same way watch_path does.
     // Use std::fs::canonicalize (not validate_path) — the file may no longer exist.
     let key = std::fs::canonicalize(&path)
-        .map(|p| p.to_string_lossy().to_string())
+        .map(|p| crate::state::to_ui_path(&p))
         .unwrap_or_else(|_| path.clone());
     let mut state = state.lock().map_err(|e| e.to_string())?;
     // Try canonical key first; fall back to raw path for pre-fix watchers still in map.

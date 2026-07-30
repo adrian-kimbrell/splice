@@ -3,6 +3,7 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { positionFixedMenu } from "../../lib/utils/context-menu";
+  import { toUiPath } from "../../lib/utils/path-utils";
 
   let {
     side = "right",
@@ -190,7 +191,7 @@
         if (!workspaceManager.activeWorkspace) {
           workspaceManager.createEmptyWorkspace();
         }
-        const filePath = selected as string;
+        const filePath = toUiPath(selected as string);
         const name = filePath.split("/").pop() ?? filePath;
         workspaceManager.openFileInWorkspace({ name, path: filePath, content: "" });
       }

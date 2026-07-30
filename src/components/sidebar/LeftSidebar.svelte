@@ -9,6 +9,7 @@
   import { getTotalChangedCount } from "../../lib/stores/git.svelte";
   import { lspClient } from "../../lib/lsp/client";
   import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
+  import { toUiPath } from "../../lib/utils/path-utils";
 
   let {
     entries,
@@ -87,7 +88,7 @@
         if (!workspaceManager.activeWorkspace) {
           workspaceManager.createEmptyWorkspace();
         }
-        await workspaceManager.openFolderInWorkspace(selected as string);
+        await workspaceManager.openFolderInWorkspace(toUiPath(selected as string));
         ui.explorerVisible = true;
       }
     } catch (e) {

@@ -84,7 +84,7 @@ pub fn duplicate_path(
         fs::copy(&canonical, &new_path)
             .map_err(|e| format!("Failed to duplicate '{}': {}", path, e))?;
     }
-    Ok(new_path.to_string_lossy().to_string())
+    Ok(crate::state::to_ui_path(&new_path))
 }
 
 #[tauri::command]

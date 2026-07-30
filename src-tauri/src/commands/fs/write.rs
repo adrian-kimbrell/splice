@@ -71,7 +71,7 @@ pub fn create_file_at(
         return Err(format!("Already exists: {}", file_path.display()));
     }
     fs::write(&file_path, "").map_err(|e| format!("Failed to create file: {}", e))?;
-    Ok(file_path.to_string_lossy().to_string())
+    Ok(crate::state::to_ui_path(&file_path))
 }
 
 #[tauri::command]
@@ -97,5 +97,5 @@ pub fn create_directory_at(
         return Err(format!("Already exists: {}", new_dir.display()));
     }
     fs::create_dir_all(&new_dir).map_err(|e| format!("Failed to create directory: {}", e))?;
-    Ok(new_dir.to_string_lossy().to_string())
+    Ok(crate::state::to_ui_path(&new_dir))
 }

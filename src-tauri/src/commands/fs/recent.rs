@@ -77,11 +77,11 @@ pub fn get_recent_projects() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub fn add_recent_project(path: String) -> Result<(), String> {
     // Canonicalize to prevent path traversal strings persisting in recent_projects.json
-    let canonical = std::path::PathBuf::from(&path)
-        .canonicalize()
-        .map_err(|e| format!("Invalid path '{}': {}", path, e))?
-        .to_string_lossy()
-        .to_string();
+    let canonical = crate::state::to_ui_path(
+        &std::path::PathBuf::from(&path)
+            .canonicalize()
+            .map_err(|e| format!("Invalid path '{}': {}", path, e))?,
+    );
 
     let config_dir = dirs::config_dir()
         .ok_or("No config dir")?

@@ -34,10 +34,16 @@ unicode-width = "0.1"
 tauri-plugin-webdriver = { version = "0.2", optional = true }
 
 [target.'cfg(not(windows))'.dependencies]
-# openssh's native-mux uses Unix domain sockets + the ssh ControlMaster, which
-# is Unix-only. SSH/SFTP remote workspaces are unavailable on Windows for now;
-# Phase 2 of the Windows port rewrites this on a cross-platform SSH library.
+# openssh's native-mux uses Unix domain sockets + the ssh ControlMaster, which is
+# Unix-only. Windows drives its bundled ssh.exe per command instead — see
+# commands/ssh_session.rs for the shared interface both platforms implement.
 openssh = { version = "0.11", features = ["native-mux"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+# Clipboard for terminal copy. macOS keeps using pbcopy (proven, and avoids the
+# WKWebView user-gesture restriction); everywhere else arboard writes the clipboard
+# directly, so no console window flashes and non-ASCII text survives.
+arboard = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

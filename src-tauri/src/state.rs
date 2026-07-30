@@ -85,6 +85,31 @@ impl AppState {
 
 /// Validates that a path resolves to a location under one of the allowed roots.
 /// Returns the canonicalized path on success.
+/// Render a path for the frontend: forward slashes, no `\\?\` prefix.
+///
+/// The UI splits paths on `/` to derive basenames and breadcrumbs, and compares them
+/// as plain strings, so a Windows path has to be normalized before it crosses IPC —
+/// otherwise every tab title shows the full `C:\a\b\c` instead of `c`. Handing one
+/// back to Rust or Win32 later is safe: both accept `/` as a separator.
+///
+/// `std::fs::canonicalize` on Windows also returns extended-length paths
+/// (`\\?\C:\x`, or `\\?\UNC\server\share` for network paths); that prefix is stripped
+/// here so canonicalized and user-supplied paths still compare equal.
+#[cfg(windows)]
+pub fn to_ui_path(path: &std::path::Path) -> String {
+    let s = path.to_string_lossy();
+    let s = match s.strip_prefix(r"\\?\UNC\") {
+        Some(rest) => format!(r"\\{}", rest),
+        None => s.strip_prefix(r"\\?\").unwrap_or(&s).to_string(),
+    };
+    s.replace('\\', "/")
+}
+
+#[cfg(not(windows))]
+pub fn to_ui_path(path: &std::path::Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
 pub fn validate_path(path: &str, allowed_roots: &[PathBuf]) -> Result<PathBuf, String> {
     let canonical = std::fs::canonicalize(path)
         .map_err(|e| format!("Invalid path '{}': {}", path, e))?;

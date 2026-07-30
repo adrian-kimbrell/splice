@@ -42,7 +42,7 @@ pub fn read_dir_tree(
 
         entries.push(FileEntry {
             name,
-            path: path.to_string_lossy().to_string(),
+            path: crate::state::to_ui_path(&path),
             is_dir,
             children: None,
         });
@@ -203,7 +203,7 @@ pub fn search_files(
         for (line_idx, line) in content.lines().enumerate() {
             for m in pattern.find_iter(line) {
                 matches.push(SearchMatch {
-                    path: path.to_string_lossy().to_string(),
+                    path: crate::state::to_ui_path(path),
                     line_number: line_idx + 1,
                     line_content: line.chars().take(300).collect(),
                     col_start: line[..m.start()].chars().count(),

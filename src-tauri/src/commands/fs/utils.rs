@@ -12,10 +12,37 @@ pub fn reveal_in_file_manager(
         state.allowed_roots.clone()
     };
     let canonical = validate_path(&path, &allowed_roots)?;
-    std::process::Command::new("open")
-        .args(["-R", &canonical.to_string_lossy()])
-        .spawn()
-        .map_err(|e| format!("Failed to reveal in Finder: {}", e))?;
+
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.args(["-R", &canonical.to_string_lossy()]);
+        c
+    };
+    // explorer.exe wants a native path and the odd `/select,<path>` comma syntax.
+    // It also returns exit code 1 on success, so the status is deliberately ignored.
+    #[cfg(windows)]
+    let mut cmd = {
+        use crate::process_ext::NoWindow;
+        let mut c = std::process::Command::new("explorer.exe");
+        c.arg(format!("/select,{}", canonical.to_string_lossy().replace('/', "\\")));
+        c.no_window();
+        c
+    };
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
+    let mut cmd = {
+        // Linux: no "select the file" equivalent that's portable across file managers,
+        // so open the containing directory instead.
+        let dir = if canonical.is_dir() { canonical.as_path() } else {
+            canonical.parent().unwrap_or(canonical.as_path())
+        };
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(dir);
+        c
+    };
+
+    cmd.spawn()
+        .map_err(|e| format!("Failed to reveal in file manager: {}", e))?;
     Ok(())
 }
 
@@ -37,7 +64,7 @@ pub fn save_temp_image(data: Vec<u8>, ext: String) -> Result<String, String> {
     let path = std::env::temp_dir().join(format!("clipboard-{}.{}", ts, ext_str));
     std::fs::write(&path, &data)
         .map_err(|e| format!("Failed to save clipboard image: {}", e))?;
-    Ok(path.to_string_lossy().into_owned())
+    Ok(crate::state::to_ui_path(&path))
 }
 
 /// Save a screenshot PNG to docs/screenshots/ in the project directory.
@@ -53,7 +80,7 @@ pub fn save_screenshot(data: Vec<u8>) -> Result<String, String> {
     let path = screenshots_dir.join(format!("screenshot-{}.png", ts));
     std::fs::write(&path, &data)
         .map_err(|e| format!("Failed to save screenshot: {}", e))?;
-    Ok(path.to_string_lossy().into_owned())
+    Ok(crate::state::to_ui_path(&path))
 }
 
 fn chrono_timestamp() -> String {
@@ -74,9 +101,12 @@ fn chrono_timestamp() -> String {
     format!("{:04}-{:02}-{:02}_{:02}-{:02}-{:02}", y, mo, day, h, m, s)
 }
 
-/// Write text to the system clipboard via `pbcopy`.
-/// Using the OS-level tool bypasses WKWebView's user-gesture requirement that
+/// Write text to the system clipboard via an OS-level tool.
+/// Going through the OS bypasses WKWebView's user-gesture requirement that
 /// prevents `navigator.clipboard.writeText` from working after an async IPC call.
+///
+/// This is what terminal copy calls, so it has to work everywhere the terminal does.
+#[cfg(target_os = "macos")]
 #[tauri::command]
 pub fn write_to_clipboard(text: String) -> Result<(), String> {
     use std::io::Write;
@@ -91,4 +121,20 @@ pub fn write_to_clipboard(text: String) -> Result<(), String> {
     }
     child.wait().map_err(|e| format!("pbcopy wait failed: {e}"))?;
     Ok(())
+}
+
+/// Windows/Linux clipboard via `arboard` — a direct API call, so no console window
+/// flashes and no subprocess is spawned per copy.
+///
+/// `clip.exe` was the subprocess equivalent of pbcopy here, but it reads stdin in the
+/// console codepage and mangles any non-ASCII text, which a terminal selection will
+/// have. On Linux, arboard keeps X11 selection ownership alive on its own thread.
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub fn write_to_clipboard(text: String) -> Result<(), String> {
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("Clipboard unavailable: {e}"))?;
+    clipboard
+        .set_text(text)
+        .map_err(|e| format!("Clipboard write failed: {e}"))
 }
