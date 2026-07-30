@@ -26,7 +26,7 @@ export async function openNewWindow(): Promise<void> {
       decorations: true,
       titleBarStyle: "overlay",
       hiddenTitle: true,
-      trafficLightPosition: new LogicalPosition(14, 19),
+      trafficLightPosition: new LogicalPosition(14, 21),
       resizable: true,
       backgroundColor: { red: 30, green: 30, blue: 30, alpha: 255 },
     });
