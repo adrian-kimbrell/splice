@@ -255,17 +255,11 @@ pub fn run() {
         .invoke_handler({
             #[cfg(all(not(feature = "e2e"), not(debug_assertions)))]
             { tauri::generate_handler![
-                #[cfg(not(windows))]
                 commands::ssh::ssh_connect,
-                #[cfg(not(windows))]
                 commands::ssh::ssh_disconnect,
-                #[cfg(not(windows))]
                 commands::ssh::sftp_list_dir,
-                #[cfg(not(windows))]
                 commands::ssh::sftp_read_file,
-                #[cfg(not(windows))]
                 commands::ssh::sftp_write_file,
-                #[cfg(not(windows))]
                 commands::ssh::ssh_ping,
                 commands::fs::read_dir_tree,
                 commands::fs::read_file,
@@ -334,17 +328,11 @@ pub fn run() {
             ] }
             #[cfg(all(debug_assertions, not(feature = "e2e")))]
             { tauri::generate_handler![
-                #[cfg(not(windows))]
                 commands::ssh::ssh_connect,
-                #[cfg(not(windows))]
                 commands::ssh::ssh_disconnect,
-                #[cfg(not(windows))]
                 commands::ssh::sftp_list_dir,
-                #[cfg(not(windows))]
                 commands::ssh::sftp_read_file,
-                #[cfg(not(windows))]
                 commands::ssh::sftp_write_file,
-                #[cfg(not(windows))]
                 commands::ssh::ssh_ping,
                 commands::fs::read_dir_tree,
                 commands::fs::read_file,
@@ -413,17 +401,11 @@ pub fn run() {
             ] }
             #[cfg(feature = "e2e")]
             { tauri::generate_handler![
-                #[cfg(not(windows))]
                 commands::ssh::ssh_connect,
-                #[cfg(not(windows))]
                 commands::ssh::ssh_disconnect,
-                #[cfg(not(windows))]
                 commands::ssh::sftp_list_dir,
-                #[cfg(not(windows))]
                 commands::ssh::sftp_read_file,
-                #[cfg(not(windows))]
                 commands::ssh::sftp_write_file,
-                #[cfg(not(windows))]
                 commands::ssh::ssh_ping,
                 commands::fs::read_dir_tree,
                 commands::fs::read_file,

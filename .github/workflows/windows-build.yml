@@ -76,9 +76,12 @@ jobs:
 
             - **Unsigned** — Windows SmartScreen will warn on first launch
               ("More info" → "Run anyway").
-            - **No SSH/SFTP** — remote workspaces are macOS-only for now.
-            - Window chrome and keyboard shortcuts are still being adapted to
-              Windows.
+            - **Shortcuts inside a terminal use Ctrl+Shift**, since plain Ctrl
+              belongs to the shell. Copy is Ctrl+Shift+C; paste is Ctrl+V.
+            - **Remote workspaces** use the OpenSSH client bundled with Windows.
+              Without ControlMaster each request reconnects, so the file tree is
+              slower than on macOS, and key auth (or a running ssh-agent) is
+              required — there's no prompt for a password.
 
             Updated automatically on every push to `windows-support`.
 

@@ -73,6 +73,12 @@ pub fn spawn_terminal(
         warn!(shell = %shell, default = %DEFAULT_SHELL, "Shell not allowed; using host default");
         DEFAULT_SHELL.to_string()
     };
+    // An allowed shell can still be the wrong file for this OS — a remote workspace
+    // records the ssh binary as /usr/bin/ssh, which doesn't exist on Windows even
+    // though Windows ships its own OpenSSH client. Map it to the host's name rather
+    // than failing to spawn, so remote workspaces open on either platform.
+    #[cfg(target_os = "windows")]
+    let shell = if shell.ends_with("/ssh") { "ssh.exe".to_string() } else { shell };
 
     // Validate CWD: must exist and be under home directory. Fall back to HOME if invalid.
     // In debug builds the restriction is relaxed to allow any valid directory (e.g. /tmp).

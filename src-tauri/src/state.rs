@@ -37,9 +37,8 @@ pub struct AppState {
     pub terminal_claude_sessions: HashMap<u32, (String, u32)>,
     /// language_id → active LSP session
     pub lsp_sessions: HashMap<String, crate::lsp::LspSession>,
-    /// workspace_id → established SSH ControlMaster session (Unix-only; openssh)
-    #[cfg(not(windows))]
-    pub ssh_sessions: HashMap<String, Arc<openssh::Session>>,
+    /// workspace_id → established SSH session (multiplexed on Unix, ssh.exe on Windows)
+    pub ssh_sessions: HashMap<String, Arc<crate::commands::ssh_session::RemoteSession>>,
     /// Paths the OS asked us to open (Finder "Open With") that arrived before
     /// the frontend was listening. Drained on startup via take_pending_open_paths.
     pub pending_open_paths: Vec<OpenTarget>,
@@ -76,7 +75,6 @@ impl AppState {
             watchers: HashMap::new(),
             terminal_claude_sessions: HashMap::new(),
             lsp_sessions: HashMap::new(),
-            #[cfg(not(windows))]
             ssh_sessions: HashMap::new(),
             pending_open_paths: Vec::new(),
         }

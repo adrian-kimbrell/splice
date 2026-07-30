@@ -1,32 +1,31 @@
 //! Tauri commands for SSH remote workspace access.
 //!
-//! Uses the `openssh` crate (ControlMaster multiplexing) to maintain one persistent SSH
-//! connection per workspace, stored in `AppState::ssh_sessions` as `Arc<openssh::Session>`.
+//! One connection per workspace, stored in `AppState::ssh_sessions` as
+//! `Arc<RemoteSession>` — see `ssh_session.rs` for how each platform provides one
+//! (multiplexed `openssh` on Unix, the bundled `ssh.exe` on Windows).
 //!
 //! Commands: ssh_connect, ssh_disconnect, sftp_list_dir, sftp_read_file, sftp_write_file,
 //! ssh_ping.
 //!
 //! `ssh_connect` respects `~/.ssh/config` — user/port/keyfile are only overridden when
 //! explicitly set in `SshConfig` (non-empty / non-default). `get_session` clones the
-//! `Arc<Session>` out of the state lock so SFTP commands can await without holding the mutex.
+//! `Arc<RemoteSession>` out of the state lock so the file commands can await without
+//! holding the mutex.
 //!
 //! SSH terminals use a different path: `spawn_terminal` is called with `extra_args` built
-//! from `SshConfig` (ssh binary is in ALLOWED_SHELLS). SFTP is used only for the file tree
-//! and editor read/write in remote workspaces.
+//! from `SshConfig` (the ssh binary is in ALLOWED_SHELLS). These commands are used only
+//! for the file tree and editor read/write in remote workspaces.
 
 use crate::commands::fs::FileEntry;
+use crate::commands::ssh_session::{shell_quote, RemoteSession};
 use crate::state::AppState;
 use crate::workspace::layout::SshConfig;
-use openssh::{KnownHosts, Session, SessionBuilder};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
 /// Extract an Arc-cloned session from state without holding the lock.
-fn get_session(
-    state: &Mutex<AppState>,
-    workspace_id: &str,
-) -> Result<Arc<Session>, String> {
+fn get_session(state: &Mutex<AppState>, workspace_id: &str) -> Result<Arc<RemoteSession>, String> {
     let guard = state.lock().map_err(|e| e.to_string())?;
     guard
         .ssh_sessions
@@ -35,46 +34,14 @@ fn get_session(
         .ok_or_else(|| format!("No SSH session for workspace '{}'", workspace_id))
 }
 
-/// Expand a leading `~` to the home directory (ssh binary doesn't do this for -i).
-fn expand_tilde(path: &str) -> std::path::PathBuf {
-    if path.starts_with('~') {
-        if let Some(home) = dirs::home_dir() {
-            let rest = path.trim_start_matches('~').trim_start_matches('/');
-            return if rest.is_empty() { home } else { home.join(rest) };
-        }
-    }
-    std::path::PathBuf::from(path)
-}
-
-/// Establish an SSH ControlMaster session and store it keyed by workspace_id.
-/// Fields in `config` that are empty/default are omitted so `~/.ssh/config` takes precedence.
+/// Establish a session for the given workspace and store it keyed by workspace_id.
 #[tauri::command]
 pub async fn ssh_connect(
     state: State<'_, Mutex<AppState>>,
     workspace_id: String,
     config: SshConfig,
 ) -> Result<(), String> {
-    let mut builder = SessionBuilder::default();
-
-    // Only override user/port/keyfile if explicitly provided — otherwise let ~/.ssh/config handle them.
-    if !config.user.is_empty() {
-        builder.user(config.user.clone());
-    }
-    if config.port != 22 {
-        builder.port(config.port);
-    }
-    if !config.key_path.is_empty() {
-        builder.keyfile(expand_tilde(&config.key_path));
-    }
-
-    builder.known_hosts_check(KnownHosts::Accept);
-    builder.connect_timeout(std::time::Duration::from_secs(20));
-
-    let session = builder
-        .connect(&config.host)
-        .await
-        .map_err(|e| format!("SSH connect failed: {}", e))?;
-
+    let session = RemoteSession::connect(&config).await?;
     let mut guard = state.lock().map_err(|e| e.to_string())?;
     guard.ssh_sessions.insert(workspace_id, Arc::new(session));
     Ok(())
@@ -103,12 +70,7 @@ pub async fn sftp_list_dir(
 
     // Expand ~ via remote shell
     let expanded = if path.starts_with('~') {
-        let out = session
-            .command("sh")
-            .args(["-c", "echo $HOME"])
-            .output()
-            .await
-            .map_err(|e| e.to_string())?;
+        let out = session.run_script("echo $HOME").await?;
         let home = String::from_utf8_lossy(&out.stdout).trim().to_string();
         path.replacen('~', &home, 1)
     } else {
@@ -117,16 +79,21 @@ pub async fn sftp_list_dir(
 
     // Get all entries (one per line)
     let all_out = session
-        .command("find")
-        .args([expanded.as_str(), "-maxdepth", "1", "-mindepth", "1"])
-        .output()
+        .run(&[
+            "find",
+            expanded.as_str(),
+            "-maxdepth",
+            "1",
+            "-mindepth",
+            "1",
+        ])
         .await
         .map_err(|e| format!("sftp_list_dir find failed: {}", e))?;
 
     // Get only directories to classify entries
     let dir_out = session
-        .command("find")
-        .args([
+        .run(&[
+            "find",
             expanded.as_str(),
             "-maxdepth",
             "1",
@@ -135,7 +102,6 @@ pub async fn sftp_list_dir(
             "-type",
             "d",
         ])
-        .output()
         .await
         .map_err(|e| format!("sftp_list_dir find -type d failed: {}", e))?;
 
@@ -185,19 +151,16 @@ pub async fn sftp_read_file(
     let session = get_session(&state, &workspace_id)?;
 
     let out = session
-        .command("cat")
-        .arg(path.as_str())
-        .output()
+        .run(&["cat", path.as_str()])
         .await
         .map_err(|e| format!("sftp_read_file failed: {}", e))?;
 
-    if !out.status.success() {
+    if !out.success {
         let err = String::from_utf8_lossy(&out.stderr);
         return Err(format!("Remote cat failed: {}", err.trim()));
     }
 
-    String::from_utf8(out.stdout)
-        .map_err(|_| "Remote file is not valid UTF-8".to_string())
+    String::from_utf8(out.stdout).map_err(|_| "Remote file is not valid UTF-8".to_string())
 }
 
 /// Write content to a remote file via base64-encoded echo + decode pipeline.
@@ -214,21 +177,21 @@ pub async fn sftp_write_file(
     use base64::Engine;
     let encoded = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
 
-    // Shell-quote the path (single-quote escaping)
-    let quoted_path = format!("'{}'", path.replace('\'', "'\\''"));
-
     // Use printf + base64 --decode to write the file; avoids stdin lifecycle complexity
-    let cmd = format!("printf '%s' '{}' | base64 --decode > {}", encoded, quoted_path);
+    let cmd = format!(
+        "printf '%s' '{}' | base64 --decode > {}",
+        encoded,
+        shell_quote(&path)
+    );
 
-    let status = session
-        .command("sh")
-        .args(["-c", cmd.as_str()])
-        .status()
+    let out = session
+        .run_script(&cmd)
         .await
         .map_err(|e| format!("sftp_write_file spawn failed: {}", e))?;
 
-    if !status.success() {
-        return Err("Remote write failed (non-zero exit from sh)".to_string());
+    if !out.success {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("Remote write failed: {}", err.trim()));
     }
 
     Ok(())
@@ -241,8 +204,8 @@ pub async fn ssh_ping(
     workspace_id: String,
 ) -> Result<bool, String> {
     let session = get_session(&state, &workspace_id)?;
-    match session.command("true").status().await {
-        Ok(s) => Ok(s.success()),
+    match session.run_script("true").await {
+        Ok(out) => Ok(out.success),
         Err(_) => Ok(false),
     }
 }
