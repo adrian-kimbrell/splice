@@ -22,7 +22,54 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+
+/// Return the current working directory of a process, or None if it can't be read.
+/// Used to make a terminal's name follow the shell's folder as the user `cd`s.
+#[cfg(target_os = "macos")]
+fn pid_cwd(pid: u32) -> Option<String> {
+    use std::os::raw::{c_int, c_void};
+    // proc_pidinfo(PROC_PIDVNODEPATHINFO) fills a `struct proc_vnodepathinfo`
+    // (2352 bytes). Its first member, pvi_cdir.vip_path, is the cwd C-string; the
+    // vnode_info preceding it is 152 bytes, so the path starts at byte offset 152.
+    const PROC_PIDVNODEPATHINFO: c_int = 9;
+    const BUF_SIZE: usize = 2352;
+    const VIP_PATH_OFFSET: usize = 152;
+    extern "C" {
+        fn proc_pidinfo(
+            pid: c_int,
+            flavor: c_int,
+            arg: u64,
+            buffer: *mut c_void,
+            buffersize: c_int,
+        ) -> c_int;
+    }
+    let mut buf = [0u8; BUF_SIZE];
+    let ret = unsafe {
+        proc_pidinfo(
+            pid as c_int,
+            PROC_PIDVNODEPATHINFO,
+            0,
+            buf.as_mut_ptr() as *mut c_void,
+            BUF_SIZE as c_int,
+        )
+    };
+    if ret <= 0 {
+        return None;
+    }
+    let path = &buf[VIP_PATH_OFFSET..];
+    let end = path.iter().position(|&b| b == 0).unwrap_or(0);
+    if end == 0 {
+        return None;
+    }
+    std::str::from_utf8(&path[..end]).ok().map(str::to_string)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pid_cwd(_pid: u32) -> Option<String> {
+    None
+}
 
 pub struct PtySession {
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
@@ -129,10 +176,16 @@ impl PtySession {
         let title_event = format!("terminal:title:{}", id);
         let bell_event = format!("terminal:bell:{}", id);
         let clipboard_event = format!("terminal:clipboard:{}", id);
+        let cwd_event = format!("terminal:cwd:{}", id);
+        let cwd_pid = child_pid;
         let app_clone = app.clone();
 
         let reader_handle = thread::spawn(move || {
             let mut buf = [0u8; 4096];
+            // Track the shell's cwd so we can tell the frontend when it changes
+            // (for the "name follows folder" mode). Throttled to bound the syscall.
+            let mut last_cwd: Option<String> = None;
+            let mut last_cwd_check = Instant::now() - Duration::from_secs(1);
             loop {
                 if !reader_running.load(Ordering::Relaxed) {
                     break;
@@ -210,6 +263,22 @@ impl PtySession {
                         }
                         if let Some(text) = clipboard {
                             let _ = app_clone.emit(&clipboard_event, text);
+                        }
+
+                        // Check whether the shell's cwd changed and tell the frontend.
+                        // Always check on small batches (a `cd`'s new prompt, keystroke
+                        // echoes) so the name updates immediately; only throttle large
+                        // batches so a flood of output doesn't spam the syscall.
+                        if let Some(pid) = cwd_pid {
+                            if n <= 1024 || last_cwd_check.elapsed() >= Duration::from_millis(200) {
+                                last_cwd_check = Instant::now();
+                                if let Some(cwd) = pid_cwd(pid) {
+                                    if last_cwd.as_deref() != Some(cwd.as_str()) {
+                                        last_cwd = Some(cwd.clone());
+                                        let _ = app_clone.emit(&cwd_event, cwd);
+                                    }
+                                }
+                            }
                         }
 
                         reader_version.fetch_add(1, Ordering::Relaxed);

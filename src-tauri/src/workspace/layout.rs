@@ -109,6 +109,8 @@ pub struct GeneralSettings {
     pub restore_previous_session: bool,
     #[serde(default = "default_true")]
     pub claude_notifications: bool,
+    #[serde(default)]
+    pub default_single_view: bool,
 }
 
 fn default_auto_save() -> String {
@@ -126,6 +128,7 @@ impl Default for GeneralSettings {
             auto_save_delay: default_auto_save_delay(),
             restore_previous_session: true,
             claude_notifications: true,
+            default_single_view: false,
         }
     }
 }
@@ -226,6 +229,8 @@ pub struct TerminalSettings {
     pub copy_on_select: bool,
     #[serde(default)]
     pub show_full_path: bool,
+    #[serde(default)]
+    pub name_follows_cwd: bool,
 }
 
 fn default_terminal_font() -> String {
@@ -243,6 +248,7 @@ impl Default for TerminalSettings {
             font_family: default_terminal_font(),
             copy_on_select: false,
             show_full_path: false,
+            name_follows_cwd: false,
         }
     }
 }

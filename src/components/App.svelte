@@ -33,6 +33,8 @@
   import TerminalPane from "./panes/TerminalPane.svelte";
   import DiffPane from "./panes/DiffPane.svelte";
   import PaneGrid from "./panes/PaneGrid.svelte";
+  // SingleViewBar (top tab switcher) is temporarily unused — switching is driven
+  // from the workspace sidebar. Re-import + re-add in the single-view branch to revive.
   import CommandPalette from "./overlays/CommandPalette.svelte";
   import SshConnectForm from "./overlays/SshConnectForm.svelte";
   import Toasts from "./overlays/Toasts.svelte";
@@ -45,6 +47,7 @@
   import { initKeybindings, enterZenMode, exitZenMode, bumpFocusedPaneFont, resetFocusedPaneFont } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
   import type { PaneConfig, SplitDirection } from "../lib/stores/layout.svelte";
+  import { collectLeafIds } from "../lib/stores/layout.svelte";
   import { type DropZone, setDropCallback } from "../lib/stores/drag.svelte";
   import type { TabDragData } from "../lib/stores/drag.svelte";
   import { workspaceManager } from "../lib/stores/workspace.svelte";
@@ -294,20 +297,32 @@
   function handleSidebarResizeDown(side: "left" | "right", e: MouseEvent) {
     e.preventDefault();
     draggingSidebar = side;
+    ui.sidebarResizing = true;
     const startX = e.clientX;
     const startWidth = side === "left" ? leftWidth : rightWidth;
     const min = side === "left" ? leftMinWidth : rightMinWidth;
 
-    function onMove(e: MouseEvent) {
-      const delta = e.clientX - startX;
+    // Coalesce mousemove → one width write per animation frame. The width feeds the
+    // top-level grid, so an unthrottled write reflowed the whole editor area on every
+    // mouse event; RAF-batching caps it at one reflow per painted frame.
+    let pendingX = startX;
+    let rafPending = false;
+    function applyWidth() {
+      rafPending = false;
+      const delta = pendingX - startX;
       const newWidth = side === "left" ? startWidth + delta : startWidth - delta;
       const clamped = Math.max(min, Math.min(500, newWidth));
       if (side === "left") setLeftWidth(clamped);
       else setRightWidth(clamped);
     }
+    function onMove(e: MouseEvent) {
+      pendingX = e.clientX;
+      if (!rafPending) { rafPending = true; requestAnimationFrame(applyWidth); }
+    }
 
     function onUp() {
       draggingSidebar = null;
+      ui.sidebarResizing = false;
       // Explorer width is per-workspace: store it on the active workspace and persist.
       const activeWs = workspaceManager.activeWorkspace;
       if (activeWs && workspaceManager.activeWorkspaceId) {
@@ -1045,19 +1060,10 @@
 
   <!-- CENTER: PANE GRID — render ALL workspaces, hide inactive with display:none -->
   <div class="flex flex-col min-w-0" style="grid-column: 3; grid-row: 1; overflow: hidden;">
-    {#if ws && (ws.rootPath || ws.layout !== null || ws.sshConfig)}
-      <TitleBar />
-    {:else}
-      <!-- Welcome screen has no TitleBar; provide an invisible drag strip so
-           the user can still drag the window from the top edge. Height matches
-           the TitleBar (32px + 6px margin) so the traffic-light area is fully
-           covered. -->
-      <div
-        data-tauri-drag-region
-        style="height: 38px; flex-shrink: 0;"
-        aria-hidden="true"
-      ></div>
-    {/if}
+    <!-- TitleBar is always mounted (even with no workspace / on the welcome screen)
+         so its settings drawer can always slide down into the main area. It handles
+         the no-workspace case internally (hasWorkspace gates workspace-only actions). -->
+    <TitleBar />
 
     {#each Object.entries(workspaceManager.workspaces) as [wsId, workspace] (wsId)}
       {@const isActive = wsId === workspaceManager.activeWorkspaceId}
@@ -1066,6 +1072,10 @@
         class="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0"
         style:display={isActive ? "flex" : "none"}
       >
+        <!-- Only the active workspace mounts its panes. Inactive workspaces render
+             nothing (their PTYs stay alive in Rust; terminals repaint on remount via
+             the onMount resize). Keeps switch cost O(active) instead of O(all open). -->
+        {#if isActive}
         {#if hasContent}
           {#snippet paneSnippet(config: PaneConfig)}
             {#if config.kind === "editor"}
@@ -1082,7 +1092,7 @@
                 onTabClick={(path) => handleTabClick(path, config.id)}
                 onTabClose={(path) => handleTabClose(path, config.id)}
                 onTabDoubleClick={handleTabDoubleClick}
-                onSplit={(dir, side) => handleSplitPane(config.id, dir, side)}
+                onSplit={workspace.viewMode === "single" ? undefined : (dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}
                 onAction={handlePaneAction}
                 onTabContextAction={(action, path) => handleTabContextAction(action, path, config.id)}
@@ -1117,13 +1127,35 @@
                 terminalId={config.terminalId ?? 0}
                 paneId={config.id}
                 active={isActive}
-                onSplit={(dir, side) => handleSplitPane(config.id, dir, side)}
+                onSplit={workspace.viewMode === "single" ? undefined : (dir, side) => handleSplitPane(config.id, dir, side)}
                 onClose={() => handleClosePane(config.id)}
                 onAction={handlePaneAction}
+                onRename={(t) => workspaceManager.renamePane(config.id, t)}
               />
             {/if}
           {/snippet}
           {#if workspace.layout}
+          {#if workspace.viewMode === "single"}
+          <!-- Switcher order = pane creation order (panes-map insertion order),
+               not tree geometry, which zigzags as splits target the shallowest leaf. -->
+          {@const leafSet = collectLeafIds(workspace.layout)}
+          {@const leafIds = Object.keys(workspace.panes).filter((id) => leafSet.has(id))}
+          {@const singleActiveId = (workspace.activePaneId && workspace.panes[workspace.activePaneId]) ? workspace.activePaneId : leafIds[0]}
+          <!-- Top tab switcher (SingleViewBar) is hidden for now — pane switching
+               is driven from the workspace sidebar. Kept the component for later.
+               Wrap in a leaf-styled container so the pane keeps the normal rounded
+               border + active glow. Only the active leaf mounts; keyed by paneId so
+               switching mounts a fresh instance (CanvasTerminal binds terminalId once). -->
+          <div class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
+            {#if singleActiveId && workspace.panes[singleActiveId]}
+              <div class="single-pane flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
+                {#key singleActiveId}
+                  {@render paneSnippet(workspace.panes[singleActiveId])}
+                {/key}
+              </div>
+            {/if}
+          </div>
+          {:else}
           <div class="flex-1 flex overflow-hidden min-w-0 min-h-0 relative">
             <div class="flex-1 flex overflow-hidden min-w-0 min-h-0" style:visibility={isActive && ui.zoomedPaneId && workspace.panes[ui.zoomedPaneId] ? 'hidden' : 'visible'}>
               <PaneGrid
@@ -1145,6 +1177,7 @@
               </div>
             {/if}
           </div>
+          {/if}
           {:else}
           <div
             class="flex-1 flex items-center justify-center"
@@ -1191,6 +1224,7 @@
               </div>
             </div>
           </div>
+        {/if}
         {/if}
         {/if}
       </div>
@@ -1318,6 +1352,17 @@
 </div>
 
 <style>
+  /* Single-view active pane: mirror .pane-leaf--active from PaneGrid so the lone
+     pane keeps the normal rounded border + accent glow. */
+  .single-pane {
+    contain: layout style paint;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--accent-border);
+    outline: 2px solid var(--accent-subtle);
+    outline-offset: -2px;
+    box-shadow: var(--accent-glow);
+  }
+
   @keyframes welcome-in {
     from { opacity: 0; transform: translateY(16px); }
     to   { opacity: 1; transform: translateY(0); }

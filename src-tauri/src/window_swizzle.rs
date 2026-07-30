@@ -130,8 +130,10 @@ unsafe fn position_traffic_lights(ns_window: *mut std::ffi::c_void) {
     container.setFrame(bar_rect);
 
     // Buttons: fixed 20-pt spacing, vertically centered in container.
+    // vertical_offset lowers the buttons within the bar (AppKit bottom-left coords,
+    // so a larger value moves them down). 6.0 sits them ~2px lower than centered.
     let space_between: f64 = 20.0;
-    let vertical_offset: f64 = 4.0;
+    let vertical_offset: f64 = 6.0;
 
     let mut buttons = vec![close, mini];
     if let Some(z) = zoom {

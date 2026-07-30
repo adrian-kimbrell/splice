@@ -22,6 +22,9 @@
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import { attentionStore } from "../../lib/stores/attention.svelte";
   import { registerPaneContent, unregisterPaneContent } from "../../lib/stores/drag.svelte";
+  import { effectiveSettings } from "../../lib/stores/settings.svelte";
+  import { workspaceManager } from "../../lib/stores/workspace.svelte";
+  import { onTerminalCwd, onTerminalTitle } from "../../lib/ipc/events";
   import type { TerminalSearchMatch } from "../../lib/ipc/commands";
 
   let {
@@ -34,6 +37,7 @@
     onSplit,
     onClose,
     onAction,
+    onRename,
   }: {
     title: string;
     cwd?: string;
@@ -44,6 +48,7 @@
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
     onAction?: (action: string) => void;
+    onRename?: (title: string) => void;
   } = $props();
 
   const notification = $derived(attentionStore.notifications[terminalId] ?? null);
@@ -56,6 +61,39 @@
     if (!contentAreaEl || !paneId) return;
     registerPaneContent(paneId, contentAreaEl);
     return () => unregisterPaneContent(paneId);
+  });
+
+  // Derive a folder name from an OSC title, or null if the title isn't a path.
+  // Remote shells commonly set the title to "user@host: ~/path"; take the part
+  // after the ": " and only accept it if it looks like a path (starts with / or ~),
+  // so command titles like "vim foo" don't get mistaken for a folder.
+  function folderFromTitle(t: string): string | null {
+    let s = (t ?? "").trim();
+    const colon = s.lastIndexOf(": ");
+    if (colon >= 0) s = s.slice(colon + 2).trim();
+    if (!(s.startsWith("/") || s.startsWith("~"))) return null;
+    const base = s.split("/").filter(Boolean).pop() || s;
+    return base || null;
+  }
+
+  // "Name follows folder" mode. Listen to both signals for every terminal:
+  //  - the local shell's cwd (polled in Rust) — drives local terminals
+  //  - the shell's OSC title — carries the remote folder once you ssh in (even
+  //    from a plain local terminal, where the local cwd poll can't see it)
+  // Latest event wins, so the name tracks wherever you currently are.
+  $effect(() => {
+    if (!terminalId || !paneId) return;
+    const unsubs: Array<() => void> = [];
+    let disposed = false;
+    const apply = (name: string | null) => {
+      if (!name || !effectiveSettings.terminal.name_follows_cwd) return;
+      workspaceManager.renamePane(paneId, name);
+    };
+    const track = (p: Promise<() => void>) =>
+      p.then((u) => { if (disposed) u(); else unsubs.push(u); });
+    track(onTerminalCwd(terminalId, (c) => apply(c.split("/").filter(Boolean).pop() || c)));
+    track(onTerminalTitle(terminalId, (t) => apply(folderFromTitle(t))));
+    return () => { disposed = true; unsubs.forEach((u) => u()); };
   });
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -87,7 +125,7 @@
   class:flash-idle={notification?.type === 'idle'}
   onkeydown={handleKeyDown}
 >
-  <TerminalTitlebar {title} {cwd} {gitBranch} {paneId} {onSplit} {onClose} {onAction} {notification} />
+  <TerminalTitlebar {title} {cwd} {gitBranch} {paneId} {onSplit} {onClose} {onAction} {onRename} {notification} />
   <div bind:this={contentAreaEl} class="flex-1 flex flex-col overflow-hidden min-h-0">
     <TerminalSearch
       {terminalId}

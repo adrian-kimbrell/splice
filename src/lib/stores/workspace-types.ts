@@ -64,6 +64,11 @@ export interface Workspace {
   panes: Record<string, PaneConfig>;
   activePaneId: string | null;
 
+  // View mode (Option A): "split" renders the pane tree geometrically; "single"
+  // preserves the same tree but renders only the active leaf full-size, with a
+  // switcher strip to cycle the tree's leaves one at a time. Undefined = "split".
+  viewMode?: "split" | "single";
+
   // Git
   gitBranch: string;
 

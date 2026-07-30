@@ -1,0 +1,31 @@
+/**
+ * Persists lightweight editor view state — scroll position and selection —
+ * across editor unmount/remount, keyed by pane + file.
+ *
+ * Switching workspaces unmounts the inactive workspace's editor panes (so switch
+ * cost stays O(active workspace), not O(all open); see App.svelte). Without this,
+ * returning to a workspace would rebuild a fresh CodeMirror scrolled to the top.
+ * We deliberately store only scroll + selection, NOT the full EditorState, so the
+ * memory win of unmounting is preserved (the doc content is re-supplied by props
+ * on remount).
+ */
+
+interface SavedView {
+  /** scrollDOM.scrollTop */
+  top: number;
+  anchor: number;
+  head: number;
+}
+
+const store = new Map<string, SavedView>();
+
+const key = (paneId: string, filePath: string) => `${paneId}\u0000${filePath}`;
+
+export function saveEditorView(paneId: string, filePath: string, v: SavedView): void {
+  if (paneId && filePath) store.set(key(paneId, filePath), v);
+}
+
+export function restoreEditorView(paneId: string, filePath: string): SavedView | undefined {
+  if (!paneId || !filePath) return undefined;
+  return store.get(key(paneId, filePath));
+}

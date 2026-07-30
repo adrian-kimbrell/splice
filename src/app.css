@@ -262,8 +262,7 @@ body {
   width: 100%;
   font-size: var(--ui-label);
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.2px;
   color: var(--text-bright);
   background: var(--bg-input);
   border: 1px solid var(--accent);
@@ -398,6 +397,16 @@ body {
   width: 100%;
 }
 .session-item.active .session-title { color: var(--text-bright); }
+.session-rename-input {
+  width: 100%;
+  font-size: var(--ui-body);
+  color: var(--text-bright);
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 4px;
+  outline: none;
+}
 
 /* Tab dragging */
 body.tab-dragging {

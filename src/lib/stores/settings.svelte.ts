@@ -30,6 +30,8 @@ export interface Settings {
     auto_save_delay: number;
     restore_previous_session: boolean;
     claude_notifications: boolean;
+    /** New workspaces open in single-view mode (one pane at a time) instead of the split grid. */
+    default_single_view: boolean;
   };
   editor: {
     font_family: string;
@@ -63,6 +65,7 @@ export interface Settings {
     font_family: string;
     copy_on_select: boolean;
     show_full_path: boolean;
+    name_follows_cwd: boolean;
   };
 }
 
@@ -72,6 +75,7 @@ const defaultSettings: Settings = {
     auto_save_delay: 1000,
     restore_previous_session: true,
     claude_notifications: true,
+    default_single_view: false,
   },
   editor: {
     font_family: "Menlo",
@@ -105,6 +109,7 @@ const defaultSettings: Settings = {
     font_family: "Menlo",
     copy_on_select: false,
     show_full_path: false,
+    name_follows_cwd: false,
   },
 };
 

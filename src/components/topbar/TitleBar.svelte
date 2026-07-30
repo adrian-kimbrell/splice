@@ -15,10 +15,25 @@
   import { attentionStore } from '../../lib/stores/attention.svelte';
   import { workspaceManager } from '../../lib/stores/workspace.svelte';
   import { ui } from '../../lib/stores/ui.svelte';
+  import { settings } from '../../lib/stores/settings.svelte';
   import { isWindows } from '../../lib/utils/platform';
   import WindowControls from './WindowControls.svelte';
   import { docZoom } from '../../lib/utils/zoom';
   import SettingsPane from '../panes/SettingsPane.svelte';
+
+  // Drawer toggles. The explorer can sit on either side; leftDrawerOpen /
+  // rightDrawerOpen track the actual left/right panels regardless of which is which.
+  const explorerOnLeft = $derived(settings.appearance.explorer_side === 'left');
+  const leftDrawerOpen = $derived(explorerOnLeft ? ui.explorerVisible : ui.workspacesVisible);
+  const rightDrawerOpen = $derived(explorerOnLeft ? ui.workspacesVisible : ui.explorerVisible);
+  function toggleLeftDrawer() {
+    if (explorerOnLeft) ui.explorerVisible = !ui.explorerVisible;
+    else ui.workspacesVisible = !ui.workspacesVisible;
+  }
+  function toggleRightDrawer() {
+    if (explorerOnLeft) ui.workspacesVisible = !ui.workspacesVisible;
+    else ui.explorerVisible = !ui.explorerVisible;
+  }
 
 
   const notifList = $derived(
@@ -150,16 +165,33 @@
     </div>
   {/if}
 
-  <!-- Right actions — always pinned, never pushed out -->
+  <!-- Right actions — always pinned, never pushed out.
+       Order: terminal, folder, left drawer, right drawer, settings. -->
   <div class="title-actions">
     {#if hasWorkspace}
+      <button class="title-btn" title="New Terminal" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
+        <i class="bi bi-terminal"></i>
+      </button>
       <button class="title-btn" title="Open Folder" onclick={handleOpenFolder}>
         <i class="bi bi-folder2-open"></i>
       </button>
+      <button
+        class="title-btn"
+        class:title-btn--active={leftDrawerOpen}
+        title="Toggle left panel"
+        onclick={toggleLeftDrawer}
+      >
+        <i class="bi bi-layout-sidebar"></i>
+      </button>
+      <button
+        class="title-btn"
+        class:title-btn--active={rightDrawerOpen}
+        title="Toggle right panel"
+        onclick={toggleRightDrawer}
+      >
+        <i class="bi bi-layout-sidebar-reverse"></i>
+      </button>
     {/if}
-    <button class="title-btn" title="New Terminal" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
-      <i class="bi bi-terminal"></i>
-    </button>
     <button
       class="title-btn title-btn--settings"
       class:title-btn--settings-open={ui.settingsDrawerOpen}
@@ -400,6 +432,12 @@
     margin-left: 4px;
   }
   .notif-dismiss:hover { color: var(--text); background: var(--bg-hover); }
+
+  /* Active (toggled-on) state — shared by the drawer toggle buttons. */
+  .title-btn--active {
+    color: var(--accent);
+    background: var(--accent-subtle);
+  }
 
   /* ── Right action buttons ──────────────────────────────── */
   .title-actions {

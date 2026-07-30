@@ -38,4 +38,7 @@ export const ui = $state({
   addPromptModal: false,
   /** Settings drawer that unfurls from the title bar (replaces the separate window). */
   settingsDrawerOpen: false,
+  /** True while a sidebar divider is being dragged. Terminals defer their expensive
+   *  PTY-resize/refit until the drag ends, so the whole grid doesn't re-fit per frame. */
+  sidebarResizing: false,
 });

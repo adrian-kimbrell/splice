@@ -69,17 +69,18 @@
     const MIN_PX = 80; // minimum pane size in pixels
 
     function handleMouseMove(e: MouseEvent) {
-      if (!rect || !node || node.type !== "split") return;
-      // Offset in unzoomed layout px, so the ratio is correct at any ui_scale.
-      const offset = clientToLayoutOffset(e.clientX, e.clientY, containerEl!);
+      if (!node || node.type !== "split" || !containerEl) return;
+      // Offset in unzoomed layout px (clientX is visual px under ui_scale, the
+      // grid metrics are layout px), so the ratio is correct at any zoom. [[zoom-coords]]
+      const offset = clientToLayoutOffset(e.clientX, e.clientY, containerEl);
       let ratio: number;
       if (node.direction === "horizontal") {
-        ratio = offset.x / containerEl!.offsetWidth;
-        const minRatio = MIN_PX / containerEl!.offsetWidth;
+        ratio = offset.x / containerEl.offsetWidth;
+        const minRatio = MIN_PX / containerEl.offsetWidth;
         ratio = Math.max(minRatio, Math.min(1 - minRatio, ratio));
       } else {
-        ratio = offset.y / containerEl!.offsetHeight;
-        const minRatio = MIN_PX / containerEl!.offsetHeight;
+        ratio = offset.y / containerEl.offsetHeight;
+        const minRatio = MIN_PX / containerEl.offsetHeight;
         ratio = Math.max(minRatio, Math.min(1 - minRatio, ratio));
       }
       node.ratio = ratio;

@@ -130,6 +130,20 @@ class WorkspaceManager {
     ws.nameManuallySet = true;
   }
 
+  /** Rename a pane (e.g. a terminal). Empty/whitespace titles are ignored so a
+   *  pane is never left blank. Persists so the custom name survives restart. */
+  renamePane(paneId: string, title: string, workspaceId?: string): void {
+    const wsId = workspaceId ?? this.activeWorkspaceId;
+    if (!wsId) return;
+    const ws = this.workspaces[wsId];
+    const pane = ws?.panes[paneId];
+    if (!pane) return;
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    pane.title = trimmed;
+    this.debouncedPersistWorkspace(wsId);
+  }
+
   switchWorkspace(id: string): void {
     if (!(id in this.workspaces)) return;
     // Save current workspace's sidebar state
@@ -176,6 +190,7 @@ class WorkspaceManager {
       layout: null,
       panes: {},
       activePaneId: null,
+      viewMode: effectiveSettings.general.default_single_view ? "single" : "split",
       gitBranch: "",
       explorerVisible: false,
       explorerWidth: ui.explorerWidth,
@@ -258,6 +273,7 @@ class WorkspaceManager {
         [paneId]: { id: paneId, kind: "terminal", title: `Terminal ${this.nextTerminalNumber()}`, terminalId },
       },
       activePaneId: paneId,
+      viewMode: effectiveSettings.general.default_single_view ? "single" : "split",
       gitBranch: "",
       explorerVisible: true,
       explorerWidth: ui.explorerWidth,
@@ -882,6 +898,28 @@ class WorkspaceManager {
     const pane = ws.panes[paneId];
     if (pane) pane.lastTouchedAt = Date.now();
     this.debouncedPersistWorkspace(wsId);
+  }
+
+  /** Set the workspace view mode. "single" renders only the active leaf; if none
+   *  is active yet, fall back to the first leaf so single view has something to show. */
+  setViewMode(mode: "split" | "single", workspaceId?: string): void {
+    const wsId = workspaceId ?? this.activeWorkspaceId;
+    if (!wsId) return;
+    const ws = this.workspaces[wsId];
+    if (!ws) return;
+    ws.viewMode = mode;
+    if (mode === "single" && (!ws.activePaneId || !ws.panes[ws.activePaneId])) {
+      ws.activePaneId = findFirstLeaf(ws.layout);
+    }
+    this.debouncedPersistWorkspace(wsId);
+  }
+
+  toggleViewMode(workspaceId?: string): void {
+    const wsId = workspaceId ?? this.activeWorkspaceId;
+    if (!wsId) return;
+    const ws = this.workspaces[wsId];
+    if (!ws) return;
+    this.setViewMode(ws.viewMode === "single" ? "split" : "single", wsId);
   }
 
   // --- Layout actions on active workspace ---
