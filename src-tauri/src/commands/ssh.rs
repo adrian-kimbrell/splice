@@ -70,13 +70,28 @@ pub async fn ssh_connect(
     builder.known_hosts_check(KnownHosts::Accept);
     builder.connect_timeout(std::time::Duration::from_secs(20));
 
-    let session = builder
-        .connect(&config.host)
-        .await
-        .map_err(|e| format!("SSH connect failed: {}", e))?;
+    let session = Arc::new(
+        builder
+            .connect(&config.host)
+            .await
+            .map_err(|e| format!("SSH connect failed: {}", e))?,
+    );
+
+    // Best-effort: install the remote attention hook so a Claude run on this host
+    // can signal Splice in-band (OSC 7379). Non-blocking so it never delays connect;
+    // failures (no python3, read-only home) are logged and ignored.
+    {
+        let sess = Arc::clone(&session);
+        tauri::async_runtime::spawn(async move {
+            match crate::attention::ssh_hook::install_on_session(sess.as_ref()).await {
+                Ok(msg) => tracing::info!("SSH attention hook: {}", msg),
+                Err(e) => tracing::warn!("SSH attention hook not installed: {}", e),
+            }
+        });
+    }
 
     let mut guard = state.lock().map_err(|e| e.to_string())?;
-    guard.ssh_sessions.insert(workspace_id, Arc::new(session));
+    guard.ssh_sessions.insert(workspace_id, session);
     Ok(())
 }
 

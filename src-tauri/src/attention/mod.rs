@@ -25,8 +25,11 @@ mod handlers;
 mod hook;
 mod http;
 mod server;
+pub(crate) mod ssh_hook;
 mod token;
 
 pub use hook::install_hook;
 pub use server::start_server;
 pub use token::load_or_create_token;
+/// Raise an attention notification for a terminal (in-band OSC path, for SSH Claude).
+pub(crate) use handlers::dispatch_attention;

@@ -33,6 +33,19 @@ pub(crate) async fn handle_attention_request(app: &AppHandle, json: serde_json::
         .unwrap_or("")
         .to_string();
 
+    dispatch_attention(app, terminal_id, notification_type, message);
+}
+
+/// Emit an attention notification for `terminal_id` and, when the window is
+/// unfocused and enabled, fire a macOS notification. Shared by the HTTP hook path
+/// (local Claude) and the in-band OSC path (Claude over SSH). Synchronous — safe
+/// to call from the PTY reader thread.
+pub(crate) fn dispatch_attention(
+    app: &AppHandle,
+    terminal_id: u32,
+    notification_type: String,
+    message: String,
+) {
     // Verify the terminal still exists before emitting
     {
         let state = app.state::<Mutex<AppState>>();

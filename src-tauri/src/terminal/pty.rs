@@ -223,10 +223,11 @@ impl PtySession {
                             let title = emu.pending_title.take();
                             let bell = std::mem::replace(&mut emu.pending_bell, false);
                             let clipboard = emu.pending_clipboard.take();
+                            let attention = emu.pending_attention.take();
                             let sb_delta = new_sb.saturating_sub(old_sb) as i32;
-                            (reply, title, bell, clipboard, sb_delta)
+                            (reply, title, bell, clipboard, attention, sb_delta)
                         }));
-                        let (reply, title, bell, clipboard, sb_delta) = match outcome {
+                        let (reply, title, bell, clipboard, attention, sb_delta) = match outcome {
                             Ok(t) => t,
                             Err(_) => {
                                 reader_emulator.clear_poison();
@@ -259,6 +260,11 @@ impl PtySession {
                         }
                         if let Some(text) = clipboard {
                             let _ = app_clone.emit(&clipboard_event, text);
+                        }
+                        // In-band attention signal (OSC 7379) — a Claude over SSH raising
+                        // a notification through the terminal stream. id is this terminal.
+                        if let Some((ntype, message)) = attention {
+                            crate::attention::dispatch_attention(&app_clone, id, ntype, message);
                         }
 
                         // Check whether the shell's cwd changed and tell the frontend.

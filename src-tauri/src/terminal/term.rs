@@ -24,6 +24,9 @@ pub struct Emulator {
     pub pending_reply: Vec<u8>,
     pub pending_bell: bool,
     pub pending_clipboard: Option<String>,
+    /// (notification_type, message) from a Splice attention OSC (7379) — how a
+    /// Claude running over SSH signals attention in-band through the terminal stream.
+    pub pending_attention: Option<(String, String)>,
 }
 
 impl Emulator {
@@ -35,6 +38,7 @@ impl Emulator {
             pending_reply: Vec::new(),
             pending_bell: false,
             pending_clipboard: None,
+            pending_attention: None,
         }
     }
 
@@ -47,6 +51,7 @@ impl Emulator {
             pending_reply: &mut self.pending_reply,
             pending_bell: &mut self.pending_bell,
             pending_clipboard: &mut self.pending_clipboard,
+            pending_attention: &mut self.pending_attention,
         };
         parser.advance(&mut performer, bytes);
     }
@@ -62,6 +67,7 @@ struct GridPerformer<'a> {
     pending_reply: &'a mut Vec<u8>,
     pending_bell: &'a mut bool,
     pending_clipboard: &'a mut Option<String>,
+    pending_attention: &'a mut Option<(String, String)>,
 }
 
 impl<'a> GridPerformer<'a> {
@@ -495,6 +501,21 @@ impl<'a> vte::Perform for GridPerformer<'a> {
                     }
                 }
             }
+            // OSC 7379: Splice attention signal (private). Lets a Claude running over
+            // SSH raise a notification in-band through the terminal stream — the local
+            // attention server can't be reached from a remote host.
+            // Format: ESC ] 7379 ; <type> ; <base64 message> ST
+            //   params[1] = notification_type ("permission" | "idle")
+            //   params[2] = base64-encoded message (may be empty)
+            b"7379" if params.len() >= 2 => {
+                let ntype = std::str::from_utf8(params[1]).unwrap_or("idle").to_string();
+                let message = params
+                    .get(2)
+                    .and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok())
+                    .and_then(|d| String::from_utf8(d).ok())
+                    .unwrap_or_default();
+                *self.pending_attention = Some((ntype, message));
+            }
             _ => {}
         }
     }
@@ -657,6 +678,27 @@ mod tests {
         let mut emu = make_emu(80, 24);
         emu.advance(b"\x1b]0;My Title\x07");
         assert_eq!(emu.pending_title, Some("My Title".to_string()));
+    }
+
+    // --- Splice attention OSC (7379) — the SSH in-band signal ---
+
+    #[test]
+    fn osc_7379_sets_pending_attention() {
+        let mut emu = make_emu(80, 24);
+        // ESC ] 7379 ; permission ; base64("needs approval") BEL
+        let b64 = base64::engine::general_purpose::STANDARD.encode("needs approval");
+        emu.advance(format!("\x1b]7379;permission;{}\x07", b64).as_bytes());
+        assert_eq!(
+            emu.pending_attention,
+            Some(("permission".to_string(), "needs approval".to_string()))
+        );
+    }
+
+    #[test]
+    fn osc_7379_empty_message_ok() {
+        let mut emu = make_emu(80, 24);
+        emu.advance(b"\x1b]7379;idle;\x07");
+        assert_eq!(emu.pending_attention, Some(("idle".to_string(), String::new())));
     }
 
     // --- DEC special graphics charset ---
