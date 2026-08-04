@@ -87,3 +87,88 @@ pub(crate) async fn install_on_session(session: &openssh::Session) -> Result<Str
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Drive the *actual* generated installer through real python3 against a
+    /// throwaway HOME, exactly as it would run on a remote. Verifies it writes a
+    /// valid Notification hook and doesn't duplicate on reinstall (idempotent).
+    #[test]
+    fn installer_writes_idempotent_notification_hook() {
+        let tmp = std::env::temp_dir().join(format!("splice-sshhook-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let run = || {
+            std::process::Command::new("python3")
+                .arg("-c")
+                .arg(installer_source())
+                .env("HOME", &tmp)
+                .output()
+                .expect("python3 must be available to run the installer")
+        };
+
+        let o1 = run();
+        assert!(o1.status.success(), "installer failed: {}", String::from_utf8_lossy(&o1.stderr));
+
+        let settings_path = tmp.join(".claude").join("settings.json");
+        let raw = std::fs::read_to_string(&settings_path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let arr = v["hooks"]["Notification"].as_array().unwrap();
+        let marker_entries = || {
+            arr.iter()
+                .filter(|e| serde_json::to_string(e).unwrap().contains(MARKER))
+                .count()
+        };
+        assert_eq!(marker_entries(), 1, "should install exactly one hook entry");
+        assert!(raw.contains("7379"), "hook command must emit OSC 7379");
+
+        // Reinstall: must not duplicate.
+        run();
+        let raw2 = std::fs::read_to_string(&settings_path).unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&raw2).unwrap();
+        let count = v2["hooks"]["Notification"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| serde_json::to_string(e).unwrap().contains(MARKER))
+            .count();
+        assert_eq!(count, 1, "reinstall must be idempotent");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Preserve unrelated existing hooks and settings when merging.
+    #[test]
+    fn installer_preserves_existing_settings() {
+        let tmp = std::env::temp_dir().join(format!("splice-sshhook-pre-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join(".claude")).unwrap();
+        std::fs::write(
+            tmp.join(".claude").join("settings.json"),
+            r#"{"model":"opus","hooks":{"Notification":[{"matcher":"","hooks":[{"type":"command","command":"echo other"}]}]}}"#,
+        )
+        .unwrap();
+
+        let out = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(installer_source())
+            .env("HOME", &tmp)
+            .output()
+            .expect("python3 available");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(tmp.join(".claude").join("settings.json")).unwrap())
+                .unwrap();
+        assert_eq!(v["model"], "opus", "unrelated settings must be preserved");
+        let arr = v["hooks"]["Notification"].as_array().unwrap();
+        assert_eq!(arr.len(), 2, "existing hook kept + ours added");
+        assert!(arr.iter().any(|e| serde_json::to_string(e).unwrap().contains("echo other")));
+        assert!(arr.iter().any(|e| serde_json::to_string(e).unwrap().contains(MARKER)));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
