@@ -65,13 +65,18 @@ print("splice-ssh-attention installed")
     )
 }
 
+/// The exact shell command run on the remote to install the hook. base64 output
+/// is shell-safe inside single quotes; decode it remotely and pipe to python3.
+/// Mirrors the printf | base64 --decode pattern used for SFTP writes.
+fn remote_install_command() -> String {
+    let src_b64 = base64::engine::general_purpose::STANDARD.encode(installer_source());
+    format!("printf '%s' '{src_b64}' | base64 --decode | python3")
+}
+
 /// Install (or refresh) the remote attention hook over an existing SSH session.
 /// Best-effort: returns Err if the remote lacks python3 or `~/.claude` isn't writable.
 pub(crate) async fn install_on_session(session: &openssh::Session) -> Result<String, String> {
-    let src_b64 = base64::engine::general_purpose::STANDARD.encode(installer_source());
-    // base64 output is shell-safe inside single quotes; decode it remotely and pipe
-    // to python3. Mirrors the printf | base64 --decode pattern used for SFTP writes.
-    let remote = format!("printf '%s' '{src_b64}' | base64 --decode | python3");
+    let remote = remote_install_command();
     let out = session
         .command("sh")
         .args(["-c", remote.as_str()])
@@ -91,6 +96,16 @@ pub(crate) async fn install_on_session(session: &openssh::Session) -> Result<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Dump the byte-exact remote install command (what `install_on_session` sends)
+    /// to a file, for driving a real over-SSH round-trip test. No-op unless the env
+    /// var is set, so normal test runs are unaffected.
+    #[test]
+    fn dump_remote_install_command() {
+        if let Ok(path) = std::env::var("SPLICE_DUMP_INSTALL_CMD") {
+            std::fs::write(path, remote_install_command()).unwrap();
+        }
+    }
 
     /// Drive the *actual* generated installer through real python3 against a
     /// throwaway HOME, exactly as it would run on a remote. Verifies it writes a
