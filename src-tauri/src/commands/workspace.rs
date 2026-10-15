@@ -219,14 +219,35 @@ pub fn handle_opened(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
     }
 }
 
-/// Remove entries from `allowed_roots` that are not in `active_roots`.
+/// Remove entries from `allowed_roots` that are not in `active_roots`, keeping the
+/// process-default roots (the home directory) that `AppState::new` grants.
+///
 /// Called after a workspace is deleted or closed so the app doesn't retain fs access to
-/// directories that are no longer open.
+/// directories that are no longer open. Without the `protected` carve-out, closing any
+/// workspace dropped HOME from the allow list and every later read outside an open
+/// workspace (recent files, "Open File…", project settings) failed with "Access denied".
 fn revoke_unused_roots(
     allowed_roots: &mut Vec<std::path::PathBuf>,
     active_roots: &[std::path::PathBuf],
 ) {
-    allowed_roots.retain(|root| active_roots.contains(root));
+    let protected = default_allowed_roots();
+    revoke_unused_roots_except(allowed_roots, active_roots, &protected);
+}
+
+/// Roots that are always allowed regardless of open workspaces (currently HOME).
+fn default_allowed_roots() -> Vec<std::path::PathBuf> {
+    dirs::home_dir()
+        .map(|h| std::fs::canonicalize(&h).unwrap_or(h))
+        .into_iter()
+        .collect()
+}
+
+fn revoke_unused_roots_except(
+    allowed_roots: &mut Vec<std::path::PathBuf>,
+    active_roots: &[std::path::PathBuf],
+    protected: &[std::path::PathBuf],
+) {
+    allowed_roots.retain(|root| protected.contains(root) || active_roots.contains(root));
 }
 
 #[tauri::command]
@@ -514,6 +535,33 @@ fn is_pid_alive(_pid: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn revoke_keeps_protected_roots_when_no_workspace_uses_them() {
+        let home = std::path::PathBuf::from("/Users/me");
+        let proj = std::path::PathBuf::from("/Users/me/proj");
+        let other = std::path::PathBuf::from("/Volumes/ext/other");
+        let mut allowed = vec![home.clone(), proj.clone(), other];
+        // Only `proj` is still open; `home` must survive because it is protected.
+        super::revoke_unused_roots_except(&mut allowed, std::slice::from_ref(&proj), std::slice::from_ref(&home));
+        assert_eq!(allowed, vec![home, proj]);
+    }
+
+    #[test]
+    fn revoke_drops_everything_but_protected_when_last_workspace_closes() {
+        let home = std::path::PathBuf::from("/Users/me");
+        let mut allowed = vec![home.clone(), std::path::PathBuf::from("/tmp/x")];
+        super::revoke_unused_roots_except(&mut allowed, &[], std::slice::from_ref(&home));
+        assert_eq!(allowed, vec![home]);
+    }
+
+    #[test]
+    fn default_allowed_roots_is_home() {
+        let roots = super::default_allowed_roots();
+        assert_eq!(roots.len(), 1);
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(roots[0], std::fs::canonicalize(&home).unwrap_or(home));
+    }
+
     use super::*;
 
     #[test]
