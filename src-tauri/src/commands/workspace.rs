@@ -50,7 +50,7 @@ fn windows_registry_path() -> std::path::PathBuf {
 }
 
 /// On-disk format (new). Backward-compatible with old `Vec<Workspace>` via fallback parsing.
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct WorkspacesFile {
     #[serde(default)]
     active_workspace_id: Option<String>,
@@ -71,24 +71,116 @@ pub struct WorkspacesResponse {
     pub workspaces: Vec<Workspace>,
 }
 
+/// Outcome of a lenient parse: whatever entries were readable, plus how many were not.
+struct ParsedWorkspaces {
+    file: WorkspacesFile,
+    skipped: usize,
+}
+
+/// Parse a workspaces file entry-by-entry so one bad workspace (hand edit, a
+/// variant from a newer build) cannot take the whole session down with it.
+/// Accepts both the object format and the legacy bare-array format.
+/// Returns `Err` only when the document itself is unusable.
+fn parse_workspaces_lenient(data: &str) -> Result<ParsedWorkspaces, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(data).map_err(|e| format!("invalid JSON: {}", e))?;
+    let (active_workspace_id, entries) = match value {
+        serde_json::Value::Object(mut map) => {
+            let active = map
+                .remove("active_workspace_id")
+                .and_then(|v| v.as_str().map(str::to_string));
+            let entries = match map.remove("workspaces") {
+                Some(serde_json::Value::Array(a)) => a,
+                None => Vec::new(),
+                Some(_) => return Err("`workspaces` is not an array".to_string()),
+            };
+            (active, entries)
+        }
+        serde_json::Value::Array(a) => (None, a),
+        _ => return Err("not a JSON object or array".to_string()),
+    };
+
+    let mut workspaces = Vec::with_capacity(entries.len());
+    let mut skipped = 0usize;
+    for entry in entries {
+        let id = entry
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<no id>")
+            .to_string();
+        match serde_json::from_value::<Workspace>(entry) {
+            Ok(ws) => workspaces.push(ws),
+            Err(e) => {
+                skipped += 1;
+                tracing::warn!(id = %id, error = %e, "skipping unparseable workspace entry");
+            }
+        }
+    }
+    Ok(ParsedWorkspaces {
+        file: WorkspacesFile { active_workspace_id, workspaces },
+        skipped,
+    })
+}
+
+/// Path a damaged workspaces file is preserved under, next to the original.
+fn quarantine_path(path: &std::path::Path) -> std::path::PathBuf {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "workspaces.json".to_string());
+    path.with_file_name(format!("{}.corrupt-{}", name, ts))
+}
+
+/// Interpret the contents of a workspaces file at `path`.
+///
+/// - Fully unparseable: the file is *moved aside* to `<name>.corrupt-<ts>` and an
+///   error is returned. Nothing may ever write over a file we could not read.
+/// - Partially parseable: a copy is kept at `<name>.corrupt-<ts>` (the next save
+///   will rewrite the file without the skipped entries) and the good entries load.
+fn read_workspaces_data(path: &std::path::Path, data: &str) -> Result<WorkspacesFile, String> {
+    match parse_workspaces_lenient(data) {
+        Ok(parsed) => {
+            if parsed.skipped > 0 {
+                let backup = quarantine_path(path);
+                match std::fs::copy(path, &backup) {
+                    Ok(_) => tracing::warn!(
+                        skipped = parsed.skipped,
+                        backup = %backup.display(),
+                        "workspaces file had unreadable entries; original preserved"
+                    ),
+                    Err(e) => tracing::warn!(error = %e, "failed to back up workspaces file"),
+                }
+            }
+            Ok(parsed.file)
+        }
+        Err(e) => {
+            let backup = quarantine_path(path);
+            match std::fs::rename(path, &backup) {
+                Ok(()) => Err(format!(
+                    "Failed to parse workspaces file ({}); moved to {}",
+                    e,
+                    backup.display()
+                )),
+                Err(re) => Err(format!(
+                    "Failed to parse workspaces file ({}); could not move it aside: {}",
+                    e, re
+                )),
+            }
+        }
+    }
+}
+
 fn read_workspaces_file(label: &str) -> Result<WorkspacesFile, String> {
     let path = config_path(label);
     if !path.exists() {
         return Ok(WorkspacesFile::default());
     }
     let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-
-    // Try new object format first; fall back to old array format
-    if let Ok(file) = serde_json::from_str::<WorkspacesFile>(&data) {
-        Ok(file)
-    } else if let Ok(workspaces) = serde_json::from_str::<Vec<Workspace>>(&data) {
-        Ok(WorkspacesFile {
-            active_workspace_id: None,
-            workspaces,
-        })
-    } else {
-        Err("Failed to parse workspaces file".to_string())
-    }
+    read_workspaces_data(&path, &data)
 }
 
 fn write_workspaces_file(
@@ -637,5 +729,89 @@ mod tests {
         let read_back2 = std::fs::read_to_string(&dest).unwrap();
         assert_eq!(read_back2, r#"{"labels":["c"]}"#);
         assert!(!tmp.exists());
+    }
+    // -----------------------------------------------------------------------
+    // Lenient workspaces-file parsing: one bad entry must not drop the rest,
+    // and a file we cannot read must never be overwritten by the next save.
+    // -----------------------------------------------------------------------
+
+    fn ws_json(id: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","name":"{id}","root_path":"/tmp/{id}","layout":{{"type":"Leaf","pane_id":"p1"}},"panes":[],"terminal_ids":[],"open_file_paths":[],"active_file_path":null}}"#
+        )
+    }
+
+    #[test]
+    fn lenient_parse_reads_object_format() {
+        let data = format!(r#"{{"active_workspace_id":"b","workspaces":[{},{}]}}"#, ws_json("a"), ws_json("b"));
+        let parsed = parse_workspaces_lenient(&data).unwrap();
+        assert_eq!(parsed.skipped, 0);
+        assert_eq!(parsed.file.active_workspace_id.as_deref(), Some("b"));
+        assert_eq!(parsed.file.workspaces.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn lenient_parse_reads_legacy_array_format() {
+        let data = format!("[{}]", ws_json("a"));
+        let parsed = parse_workspaces_lenient(&data).unwrap();
+        assert_eq!(parsed.file.active_workspace_id, None);
+        assert_eq!(parsed.file.workspaces.len(), 1);
+    }
+
+    #[test]
+    fn lenient_parse_skips_one_bad_entry_and_keeps_the_rest() {
+        // `terminal_ids` must be an array of u32 — a string makes this entry unreadable.
+        let bad = r#"{"id":"bad","name":"bad","root_path":"/tmp","layout":{"type":"Leaf","pane_id":"p"},"panes":[],"terminal_ids":"oops","open_file_paths":[],"active_file_path":null}"#;
+        let data = format!(r#"{{"workspaces":[{},{},{}]}}"#, ws_json("a"), bad, ws_json("c"));
+        let parsed = parse_workspaces_lenient(&data).unwrap();
+        assert_eq!(parsed.skipped, 1);
+        assert_eq!(parsed.file.workspaces.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), vec!["a", "c"]);
+    }
+
+    #[test]
+    fn lenient_parse_rejects_unusable_documents() {
+        assert!(parse_workspaces_lenient("not json").is_err());
+        assert!(parse_workspaces_lenient("42").is_err());
+        assert!(parse_workspaces_lenient(r#"{"workspaces":"nope"}"#).is_err());
+    }
+
+    #[test]
+    fn unparseable_file_is_moved_aside_not_left_for_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("workspaces.json");
+        std::fs::write(&path, "{ this is not json").unwrap();
+
+        let err = read_workspaces_data(&path, "{ this is not json").unwrap_err();
+        assert!(err.contains("moved to"), "error should name the backup: {err}");
+        assert!(!path.exists(), "original must be moved aside");
+
+        let backups: Vec<_> = std::fs::read_dir(dir.path()).unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with("workspaces.json.corrupt-"))
+            .collect();
+        assert_eq!(backups.len(), 1);
+        let backup = std::fs::read_to_string(dir.path().join(&backups[0])).unwrap();
+        assert_eq!(backup, "{ this is not json");
+        // The backup must not be mistaken for a per-window workspaces file.
+        assert!(scan_workspace_labels_in_dir(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn partially_readable_file_is_backed_up_and_loaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("workspaces-main-abc123.json");
+        let bad = r#"{"id":"bad","terminal_ids":"oops"}"#;
+        let data = format!(r#"{{"workspaces":[{},{}]}}"#, ws_json("a"), bad);
+        std::fs::write(&path, &data).unwrap();
+
+        let file = read_workspaces_data(&path, &data).unwrap();
+        assert_eq!(file.workspaces.len(), 1);
+        assert!(path.exists(), "original stays in place (next save rewrites it)");
+        let backups: Vec<_> = std::fs::read_dir(dir.path()).unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with("workspaces-main-abc123.json.corrupt-"))
+            .collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(scan_workspace_labels_in_dir(dir.path()), vec!["main-abc123".to_string()]);
     }
 }
