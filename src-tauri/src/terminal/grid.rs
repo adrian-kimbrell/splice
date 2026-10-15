@@ -207,8 +207,13 @@ impl ScreenBuffer {
     }
 
     pub fn restore_cursor(&mut self) {
-        self.cursor_col = self.saved_cursor_col;
-        self.cursor_row = self.saved_cursor_row;
+        // The saved position may predate a shrink; never restore to a row or column
+        // that no longer exists (write_char would silently drop output and ED 1
+        // would index past the end).
+        let max_row = (self.lines.len() as u16).saturating_sub(1);
+        let max_col = self.cols.saturating_sub(1);
+        self.cursor_col = self.saved_cursor_col.min(max_col);
+        self.cursor_row = self.saved_cursor_row.min(max_row);
         self.pen = self.saved_pen;
     }
 }
@@ -624,12 +629,17 @@ impl Grid {
                     buf.lines.drain(0..cursor_overflow);
                 }
                 buf.cursor_row -= cursor_overflow as u16;
+                // The saved cursor (DECSC / alt-screen entry) lived in the same
+                // coordinate space; shift it with the content it pointed at.
+                buf.saved_cursor_row = buf.saved_cursor_row.saturating_sub(cursor_overflow as u16);
             }
             buf.lines.truncate(new_rows as usize);
         }
 
         buf.cursor_col = buf.cursor_col.min(new_cols.saturating_sub(1));
         buf.cursor_row = buf.cursor_row.min(new_rows.saturating_sub(1));
+        buf.saved_cursor_col = buf.saved_cursor_col.min(new_cols.saturating_sub(1));
+        buf.saved_cursor_row = buf.saved_cursor_row.min(new_rows.saturating_sub(1));
         buf.scroll_top = 0;
         buf.scroll_bottom = new_rows.saturating_sub(1);
     }

@@ -113,3 +113,63 @@ fn same_size_resize_preserves_content() {
     h.emu.resize(10, 5);
     assert_eq!(h.row_text(0), "HELLO");
 }
+
+// ── Saved cursor vs. resize ───────────────────────────────────────────────────
+// Regression: DECSC/alt-screen saved the cursor at row 23 of 24; the pane shrank to
+// 10 rows while vim was open; DECRC restored row 23 into a 10-row grid. Every
+// printed character was then dropped (write_char bounds check) and `CSI 1 J`
+// indexed past the end of `lines` and panicked.
+
+#[test]
+fn restore_cursor_after_shrink_is_clamped_and_output_is_visible() {
+    let mut h = TerminalHarness::new(10, 5);
+    h.feed_str("a\r\nb\r\nc\r\nd\r\nprompt"); // cursor on row 4
+    assert_eq!(h.cursor().1, 4);
+    h.esc("7"); // DECSC
+    h.emu.resize(10, 2);
+    h.esc("8"); // DECRC
+    let (_, row) = h.cursor();
+    assert!(row <= 1, "restored row {row} must be inside the 2-row grid");
+    h.feed_str("\r\nhello");
+    assert!(
+        h.screen_text().iter().any(|l| l.contains("hello")),
+        "output after restore must land on screen: {:?}",
+        h.screen_text()
+    );
+}
+
+#[test]
+fn erase_above_after_restore_into_smaller_grid_does_not_panic() {
+    let mut h = TerminalHarness::new(10, 5);
+    h.feed_str("a\r\nb\r\nc\r\nd\r\ne");
+    h.esc("7");
+    h.emu.resize(10, 2);
+    h.esc("8");
+    h.csi("1J"); // used to index lines[0..4] in a 2-row buffer
+    assert_eq!(h.emu.grid.rows, 2);
+}
+
+#[test]
+fn alt_screen_round_trip_across_shrink_keeps_cursor_in_bounds() {
+    let mut h = TerminalHarness::new(10, 5);
+    h.feed_str("a\r\nb\r\nc\r\nd\r\nprompt");
+    h.csi("?1049h"); // save cursor + switch to alt screen (vim)
+    h.emu.resize(10, 2);
+    h.csi("?1049l"); // leave alt screen + restore cursor (quit vim)
+    assert!(h.cursor().1 <= 1);
+    h.feed_str("\r\nback");
+    assert!(h.screen_text().iter().any(|l| l.contains("back")), "{:?}", h.screen_text());
+}
+
+#[test]
+fn saved_cursor_follows_content_pushed_to_scrollback() {
+    // Save on row 1 of 5 with the cursor on row 4; shrinking to 3 rows evicts two
+    // top rows into scrollback, so the saved row moves up by two as well.
+    let mut h = TerminalHarness::new(10, 5);
+    h.feed_str("a\r\nb");
+    h.esc("7"); // saved at row 1
+    h.feed_str("\r\nc\r\nd\r\ne"); // cursor row 4
+    h.emu.resize(10, 3);
+    h.esc("8");
+    assert_eq!(h.cursor().1, 0, "saved row 1 minus two evicted rows");
+}
