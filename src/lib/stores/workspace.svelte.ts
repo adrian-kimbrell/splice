@@ -1065,13 +1065,23 @@ class WorkspaceManager {
           log.error("Failed to reconnect SSH session:", e);
         }
       });
-    } else {
-      this.loadFileTree(ws.id);
-      this.fetchGitBranch(ws.id);
-      if (ws.rootPath) {
-        import("../ipc/commands").then(({ watchPath }) => watchPath(ws.rootPath!).catch(e => log.warn("Failed to watch restored path:", ws.rootPath, e)));
-        import("./git.svelte").then(({ refreshGitStatus }) => refreshGitStatus(ws.id, ws.rootPath!));
-      }
+    } else if (ws.rootPath) {
+      const rootPath = ws.rootPath;
+      // Roots loaded from disk are not registered on the Rust side until something
+      // saves the workspace again. Grant access first: otherwise, for a root outside
+      // HOME, both the watch and the tree read are refused, and nothing ever retried
+      // the watch, so the explorer never followed external changes.
+      import("../ipc/commands")
+        .then(async ({ addAllowedRoot, watchPath }) => {
+          await addAllowedRoot(rootPath);
+          await watchPath(rootPath);
+        })
+        .catch(e => log.warn("Failed to watch restored path:", rootPath, e))
+        .finally(() => {
+          this.loadFileTree(ws.id);
+          this.fetchGitBranch(ws.id);
+          import("./git.svelte").then(({ refreshGitStatus }) => refreshGitStatus(ws.id, rootPath));
+        });
     }
     return result.resumeCount;
   }

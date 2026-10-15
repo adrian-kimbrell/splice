@@ -14,7 +14,6 @@
 
 use crate::terminal::pty::PtySession;
 use crate::workspace::layout::{Settings, Workspace};
-use notify::RecommendedWatcher;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -31,7 +30,8 @@ pub struct AppState {
     /// Auth token for this process's attention server — injected into each terminal's
     /// environment as `SPLICE_ATTENTION_TOKEN` so hooks know which instance to call.
     pub attention_token: Option<String>,
-    pub watchers: HashMap<String, RecommendedWatcher>,
+    /// Reference-counted filesystem watchers keyed by canonical path (see fs/watch.rs).
+    pub watchers: HashMap<String, crate::commands::fs::watch::WatchEntry>,
     /// terminal_id → (session_id, claude_pid)
     /// claude_pid lets us verify Claude is still running at persist time.
     pub terminal_claude_sessions: HashMap<u32, (String, u32)>,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 
 // Core workspace-manager behaviour that had no direct coverage: creating,
 // switching, closing and reordering workspaces, and the UI-state handoff that
@@ -14,6 +14,15 @@ vi.mock("../ipc/commands", () => ({
   killTerminal: vi.fn().mockResolvedValue(undefined),
   unwatchPath: vi.fn().mockResolvedValue(undefined),
   sshDisconnect: vi.fn().mockResolvedValue(undefined),
+  addAllowedRoot: vi.fn().mockResolvedValue(undefined),
+  watchPath: vi.fn().mockResolvedValue(undefined),
+  readDirTree: vi.fn().mockResolvedValue([]),
+  getGitBranch: vi.fn().mockResolvedValue(""),
+  gitStatus: vi.fn().mockResolvedValue({ repo_root: "", files: [] }),
+  spawnTerminal: vi.fn().mockResolvedValue(1),
+  readFile: vi.fn().mockResolvedValue(""),
+  checkPidAlive: vi.fn().mockResolvedValue(false),
+  writeToTerminal: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./settings.svelte", () => {
   const fakeSettings = {
@@ -28,6 +37,7 @@ vi.mock("./settings.svelte", () => {
 import { workspaceManager } from "./workspace.svelte";
 import { ui } from "./ui.svelte";
 import { applyFileRename, type Workspace } from "./workspace-types";
+import type { RustWorkspace } from "../ipc/commands";
 
 type Mgr = {
   workspaces: Record<string, Workspace>;
@@ -179,6 +189,31 @@ describe("workspace manager core", () => {
     a.panes["t"] = { id: "t", kind: "terminal", title: "T", terminalId: 1 };
     a.activePaneId = "t";
     expect(workspaceManager.getActiveFilePath()).toBeNull();
+  });
+
+  // --- restore registers the root before touching the filesystem -------------
+  // Roots loaded from disk are unknown to the Rust side until a save; for a root
+  // outside HOME the watch was refused and never retried, so the explorer never
+  // followed external changes after a relaunch.
+
+  it("restoreWorkspace_grants_root_access_before_watching_and_reading_the_tree", async () => {
+    const ipc = await import("../ipc/commands");
+    const rws = {
+      id: "r1", name: "proj", root_path: "/Volumes/ext/proj",
+      layout: { type: "Leaf", pane_id: "p1" }, panes: [], terminal_ids: [],
+      open_file_paths: [], active_file_path: null, active_pane_id: null,
+      explorer_visible: true, expanded_paths: [], ssh_config: null,
+    } as unknown as RustWorkspace;
+
+    await workspaceManager.restoreWorkspace(rws);
+    await new Promise(r => setTimeout(r, 20)); // let the import().then/finally chain settle
+
+    expect(ipc.addAllowedRoot).toHaveBeenCalledWith("/Volumes/ext/proj");
+    expect(ipc.watchPath).toHaveBeenCalledWith("/Volumes/ext/proj");
+    expect(ipc.readDirTree).toHaveBeenCalledWith("/Volumes/ext/proj");
+    const order = (fn: unknown) => (fn as Mock).mock.invocationCallOrder[0];
+    expect(order(ipc.addAllowedRoot)).toBeLessThan(order(ipc.watchPath));
+    expect(order(ipc.addAllowedRoot)).toBeLessThan(order(ipc.readDirTree));
   });
 
   // --- openFiles / openFileIndex must be the SAME $state proxy ---------------

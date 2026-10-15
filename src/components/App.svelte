@@ -775,6 +775,7 @@
         treeChangeTimer = setTimeout(async () => {
           treeChangeTimer = null;
           const changedPath = event.payload;
+          log.debug("[watch] tree:changed", changedPath);
           const { refreshGitStatus } = await import("../lib/stores/git.svelte");
           for (const [wsId, w] of Object.entries(workspaceManager.workspaces)) {
             if (w.rootPath && isUnderRoot(changedPath, w.rootPath)) {
