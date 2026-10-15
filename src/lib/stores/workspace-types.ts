@@ -171,6 +171,22 @@ export function applyFileRename(ws: Workspace, file: OpenFile, oldPath: string, 
   }
 }
 
+/**
+ * Register a newly opened file in both `openFiles` and `openFileIndex`.
+ *
+ * `ws` is a Svelte 5 `$state` proxy. Pushing a raw object into the array and then
+ * assigning the same raw object into the index would create two *separate* proxies
+ * that do not share writes (a `dirty` flag set through the index is invisible
+ * through the list). Always index the instance read back from the array so both
+ * views are the same proxy.
+ */
+export function addOpenFile(ws: Workspace, file: OpenFile): OpenFile {
+  ws.openFiles.push(file);
+  const shared = ws.openFiles[ws.openFiles.length - 1];
+  ws.openFileIndex[file.path] = shared;
+  return shared;
+}
+
 /** Mark a file as cleanly saved (clear dirty flag and reset original content). */
 export function markFileSaved(file: OpenFile): void {
   file.dirty = false;

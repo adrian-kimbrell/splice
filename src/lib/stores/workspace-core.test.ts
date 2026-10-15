@@ -27,7 +27,7 @@ vi.mock("./settings.svelte", () => {
 
 import { workspaceManager } from "./workspace.svelte";
 import { ui } from "./ui.svelte";
-import type { Workspace } from "./workspace-types";
+import { applyFileRename, type Workspace } from "./workspace-types";
 
 type Mgr = {
   workspaces: Record<string, Workspace>;
@@ -179,5 +179,39 @@ describe("workspace manager core", () => {
     a.panes["t"] = { id: "t", kind: "terminal", title: "T", terminalId: 1 };
     a.activePaneId = "t";
     expect(workspaceManager.getActiveFilePath()).toBeNull();
+  });
+
+  // --- openFiles / openFileIndex must be the SAME $state proxy ---------------
+  // Pushing a raw object into a $state array and assigning the same raw object
+  // into a $state record yields two independent proxies; a `dirty` write via
+  // the index was invisible via the list (Save All / close-confirm saw nothing).
+
+  it("openFile_list_and_index_share_one_proxy", () => {
+    const ws = workspaceManager.createEmptyWorkspace("p");
+    workspaceManager.openFileInWorkspace({ name: "a.ts", path: "/a.ts", content: "x" });
+    const live = mgr.workspaces[ws.id];
+    expect(live.openFileIndex["/a.ts"]).toBe(live.openFiles[0]);
+  });
+
+  it("dirty_flag_set_via_index_is_visible_via_list", () => {
+    const ws = workspaceManager.createEmptyWorkspace("p");
+    workspaceManager.openFileInWorkspace({ name: "a.ts", path: "/a.ts", content: "x" });
+    workspaceManager.updateFileContent("/a.ts", "changed");
+    const live = mgr.workspaces[ws.id];
+    expect(live.openFileIndex["/a.ts"].dirty).toBe(true);
+    expect(live.openFiles[0].dirty).toBe(true);
+    expect(live.openFiles.some(f => f.dirty)).toBe(true); // what Save All / close-confirm check
+  });
+
+  it("rename_via_index_updates_list_entry", () => {
+    const ws = workspaceManager.createEmptyWorkspace("p");
+    workspaceManager.newUntitledFile();
+    const live = mgr.workspaces[ws.id];
+    const untitled = live.openFiles[0].path;
+    applyFileRename(live, live.openFileIndex[untitled], untitled, "/saved.ts");
+    expect(live.openFiles).toHaveLength(1);
+    expect(live.openFiles[0].path).toBe("/saved.ts");
+    expect(live.openFiles[0].name).toBe("saved.ts");
+    expect(live.openFileIndex["/saved.ts"]).toBe(live.openFiles[0]);
   });
 });

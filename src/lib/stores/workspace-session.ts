@@ -2,7 +2,7 @@ import { log } from "../utils/log";
 import type { Workspace } from "./workspace-types";
 import type { RustWorkspace } from "../ipc/commands";
 import { validateLayout } from "./workspace-tab-ops";
-import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs } from "./workspace-types";
+import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs, addOpenFile } from "./workspace-types";
 import { collectLeafIds, removeNodeFromTree } from "./layout.svelte";
 import { effectiveSettings } from "./settings.svelte";
 
@@ -440,9 +440,7 @@ export async function restoreWorkspaceImpl(
       for (const path of paneInfo.file_paths) {
         if (path.startsWith("untitled-")) {
           if (!ws.openFileIndex[path]) {
-            const file = { name: path, path, content: "" };
-            ws.openFiles.push(file);
-            ws.openFileIndex[path] = file;
+            addOpenFile(ws, { name: path, path, content: "" });
           }
           filePaths.push(path);
         } else {
@@ -450,9 +448,7 @@ export async function restoreWorkspaceImpl(
             const content = await readFile(path);
             const name = path.split("/").pop() ?? path;
             if (!ws.openFileIndex[path]) {
-              const file = { name, path, content };
-              ws.openFiles.push(file);
-              ws.openFileIndex[path] = file;
+              addOpenFile(ws, { name, path, content });
             }
             filePaths.push(path);
           } catch (e) {

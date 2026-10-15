@@ -1,7 +1,7 @@
 import { log } from "../utils/log";
 import type { OpenFile } from "./files.svelte";
 import type { Workspace } from "./workspace-types";
-import { generateId, findFirstLeaf, applyFileRename, markFileSaved } from "./workspace-types";
+import { generateId, findFirstLeaf, applyFileRename, markFileSaved, addOpenFile } from "./workspace-types";
 import { isFileReferencedInAnyPane, validateLayout } from "./workspace-tab-ops";
 import { cloneLayout, findSiblingLeaf, removeNodeFromTree } from "./layout.svelte";
 
@@ -107,8 +107,7 @@ export function openFileInWorkspace(ws: Workspace, file: OpenFile, targetPaneId?
       existing.preview = false;
     }
   } else {
-    ws.openFiles.push(file);
-    ws.openFileIndex[file.path] = file;
+    addOpenFile(ws, file);
   }
 
   if (paneId && ws.panes[paneId]) {
