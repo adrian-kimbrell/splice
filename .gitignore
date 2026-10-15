@@ -41,3 +41,6 @@ src-tauri/src/commands/dev.rs
 
 # Dev screenshots (docs/screenshots is tracked: the README and site use it)
 src-tauri/docs/
+
+# Private planning notes — kept locally, never published
+ideation/
