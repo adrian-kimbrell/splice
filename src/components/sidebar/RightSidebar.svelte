@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import WorkspaceListItem from "./WorkspaceListItem.svelte";
   import WorkspaceIconPicker from "./WorkspaceIconPicker.svelte";
   import { requestCloseWorkspace } from "../../lib/utils/close-workspace";
@@ -204,7 +205,7 @@
         workspaceManager.openFileInWorkspace({ name, path: filePath, content: "" });
       }
     } catch (e) {
-      console.error("Failed to open file:", e);
+      log.error("Failed to open file:", e);
     }
   }
 

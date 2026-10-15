@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import FileTree from "./FileTree.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import GitPanel from "./GitPanel.svelte";
@@ -66,7 +67,7 @@
       workspaceManager.openFileInWorkspace({ name, path: filePath, content });
       setTimeout(() => dispatchEditorAction("goto-line-number", line + 1), 50);
     } catch (e) {
-      console.error("Failed to navigate to diagnostic:", e);
+      log.error("Failed to navigate to diagnostic:", e);
     }
   }
 
@@ -91,7 +92,7 @@
         ui.explorerVisible = true;
       }
     } catch (e) {
-      console.error("Failed to open folder:", e);
+      log.error("Failed to open folder:", e);
     }
   }
 </script>

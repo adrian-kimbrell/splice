@@ -6,6 +6,7 @@
  * loads the root `/` entry point with default 1280x800 dimensions.
  * No-ops gracefully outside a Tauri environment.
  */
+import { log } from "./log";
 
 /** Opens a fresh, independent app window with its own workspace file. */
 export async function openNewWindow(): Promise<void> {
@@ -31,6 +32,6 @@ export async function openNewWindow(): Promise<void> {
       backgroundColor: { red: 30, green: 30, blue: 30, alpha: 255 },
     });
   } catch (e) {
-    console.error("Failed to open new window:", e);
+    log.error("Failed to open new window:", e);
   }
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import type { FileEntry } from "../../lib/stores/files.svelte";
   import type { GitStatusKind } from "../../lib/stores/git.svelte";
   import { getFileIcon } from "../../lib/utils/file-icons";
@@ -151,7 +152,7 @@
       entry.children = result;
       children = result;
     } catch (e) {
-      console.error("Failed to reload directory:", e);
+      log.error("Failed to reload directory:", e);
     } finally {
       loading = false;
     }
@@ -175,7 +176,7 @@
         entry.children = result;
         children = result;
       } catch (e) {
-        console.error("Failed to load directory:", e);
+        log.error("Failed to load directory:", e);
       } finally {
         loading = false;
       }

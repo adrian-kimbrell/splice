@@ -5,6 +5,7 @@
  * plus staged/unstaged/untracked groupings for the git panel.
  */
 
+import { log } from "../utils/log";
 import type { GitFileStatus } from "../ipc/commands";
 
 export type GitStatusKind = "modified" | "added" | "deleted" | "untracked" | "renamed" | "conflict" | "clean";
@@ -157,7 +158,7 @@ export async function refreshGitStatus(workspaceId: string, rootPath: string): P
     // "not a git repository" is expected for non-git directories — don't spam the console
     const msg = String(e);
     if (!msg.includes("not a git repository")) {
-      console.warn("Failed to refresh git status:", e);
+      log.warn("Failed to refresh git status:", e);
     }
     if (gitStore[workspaceId]) {
       gitStore[workspaceId].loading = false;

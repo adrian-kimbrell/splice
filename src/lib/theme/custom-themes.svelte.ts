@@ -8,6 +8,7 @@
  *
  * Custom themes take priority over built-in themes in {@link applyTheme}.
  */
+import { log } from "../utils/log";
 import type { ThemeColors } from "./themes";
 
 export const customThemeMap = $state<Record<string, ThemeColors>>({});
@@ -34,6 +35,6 @@ export async function loadCustomThemes(): Promise<void> {
       customThemeMap[t.name] = t.colors as unknown as ThemeColors;
     }
   } catch (e) {
-    console.error("Failed to load custom themes:", e);
+    log.error("Failed to load custom themes:", e);
   }
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import type { Workspace, SshConfig } from "../../lib/stores/workspace-types";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
@@ -133,7 +134,7 @@
 
       onclose();
     } catch (e) {
-      console.error("[SSH] Error:", e);
+      log.error("[SSH] Error:", e);
       error = String(e);
     } finally {
       connecting = false;

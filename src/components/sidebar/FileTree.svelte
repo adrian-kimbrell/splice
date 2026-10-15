@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import FileTreeItem from "./FileTreeItem.svelte";
   import type { FileEntry } from "../../lib/stores/files.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
@@ -432,7 +433,7 @@
         preview: false,
       });
     } catch (e) {
-      console.error("Failed to create file:", e);
+      log.error("Failed to create file:", e);
     }
   }
 
@@ -442,7 +443,7 @@
       await createDirectoryAt(dir, name);
       await refreshTree();
     } catch (e) {
-      console.error("Failed to create folder:", e);
+      log.error("Failed to create folder:", e);
     }
   }
 
@@ -451,7 +452,7 @@
       const { revealInFileManager } = await import("../../lib/ipc/commands");
       await revealInFileManager(path);
     } catch (e) {
-      console.error("Failed to reveal in Finder:", e);
+      log.error("Failed to reveal in Finder:", e);
     }
   }
 
@@ -460,7 +461,7 @@
       const { open } = await import("@tauri-apps/plugin-shell");
       await open(path);
     } catch (e) {
-      console.error("Failed to open in default app:", e);
+      log.error("Failed to open in default app:", e);
     }
   }
 
@@ -474,7 +475,7 @@
       await duplicatePath(path);
       await refreshTree();
     } catch (e) {
-      console.error("Failed to duplicate:", e);
+      log.error("Failed to duplicate:", e);
     }
   }
 
@@ -496,7 +497,7 @@
         fileClipboard.clear();
       }
     } catch (e) {
-      console.error("Failed to paste:", e);
+      log.error("Failed to paste:", e);
     }
   }
 
@@ -549,7 +550,7 @@
         }
       }
     } catch (e) {
-      console.error("Failed to rename:", e);
+      log.error("Failed to rename:", e);
     }
   }
 
@@ -579,7 +580,7 @@
         }
       }
     } catch (e) {
-      console.error("Failed to delete:", e);
+      log.error("Failed to delete:", e);
     }
   }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../lib/utils/log";
   /**
    * App.svelte -- Root component for the Splice editor.
    *
@@ -43,6 +44,8 @@
   import TitleBar from "./topbar/TitleBar.svelte";
   import { showContextMenu } from "../lib/utils/context-menu";
   import { openNewWindow } from "../lib/utils/new-window";
+  import { isImagePath, toastFileReadError, readFileForWs, openDroppedFiles, openFolderPath, openFilePath, drainOpenPaths } from "../lib/utils/open-paths";
+  import WelcomeScreen from "./WelcomeScreen.svelte";
   import { confirmUnsaved, requestCloseWorkspace } from "../lib/utils/close-workspace";
   import { ui } from "../lib/stores/ui.svelte";
   import { initKeybindings, enterZenMode, exitZenMode, bumpFocusedPaneFont, resetFocusedPaneFont } from "../lib/utils/keybindings";
@@ -62,7 +65,6 @@
   import { pushToast } from "../lib/stores/toasts.svelte";
   import { isUnderRoot } from "../lib/utils/path-utils";
   import { cancelPendingResume } from "../lib/stores/workspace-session";
-  import { getRandomTagline } from "../lib/utils/taglines";
   import { getTabsForPane, getActiveTabForPane, getContentForPane } from "../lib/stores/workspace-view-helpers";
 
   // Pre-import commands module for fast access after first load
@@ -72,11 +74,6 @@
     return _commands;
   }
 
-  const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp"]);
-  function isImagePath(p: string): boolean {
-    const dot = p.lastIndexOf(".");
-    return dot >= 0 && IMAGE_EXTENSIONS.has(p.slice(dot).toLowerCase());
-  }
 
   function handleSplitPane(paneId: string, direction: SplitDirection, side: "before" | "after" = "after") {
     workspaceManager.splitPane(paneId, direction, side);
@@ -318,33 +315,7 @@
       ? activePane.activeFilePath.split("/").pop() ?? null
       : null,
   );
-  function toastFileReadError(path: string, e: unknown): void {
-    const name = path.split("/").pop() ?? path;
-    const msg = String(e);
-    let detail: string;
-    if (msg.includes("not valid UTF-8") || msg.includes("not a text file")) {
-      detail = "not a text file";
-    } else if (msg.includes("Permission denied") || msg.includes("permission denied")) {
-      detail = "permission denied";
-    } else if (msg.includes("No such file") || msg.includes("not found")) {
-      detail = "file not found";
-    } else {
-      // Include the raw message for unknown errors (trimmed to keep toast short)
-      const raw = msg.replace(/^Error:\s*/, "").slice(0, 120);
-      detail = raw || "read failed";
-    }
-    pushToast(`Cannot open "${name}": ${detail}`, "error", 6000);
-    console.error("Failed to read file:", e);
-  }
 
-  async function readFileForWs(path: string): Promise<string> {
-    if (ws?.sshConfig) {
-      const { sftpReadFile } = await import("../lib/ipc/commands");
-      return sftpReadFile(ws.id, path);
-    }
-    const { readFile } = await getCommands();
-    return readFile(path);
-  }
 
   async function handleFileClick(entry: FileEntry) {
     selectedFilePath = entry.path;
@@ -427,39 +398,12 @@
 
   let showSshForm = $state(false);
 
-  const tagline = getRandomTagline();
 
-  async function openDroppedFiles(paths: string[]) {
-    if (!workspaceManager.activeWorkspace) {
-      workspaceManager.createEmptyWorkspace();
-    }
-
-    for (const filePath of paths) {
-      // Skip directories
-      if (filePath.endsWith("/")) continue;
-
-      try {
-        const content = isImagePath(filePath) ? "" : await readFileForWs(filePath);
-        const name = filePath.split("/").pop() ?? "untitled";
-        workspaceManager.openFileInWorkspace({ name, path: filePath, content });
-        addRecentFile(filePath);
-      } catch (e) {
-        toastFileReadError(filePath, e);
-      }
-    }
-  }
 
   const showWelcome = $derived(
     Object.keys(workspaceManager.workspaces).length === 0,
   );
 
-  async function openFolderPath(path: string) {
-    if (!workspaceManager.activeWorkspace) {
-      workspaceManager.createEmptyWorkspace();
-    }
-    await workspaceManager.openFolderInWorkspace(path);
-    ui.explorerVisible = true;
-  }
 
   async function handleOpenFolder() {
     try {
@@ -467,7 +411,7 @@
       const selected = await open({ directory: true, multiple: false });
       if (selected) await openFolderPath(selected as string);
     } catch (e) {
-      console.error("Failed to open folder:", e);
+      log.error("Failed to open folder:", e);
     }
   }
 
@@ -475,15 +419,6 @@
     workspaceManager.newUntitledFile();
   }
 
-  async function openFilePath(filePath: string) {
-    if (!workspaceManager.activeWorkspace) {
-      workspaceManager.createEmptyWorkspace();
-    }
-    const content = isImagePath(filePath) ? "" : await readFileForWs(filePath);
-    const name = filePath.split("/").pop() ?? "untitled";
-    workspaceManager.openFileInWorkspace({ name, path: filePath, content });
-    addRecentFile(filePath);
-  }
 
   async function handleOpenFile() {
     if (!isTauri) return;
@@ -497,26 +432,6 @@
     }
   }
 
-  // Finder "Open With → Splice" hands paths to the Rust side, which buffers them
-  // and pings us via the "open-path" event. Drain on startup (cold launch) and
-  // on every ping (already-running). take_pending_open_paths drains atomically,
-  // so the two triggers never double-open the same file.
-  async function drainOpenPaths() {
-    if (!isTauri) return;
-    try {
-      const { takePendingOpenPaths } = await getCommands();
-      for (const t of await takePendingOpenPaths()) {
-        try {
-          if (t.is_dir) await openFolderPath(t.path);
-          else await openFilePath(t.path);
-        } catch (e) {
-          toastFileReadError(t.path, e);
-        }
-      }
-    } catch (e) {
-      console.error("Failed to open paths from OS:", e);
-    }
-  }
 
   // Hide sidebars on welcome screen, but user can toggle them back via drawers
   $effect(() => {
@@ -746,7 +661,7 @@
       const { onAttentionNotify } = await import("../lib/ipc/events");
       const { attentionStore } = await import("../lib/stores/attention.svelte");
 
-      installClaudeHook().catch(console.warn);
+      installClaudeHook().catch(log.warn);
 
       unlistenAttention = await onAttentionNotify((payload) => {
         // Only show notifications for terminals with an active Claude session
@@ -789,6 +704,25 @@
         const currentLabel = appWindow.label;
         unlistenClosing = await appWindow.onCloseRequested(async (event) => {
           event.preventDefault();
+          // A secondary window owns its workspaces: closing it deletes its workspace
+          // file (unregisterWindow below), so everything in it is gone for good.
+          // Confirm first when there is anything to lose.
+          if (currentLabel !== "main") {
+            const count = Object.keys(workspaceManager.workspaces).length;
+            if (count > 0) {
+              let ok = true;
+              try {
+                const { ask } = await import("@tauri-apps/plugin-dialog");
+                ok = await ask(
+                  `Close this window? ${count} workspace${count === 1 ? "" : "s"} in it will be removed, and their terminals ended.`,
+                  { title: "Close Window", kind: "warning", okLabel: "Close Window", cancelLabel: "Cancel" },
+                );
+              } catch {
+                ok = window.confirm("Close this window and remove its workspaces?");
+              }
+              if (!ok) return;
+            }
+          }
           flushSettingsSave();
           // Cancel + flush any pending debounced persistence so state mutated
           // <500ms before quit is not lost when timers fire after destroy.
@@ -801,7 +735,7 @@
           // Graceful close of secondary window: remove from registry + delete workspace file
           if (currentLabel !== "main") {
             const { unregisterWindow } = await getCommands();
-            await unregisterWindow(currentLabel).catch(console.warn);
+            await unregisterWindow(currentLabel).catch(log.warn);
           }
           try {
             await appWindow.destroy();
@@ -809,7 +743,7 @@
             await appWindow.close();
           }
         });
-      }).catch(console.warn);
+      }).catch(log.warn);
 
       // Listen for file watcher events
       const { listen } = await import("@tauri-apps/api/event");
@@ -886,7 +820,7 @@
               await copyPath(src, dest);
               ok++;
             } catch (e) {
-              console.error(`Failed to copy ${src} → ${dest}:`, e);
+              log.error(`Failed to copy ${src} → ${dest}:`, e);
               pushToast(`Could not copy ${name}: ${e}`, "error");
             }
           }
@@ -1191,66 +1125,7 @@
         {/if}
       </div>
     {:else}
-      <div class="welcome-screen flex-1 flex items-center justify-center">
-        <div class="welcome-container">
-          <div class="welcome-header">
-            <div style="width: 64px; height: 64px; background-color: var(--accent); -webkit-mask-image: url('/logo.png'); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; mask-image: url('/logo.png'); mask-size: contain; mask-repeat: no-repeat; mask-position: center;" aria-label="Splice"></div>
-            <div>
-              <div class="text-txt-bright text-xl font-medium">Splice</div>
-              <div class="text-txt-dim text-xs">{tagline}</div>
-            </div>
-          </div>
-
-          <fieldset class="welcome-section">
-            <legend class="welcome-legend">Get Started</legend>
-            <button class="welcome-item" onclick={handleNewFile}>
-              <i class="bi bi-file-earmark-plus"></i>
-              <span>New File</span>
-              <kbd>Cmd N</kbd>
-            </button>
-            {#if isTauri}
-              <button class="welcome-item" onclick={handleOpenFolder}>
-                <i class="bi bi-folder2-open"></i>
-                <span>Open Folder</span>
-                <kbd>Cmd O</kbd>
-              </button>
-              <button class="welcome-item" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
-                <i class="bi bi-terminal"></i>
-                <span>Open Terminal</span>
-              </button>
-            {/if}
-            <button class="welcome-item" onclick={() => (ui.commandPaletteOpen = true)}>
-              <i class="bi bi-command"></i>
-              <span>Command Palette</span>
-              <kbd>Cmd P</kbd>
-            </button>
-          </fieldset>
-
-          {#if recentProjects.length > 0 && !ui.prMode}
-            <fieldset class="welcome-section">
-              <legend class="welcome-legend">Recent</legend>
-              {#each recentProjects.slice(0, 5) as projectPath}
-                <button class="welcome-item" onclick={() => {
-                  workspaceManager.createWorkspaceFromDirectory(projectPath);
-                }}>
-                  <i class="bi bi-folder2" style="flex-shrink: 0;"></i>
-                  <span style="flex: none;">{projectPath.split("/").filter(Boolean).pop()}</span>
-                  <span class="text-txt-dim text-[10px] truncate" style="flex: 1; min-width: 0;">{projectPath}</span>
-                </button>
-              {/each}
-            </fieldset>
-          {/if}
-
-          <fieldset class="welcome-section">
-            <legend class="welcome-legend">Configure</legend>
-            <button class="welcome-item" onclick={() => ui.settingsDrawerOpen = true}>
-              <i class="bi bi-gear"></i>
-              <span>Open Settings</span>
-              <kbd>Cmd ,</kbd>
-            </button>
-          </fieldset>
-        </div>
-      </div>
+      <WelcomeScreen onNewFile={handleNewFile} onOpenFolder={handleOpenFolder} />
     {/each}
   </div>
 
@@ -1325,81 +1200,4 @@
     box-shadow: var(--accent-glow);
   }
 
-  @keyframes welcome-in {
-    from { opacity: 0; transform: translateY(16px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .welcome-container {
-    width: 380px;
-    animation: welcome-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-  .welcome-header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    margin-bottom: 32px;
-  }
-  .welcome-section {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 6px 0;
-    margin: 0 0 16px 0;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .welcome-legend {
-    font-size: var(--ui-sm);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-dim);
-    padding: 0 8px;
-    margin-left: 8px;
-  }
-  .welcome-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    min-width: 0;
-    padding: 7px 16px;
-    border: none;
-    background: transparent;
-    color: var(--text);
-    font-size: var(--ui-body);
-    cursor: pointer;
-    transition: background var(--duration-base) var(--ease-default),
-                color var(--duration-base) var(--ease-default);
-    overflow: hidden;
-  }
-  .welcome-item:hover {
-    background: var(--bg-hover);
-    color: var(--text-bright);
-  }
-  :global(.welcome-item i) {
-    font-size: var(--ui-btn);
-    width: 18px;
-    text-align: center;
-    color: var(--text-dim);
-  }
-  :global(.welcome-item:hover i) {
-    color: var(--text-bright);
-  }
-  :global(.welcome-item span) {
-    flex: 1;
-    text-align: left;
-  }
-  :global(.welcome-item kbd) {
-    font-size: 10.5px;
-    color: var(--text-dim);
-    font-family: var(--ui-font);
-  }
-  .welcome-item-compact {
-    justify-content: center;
-    width: auto;
-    padding: 6px 16px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border);
-  }
 </style>

@@ -21,6 +21,7 @@
  * @exports debouncedSaveSettings - Debounced write-back to Rust
  * @exports flushSettingsSave - Immediate write-back for shutdown paths
  */
+import { log } from "../utils/log";
 
 export interface Settings {
   general: {
@@ -152,7 +153,7 @@ export async function ensureWorkspaceSettingsFile(workspaceRoot: string | null):
   const raw = await readProjectSettings(workspaceRoot).catch(() => "");
   if (!raw.trim()) {
     await writeProjectSettings(workspaceRoot, "{\n  \n}\n").catch((e) =>
-      console.error("Failed to create workspace settings file:", e),
+      log.error("Failed to create workspace settings file:", e),
     );
   }
   return `${workspaceRoot}/.splice/settings.json`;
@@ -181,7 +182,7 @@ export async function loadProjectSettings(workspaceRoot: string | null): Promise
       projectSettings = {};
     }
   } catch (e) {
-    console.warn(`Failed to load project settings for ${workspaceRoot}:`, e);
+    log.warn(`Failed to load project settings for ${workspaceRoot}:`, e);
     projectSettings = {};
   }
 }
@@ -203,7 +204,7 @@ export async function initSettings(): Promise<void> {
       if (loaded.appearance) Object.assign(settings.appearance, loaded.appearance);
       if (loaded.terminal) Object.assign(settings.terminal, loaded.terminal);
     } catch (e) {
-      console.error("Failed to load settings:", e);
+      log.error("Failed to load settings:", e);
     }
   })();
   return settingsInitPromise;
@@ -222,7 +223,7 @@ export function debouncedSaveSettings(): void {
       const { updateSettings } = await import("../ipc/commands");
       await updateSettings($state.snapshot(settings));
     } catch (e) {
-      console.error("Failed to save settings:", e);
+      log.error("Failed to save settings:", e);
     }
   }, 500);
 }
@@ -235,5 +236,5 @@ export function flushSettingsSave(): void {
   if (!isTauri || !settingsInitPromise) return;
   import("../ipc/commands").then(({ updateSettings }) =>
     updateSettings($state.snapshot(settings))
-  ).catch((e) => console.error("Failed to flush settings:", e));
+  ).catch((e) => log.error("Failed to flush settings:", e));
 }

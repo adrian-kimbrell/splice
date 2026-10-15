@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import { settings, debouncedSaveSettings } from "../../lib/stores/settings.svelte";
   import { themeNames } from "../../lib/theme/themes";
   import { customThemeMap, loadCustomThemes, registerCustomTheme, unregisterCustomTheme } from "../../lib/theme/custom-themes.svelte";
@@ -217,7 +218,7 @@
       setValue("appearance.theme", theme.name);
       await applyTheme(theme.name);
     } catch (e: any) {
-      console.error("Import failed:", e);
+      log.error("Import failed:", e);
       alert("Failed to import theme: " + (e?.message ?? e));
     }
   }
@@ -234,7 +235,7 @@
         await applyTheme("Splice Default");
       }
     } catch (e) {
-      console.error("Failed to delete custom theme:", e);
+      log.error("Failed to delete custom theme:", e);
     }
   }
 

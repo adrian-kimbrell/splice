@@ -1,3 +1,4 @@
+import { log } from "../utils/log";
 import type { Workspace } from "./workspace-types";
 import type { RustWorkspace } from "../ipc/commands";
 import { validateLayout } from "./workspace-tab-ops";
@@ -153,7 +154,7 @@ export function scheduleClaudeResume(
         }
         try {
           await deps.writeToTerminal(terminalId, new TextEncoder().encode(`claude --resume ${sessionId}\n`));
-        } catch (e) { console.warn("claude --resume injection failed:", e); }
+        } catch (e) { log.warn("claude --resume injection failed:", e); }
       }, extra);
       pending.timers.push(t);
     }
@@ -239,7 +240,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
       icon: ws.icon ?? null,
     } as RustWorkspace);
   } catch (e) {
-    console.error("Failed to persist workspace:", e);
+    log.error("Failed to persist workspace:", e);
   }
 }
 
@@ -327,7 +328,7 @@ export async function restoreWorkspaceImpl(
             savedTerminalId,
           );
         } catch (firstErr) {
-          console.warn(
+          log.warn(
             `Terminal spawn failed for pane ${paneInfo.id} in workspace "${rws.name}" (cwd=${cwd}), retrying once in 250ms:`,
             firstErr,
           );
@@ -366,7 +367,7 @@ export async function restoreWorkspaceImpl(
           // the user gets a fresh shell instead of nothing.
           let shouldResume = true;
           if (!isValidSessionId(sessionId)) {
-            console.warn(
+            log.warn(
               `Refusing to inject suspicious session ID for pane ${paneInfo.id} in workspace "${rws.name}": ${sessionId}. Spawning fresh terminal instead.`,
             );
             shouldResume = false;
@@ -398,7 +399,7 @@ export async function restoreWorkspaceImpl(
       } catch (e) {
         // Both spawn attempts failed. Pane is dropped from idMap (never added),
         // so layout remapping will treat the leaf as missing and prune it.
-        console.error(
+        log.error(
           `Failed to spawn terminal during restore (after retry) for pane ${paneInfo.id} in workspace "${rws.name}" (title="${paneInfo.title}"):`,
           e,
         );
@@ -427,7 +428,7 @@ export async function restoreWorkspaceImpl(
         };
       } catch (e) {
         // File may have been committed/discarded — drop this pane from the layout
-        console.warn(`Failed to restore diff pane for "${filePath}":`, e);
+        log.warn(`Failed to restore diff pane for "${filePath}":`, e);
         idMap.delete(paneInfo.id);
       }
     } else {
@@ -458,7 +459,7 @@ export async function restoreWorkspaceImpl(
             // File may no longer exist — skip it but trace for diagnosability.
             // (Legitimately gone files are not surfaced to the user, but we want
             // a breadcrumb so workspace-restore weirdness is debuggable.)
-            console.debug(
+            log.debug(
               `Skipping missing/unreadable file during restore: "${path}" (workspace "${rws.name}", pane ${paneInfo.id}):`,
               e,
             );
@@ -496,7 +497,7 @@ export async function restoreWorkspaceImpl(
     try {
       ws.layout = remapLayout(rws.layout, idMap);
     } catch (e) {
-      console.warn("Failed to remap workspace layout:", e);
+      log.warn("Failed to remap workspace layout:", e);
       // Fall back to first pane as leaf if layout is corrupt
       const firstPaneId = Object.keys(ws.panes)[0];
       if (firstPaneId) ws.layout = { type: "leaf", paneId: firstPaneId };

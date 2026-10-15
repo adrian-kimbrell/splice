@@ -1,3 +1,4 @@
+import { log } from "../utils/log";
 import type { OpenFile } from "./files.svelte";
 import type { Workspace } from "./workspace-types";
 import { generateId, findFirstLeaf, applyFileRename, markFileSaved } from "./workspace-types";
@@ -170,7 +171,7 @@ export function closeFileInWorkspace(ws: Workspace, path: string, paneId?: strin
 
       if (ws.layout) {
         const removeResult = removeNodeFromTree(ws.layout, targetPaneId!);
-        if (!removeResult.found) console.warn(`closeFileInWorkspace: pane "${targetPaneId}" not found in layout`);
+        if (!removeResult.found) log.warn(`closeFileInWorkspace: pane "${targetPaneId}" not found in layout`);
         ws.layout = removeResult.tree;
       }
 
@@ -260,7 +261,7 @@ export async function saveActiveFile(ws: Workspace): Promise<void> {
     }
     markFileSaved(file);
   } catch (e) {
-    console.error("Failed to save file:", e);
+    log.error("Failed to save file:", e);
   }
 }
 
@@ -322,7 +323,7 @@ export async function saveFile(ws: Workspace, path: string): Promise<boolean> {
     markFileSaved(file);
     return true;
   } catch (e) {
-    console.error("Failed to save file:", e);
+    log.error("Failed to save file:", e);
     return false;
   }
 }
@@ -342,7 +343,7 @@ export async function saveFileQuiet(ws: Workspace, path: string): Promise<void> 
     }
     markFileSaved(file); // fixes Critical Issue 3: also clears file.preview
   } catch (e) {
-    console.error("Auto-save failed:", e);
+    log.error("Auto-save failed:", e);
   }
 }
 

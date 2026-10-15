@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
   import type { SearchMatch } from "../../lib/ipc/commands";
@@ -118,7 +119,7 @@
       // Jump to the matching line
       dispatchEditorAction("goto-line-number", match.line_number);
     } catch (e) {
-      console.error("Failed to open search result:", e);
+      log.error("Failed to open search result:", e);
     }
   }
 

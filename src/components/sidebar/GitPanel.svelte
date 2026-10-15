@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { gitStore, refreshGitStatus, getGitEntry, type GitStatusKind } from "../../lib/stores/git.svelte";
   import type { GitFileStatus } from "../../lib/ipc/commands";
@@ -128,7 +129,7 @@
       // Also refresh git branch in case HEAD changed
       workspaceManager.fetchGitBranch(wsId);
     } catch (e) {
-      console.error("Failed to commit:", e);
+      log.error("Failed to commit:", e);
       pushToast(`Commit failed: ${e}`);
     } finally {
       committing = false;
@@ -248,7 +249,7 @@
             <button
               class="text-txt-dim hover:text-txt-bright cursor-pointer px-1"
               title="Stage All Modified"
-              onclick={() => { const paths = unstagedFiles.map(f => f.path); import("../../lib/ipc/commands").then(({ gitStage }) => gitStage(rootPath, paths)).then(doRefresh).catch(e => console.error("Failed to stage:", e)); }}
+              onclick={() => { const paths = unstagedFiles.map(f => f.path); import("../../lib/ipc/commands").then(({ gitStage }) => gitStage(rootPath, paths)).then(doRefresh).catch(e => log.error("Failed to stage:", e)); }}
             >
               <i class="bi bi-plus-lg text-[11px]"></i>
             </button>
@@ -286,7 +287,7 @@
             <button
               class="text-txt-dim hover:text-txt-bright cursor-pointer px-1"
               title="Stage All Untracked"
-              onclick={() => { const paths = untrackedFiles.map(f => f.path); import("../../lib/ipc/commands").then(({ gitStage }) => gitStage(rootPath, paths)).then(doRefresh).catch(e => console.error("Failed to stage:", e)); }}
+              onclick={() => { const paths = untrackedFiles.map(f => f.path); import("../../lib/ipc/commands").then(({ gitStage }) => gitStage(rootPath, paths)).then(doRefresh).catch(e => log.error("Failed to stage:", e)); }}
             >
               <i class="bi bi-plus-lg text-[11px]"></i>
             </button>

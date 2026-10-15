@@ -14,6 +14,7 @@
  * Language IDs are mapped from file extensions in `getLanguageId`. Supported:
  * TypeScript/JavaScript, Rust, Python (pyright preferred over pylsp), HTML, CSS, JSON.
  */
+import { log } from "../utils/log";
 import { lspStart, lspNotify, lspRequest, lspCheck, lspInstall } from "../ipc/commands";
 import { pushToast } from "../stores/toasts.svelte";
 
@@ -130,7 +131,7 @@ export class LspClient {
                        "failed to start";
         const hint = exeMatch ? `${exeMatch[1]}: ${reason}` : reason;
         pushToast(`${languageId} LSP: ${hint}`, "warning", 8000);
-        console.error(`[LSP] ${languageId} failed to start:`, err);
+        log.error(`[LSP] ${languageId} failed to start:`, err);
         throw err;
       });
     this.startPromises.set(languageId, p);
@@ -183,7 +184,7 @@ export class LspClient {
         await inFlight;
       } else {
         await this.didOpen(filePath, content, root).catch((err) =>
-          console.error("[LSP] didOpen failed:", err),
+          log.error("[LSP] didOpen failed:", err),
         );
       }
     }
@@ -256,7 +257,7 @@ export class LspClient {
       if (err instanceof Error && err.message.includes("timed out")) {
         this.runningLanguages.delete(langId);
       }
-      console.error("[LSP] definition error:", err);
+      log.error("[LSP] definition error:", err);
       return [];
     }
   }
@@ -276,7 +277,7 @@ export class LspClient {
       if (err instanceof Error && err.message.includes("timed out")) {
         this.runningLanguages.delete(langId);
       }
-      console.error("[LSP] declaration error:", err);
+      log.error("[LSP] declaration error:", err);
       return [];
     }
   }
@@ -291,7 +292,7 @@ export class LspClient {
       if (err instanceof Error && err.message.includes("timed out")) {
         this.runningLanguages.delete(langId);
       }
-      console.error("[LSP] typeDefinition error:", err);
+      log.error("[LSP] typeDefinition error:", err);
       return [];
     }
   }
@@ -306,7 +307,7 @@ export class LspClient {
       if (err instanceof Error && err.message.includes("timed out")) {
         this.runningLanguages.delete(langId);
       }
-      console.error("[LSP] implementation error:", err);
+      log.error("[LSP] implementation error:", err);
       return [];
     }
   }
@@ -324,7 +325,7 @@ export class LspClient {
       if (err instanceof Error && err.message.includes("timed out")) {
         this.runningLanguages.delete(langId);
       }
-      console.error("[LSP] references error:", err);
+      log.error("[LSP] references error:", err);
       return [];
     }
   }

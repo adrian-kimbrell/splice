@@ -12,6 +12,7 @@
  *
  * {@link initKeybindings} returns a cleanup function that removes the listener.
  */
+import { log } from "./log";
 import { ui } from "../stores/ui.svelte";
 import { workspaceManager } from "../stores/workspace.svelte";
 import { settings, debouncedSaveSettings } from "../stores/settings.svelte";
@@ -283,7 +284,7 @@ export function initKeybindings(): () => void {
           const blob = await res.blob();
           await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
         } catch (err) {
-          console.error("[screenshot] failed:", err);
+          log.error("[screenshot] failed:", err);
         }
       })();
       return;
@@ -529,7 +530,7 @@ export function initKeybindings(): () => void {
     if (import.meta.env.DEV && e.metaKey && e.shiftKey && e.code === "KeyP") {
       e.preventDefault();
       ui.prMode = !ui.prMode;
-      console.log("[dev] PR mode:", ui.prMode);
+      log.debug("[dev] PR mode:", ui.prMode);
     }
 
   };

@@ -1,3 +1,4 @@
+import { log } from "../utils/log";
 import type { FileEntry, OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
 import { MAX_SPLIT_DEPTH } from "./layout.svelte";
@@ -113,7 +114,7 @@ export function remapLayout(node: unknown, idMap: Map<string, string>, depth = 0
   }
   const children = n.children as unknown[];
   if (!Array.isArray(children) || children.length < 2) {
-    console.warn("remapLayout: malformed split (expected 2 children), treating as leaf", n);
+    log.warn("remapLayout: malformed split (expected 2 children), treating as leaf", n);
     const firstId = idMap.size > 0 ? idMap.values().next().value! : "pane-fallback";
     return { type: "leaf", paneId: firstId };
   }
@@ -198,6 +199,6 @@ export async function loadFileTreeImpl(ws: Workspace): Promise<void> {
       ws.fileTree = await readDirTree(ws.rootPath);
     }
   } catch (e) {
-    console.error("Failed to load file tree:", e);
+    log.error("Failed to load file tree:", e);
   }
 }

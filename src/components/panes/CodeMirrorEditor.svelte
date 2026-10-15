@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import { onMount } from "svelte";
   import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, scrollPastEnd, placeholder, keymap } from "@codemirror/view";
   import { EditorState, Compartment } from "@codemirror/state";
@@ -416,7 +417,7 @@
         view.dispatch({ effects: langCompartment.reconfigure(lang) });
       }
     }).catch((err) => {
-      console.error(`[splice] syntax language load failed for ${filePath}:`, err);
+      log.error(`[splice] syntax language load failed for ${filePath}:`, err);
     });
   });
 

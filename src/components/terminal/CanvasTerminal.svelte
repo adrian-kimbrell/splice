@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   /**
    * CanvasTerminal.svelte -- HTML5 Canvas-based terminal emulator frontend.
    *
@@ -269,7 +270,7 @@
     if (cols > 0 && rows > 0 && (cols !== currentCols || rows !== currentRows)) {
       currentCols = cols;
       currentRows = rows;
-      cachedResizeTerminal(terminalId, cols, rows).catch(console.error);
+      cachedResizeTerminal(terminalId, cols, rows).catch(log.error);
     }
   }
 
@@ -428,7 +429,7 @@
 
     // OSC 52: remote clipboard writes (e.g. from tmux, vim over SSH)
     const clipUnlisten = await onTerminalClipboard(terminalId, (text: string) => {
-      navigator.clipboard.writeText(text).catch(console.error);
+      navigator.clipboard.writeText(text).catch(log.error);
     });
     if (destroyed) { clipUnlisten(); return; }
     unlistenClipboard = clipUnlisten;
@@ -497,7 +498,7 @@
         e.preventDefault();
         const text = await extractSelectionText();
         if (text) {
-          writeToClipboard(text).catch(console.error);
+          writeToClipboard(text).catch(log.error);
         }
         return;
       }
@@ -549,7 +550,7 @@
               blob.arrayBuffer().then(async (buf) => {
                 const path = await saveTempImage(new Uint8Array(buf), ext);
                 writeToTerminal(terminalId, textEncoder.encode(path));
-              }).catch(console.error);
+              }).catch(log.error);
             }
             return;
           }
@@ -773,7 +774,7 @@
         }
       } else if (effectiveSettings.terminal.copy_on_select && renderer?.selectionStart && renderer?.selectionEnd) {
         const text = await extractSelectionText();
-        if (text) writeToClipboard(text).catch(console.error);
+        if (text) writeToClipboard(text).catch(log.error);
       }
     };
 
@@ -850,7 +851,7 @@
             const wheelBtn = lines < 0 ? 64 : 65; // 64=scroll-up, 65=scroll-down
             for (let i = 0; i < Math.abs(lines); i++) sendMouseEvent(wheelBtn, wheelCol, wheelRow, true);
           } else {
-            scrollTerminal(terminalId, -lines).catch(console.error);
+            scrollTerminal(terminalId, -lines).catch(log.error);
           }
         });
       }
@@ -923,7 +924,7 @@
         "sep",
         { label: "Copy",       shortcut: "⌘C", disabled: !hasSelection, action: async () => {
             const text = await extractSelectionText();
-            if (text) writeToClipboard(text).catch(console.error);
+            if (text) writeToClipboard(text).catch(log.error);
         }},
         { label: "Paste",      shortcut: "⌘V", action: async () => {
             const text = await navigator.clipboard.readText().catch(() => "");
