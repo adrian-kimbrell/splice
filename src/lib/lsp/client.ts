@@ -17,14 +17,16 @@
 import { log } from "../utils/log";
 import { lspStart, lspNotify, lspRequest, lspCheck, lspInstall } from "../ipc/commands";
 import { pushToast } from "../stores/toasts.svelte";
+import { pathToFileUri, fileUriToPath } from "./uri";
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`LSP ${label} timed out after ${ms}ms`)), ms)
-    ),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`LSP ${label} timed out after ${ms}ms`)), ms);
+  });
+  // Clear the timer when the request settles so it does not keep firing (and
+  // keep the event loop alive) for every completed request.
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 export interface LspCompletionItem {
@@ -73,6 +75,29 @@ export class LspClient {
   private checkedLanguages = new Set<string>();
   private failedLanguages = new Set<string>();
 
+  constructor() {
+    // The Rust bridge announces a server whose stdout closed (crash or exit). Drop
+    // our bookkeeping so the next action starts a fresh server instead of sending
+    // every request into a dead session until the app restarts.
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      import("@tauri-apps/api/event")
+        .then(({ listen }) =>
+          listen<string>("lsp:exit", (event) => this.onServerExit(event.payload)),
+        )
+        .catch(() => {});
+    }
+  }
+
+  /** Forget a server that exited; documents will be re-opened on next use. */
+  onServerExit(languageId: string): void {
+    this.runningLanguages.delete(languageId);
+    this.startPromises.delete(languageId);
+    for (const path of [...this.docVersions.keys()]) {
+      if (this.getLanguageId(path) === languageId) this.docVersions.delete(path);
+    }
+    pushToast(`${languageId} language server exited; it restarts on next use`, "warning", 5000);
+  }
+
   getLanguageId(filePath: string): string | null {
     const dot = filePath.lastIndexOf(".");
     const ext = dot >= 0 ? filePath.slice(dot).toLowerCase() : "";
@@ -100,11 +125,11 @@ export class LspClient {
   }
 
   fileUri(filePath: string): string {
-    return "file://" + filePath;
+    return pathToFileUri(filePath);
   }
 
   uriToPath(uri: string): string {
-    return uri.startsWith("file://") ? uri.slice("file://".length) : uri;
+    return fileUriToPath(uri);
   }
 
   async ensureStarted(languageId: string, workspaceRoot: string): Promise<void> {

@@ -15,6 +15,21 @@
 
 const textEncoder = new TextEncoder();
 
+/**
+ * The unmodified US-layout character for a physical key, from `KeyboardEvent.code`.
+ * On macOS, Option changes `e.key` to the composed character (Option+b → "∫"), so
+ * "Alt as Meta" must be derived from the key position, not from `e.key`.
+ */
+const CODE_PUNCTUATION: Record<string, string> = {
+  Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\",
+  Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Backquote: "`", Space: " ",
+};
+export function baseKeyFromCode(code: string): string | null {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  return CODE_PUNCTUATION[code] ?? null;
+}
+
 // xterm modifier param: 1 + (shift?1:0) + (alt?2:0) + (ctrl?4:0)
 function modifierCode(e: KeyboardEvent): number {
   return (e.shiftKey ? 1 : 0) + (e.altKey ? 2 : 0) + (e.ctrlKey ? 4 : 0);
@@ -156,13 +171,19 @@ export function keyToBytes(e: KeyboardEvent, appCursorKeys: boolean): Uint8Array
     if (e.key === "Delete")    return new Uint8Array([0x1b, 0x64]); // ESC d:   forward-kill-word
   }
 
-  // 12. Alt+key (single char, no ctrl/shift) → ESC prefix
-  if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key.length === 1) {
-    const charBytes = textEncoder.encode(e.key);
-    const result = new Uint8Array(1 + charBytes.length);
-    result[0] = 27; // ESC
-    result.set(charBytes, 1);
-    return result;
+  // 12. Alt+key → ESC prefix (readline "Meta"). Prefer the physical key so macOS
+  //     Option composition (Option+b → "∫") still yields ESC b; Shift upper-cases.
+  if (e.altKey && !e.ctrlKey) {
+    let base = baseKeyFromCode(e.code);
+    if (base && e.shiftKey && /^[a-z]$/.test(base)) base = base.toUpperCase();
+    const ch = base ?? (e.key.length === 1 ? e.key : null);
+    if (ch) {
+      const charBytes = textEncoder.encode(ch);
+      const result = new Uint8Array(1 + charBytes.length);
+      result[0] = 27; // ESC
+      result.set(charBytes, 1);
+      return result;
+    }
   }
 
   // 13. Ctrl+key combinations
@@ -177,6 +198,8 @@ export function keyToBytes(e: KeyboardEvent, appCursorKeys: boolean): Uint8Array
     if (key === "@" || key === " ") return new Uint8Array([0x00]); // Ctrl+@ / Ctrl+Space = NUL
     if (key === "^" || key === "6") return new Uint8Array([0x1e]); // Ctrl+^ = RS
     if (key === "_" || key === "-") return new Uint8Array([0x1f]); // Ctrl+_ = US
+    if (key === "enter") return new Uint8Array([13]);               // Ctrl+Enter = CR (as xterm)
+    if (key === "backspace") return new Uint8Array([0x08]);         // Ctrl+Backspace = BS
     return null;
   }
 

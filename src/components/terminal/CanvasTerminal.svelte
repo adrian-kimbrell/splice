@@ -514,6 +514,9 @@
       const bytes = keyToBytes(e, (modeFlags & 2) !== 0);
       if (bytes) {
         e.preventDefault();
+        // A key the shell consumed (Escape in vim, Ctrl+key) is not also a Splice
+        // shortcut; ⌘ combos return null above and still reach the global handler.
+        e.stopPropagation();
         // Clear selection on typing
         if (renderer?.selectionStart) {
           renderer.setSelection(null, null);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { keyToBytes } from "./keyboard";
+import { keyToBytes, baseKeyFromCode } from "./keyboard";
 
 // Helper to build a minimal KeyboardEvent-like object
 function key(
@@ -9,10 +9,12 @@ function key(
     altKey?: boolean;
     ctrlKey?: boolean;
     shiftKey?: boolean;
+    code?: string;
   } = {},
 ): KeyboardEvent {
   return {
     key: k,
+    code: opts.code ?? "",
     metaKey: opts.metaKey ?? false,
     altKey: opts.altKey ?? false,
     ctrlKey: opts.ctrlKey ?? false,
@@ -180,5 +182,45 @@ describe("Home / End", () => {
     expect(keyToBytes(key("Home", { shiftKey: true }), false)).toEqual(
       new Uint8Array([27, 91, 49, 59, 50, 72]),
     );
+  });
+});
+
+// ─── Alt as Meta on macOS (Option composes e.key) ─────────────────────────────
+
+describe("Alt+key uses the physical key, not the composed character", () => {
+  it("Option+b (e.key '∫') → ESC b", () => {
+    expect(Array.from(keyToBytes(key("∫", { altKey: true, code: "KeyB" }), false)!))
+      .toEqual([0x1b, 0x62]);
+  });
+
+  it("Option+. (e.key '≥') → ESC . (readline yank-last-arg)", () => {
+    expect(Array.from(keyToBytes(key("≥", { altKey: true, code: "Period" }), false)!))
+      .toEqual([0x1b, 0x2e]);
+  });
+
+  it("Option+Shift+b → ESC B", () => {
+    expect(Array.from(keyToBytes(key("ı", { altKey: true, shiftKey: true, code: "KeyB" }), false)!))
+      .toEqual([0x1b, 0x42]);
+  });
+
+  it("falls back to e.key when the code is unknown", () => {
+    expect(Array.from(keyToBytes(key("é", { altKey: true, code: "" }), false)!))
+      .toEqual([0x1b, 0xc3, 0xa9]);
+  });
+
+  it("baseKeyFromCode maps letters, digits and punctuation", () => {
+    expect(baseKeyFromCode("KeyQ")).toBe("q");
+    expect(baseKeyFromCode("Digit7")).toBe("7");
+    expect(baseKeyFromCode("Slash")).toBe("/");
+    expect(baseKeyFromCode("ArrowLeft")).toBeNull();
+  });
+});
+
+describe("Ctrl+Enter / Ctrl+Backspace are not swallowed", () => {
+  it("Ctrl+Enter → CR", () => {
+    expect(Array.from(keyToBytes(key("Enter", { ctrlKey: true }), false)!)).toEqual([13]);
+  });
+  it("Ctrl+Backspace → BS", () => {
+    expect(Array.from(keyToBytes(key("Backspace", { ctrlKey: true }), false)!)).toEqual([0x08]);
   });
 });

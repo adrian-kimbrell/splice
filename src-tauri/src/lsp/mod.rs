@@ -246,6 +246,49 @@ async fn lsp_reader(
     }
 }
 
+/// Drop every in-flight request's sender so its awaiting `lsp_request` fails with
+/// "channel closed" immediately instead of after the 30 s timeout.
+pub(crate) fn fail_pending(pending: &Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>) -> usize {
+    match pending.lock() {
+        Ok(mut map) => {
+            let n = map.len();
+            map.clear();
+            n
+        }
+        Err(poisoned) => {
+            let mut map = poisoned.into_inner();
+            let n = map.len();
+            map.clear();
+            n
+        }
+    }
+}
+
+/// Housekeeping after a language server's stdout closed.
+fn on_server_exit(
+    app: &tauri::AppHandle,
+    language_id: &str,
+    pending: &Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
+) {
+    use tauri::Manager;
+    let failed = fail_pending(pending);
+    // Remove the session — but only if it is still *this* session; a restart may
+    // already have registered a fresh one under the same language id.
+    if let Some(state) = app.try_state::<Mutex<crate::state::AppState>>() {
+        if let Ok(mut s) = state.lock() {
+            let is_ours = s
+                .lsp_sessions
+                .get(language_id)
+                .is_some_and(|sess| Arc::ptr_eq(&sess.pending, pending));
+            if is_ours {
+                s.lsp_sessions.remove(language_id);
+            }
+        }
+    }
+    tracing::warn!(language_id, failed_requests = failed, "language server exited");
+    let _ = app.emit("lsp:exit", language_id);
+}
+
 impl LspSession {
     pub async fn spawn(language_id: &str, workspace_root: &str, app_handle: tauri::AppHandle) -> Result<Self, String> {
         let (cmd_path, args) = get_lsp_command(language_id)?;
@@ -290,10 +333,15 @@ impl LspSession {
         // Pass a clone of stdin_tx to the reader so it can reply to server requests
         let reply_tx = stdin_tx.clone();
 
-        // Reader task: parses JSON-RPC and handles both responses and server requests
+        // Reader task: parses JSON-RPC and handles both responses and server requests.
+        // When it returns the server's stdout has closed (crash or exit): fail the
+        // in-flight requests now, forget the session so the next use can start a
+        // fresh server, and tell the frontend.
         let app_handle_clone = app_handle.clone();
+        let exited_lang = language_id.to_string();
         tokio::spawn(async move {
-            lsp_reader(stdout, pending_clone, reply_tx, app_handle_clone).await;
+            lsp_reader(stdout, pending_clone.clone(), reply_tx, app_handle_clone.clone()).await;
+            on_server_exit(&app_handle_clone, &exited_lang, &pending_clone);
         });
 
         // Child-wait task: reaps the process to prevent zombies
@@ -597,4 +645,22 @@ pub async fn lsp_request(
     }
 
     Ok(response.get("result").cloned().unwrap_or(Value::Null))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn fail_pending_makes_waiting_requests_error_immediately() {
+        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let (tx, rx) = oneshot::channel::<Value>();
+        pending.lock().unwrap().insert(7, tx);
+
+        assert_eq!(fail_pending(&pending), 1);
+
+        // The receiver sees a closed channel right away (previously: 30 s timeout).
+        assert!(rx.await.is_err());
+        assert!(pending.lock().unwrap().is_empty());
+    }
 }

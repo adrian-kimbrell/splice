@@ -18,6 +18,8 @@
   import { showContextMenu } from "../../lib/utils/context-menu";
   import { clientToRectSpace } from "../../lib/utils/zoom";
   import { lspClient } from "../../lib/lsp/client";
+  import { applyTextEdits } from "../../lib/lsp/text-edits";
+  import { toastFileReadError } from "../../lib/utils/open-paths";
   import type { LspLocation, LspPos, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
   import { getDiagnosticsForUri } from "../../lib/stores/diagnostics.svelte";
   import { pushToast } from "../../lib/stores/toasts.svelte";
@@ -144,10 +146,22 @@
       jumpTo(loc.range.start.line, loc.range.start.character);
       return;
     }
-    // Cross-file: read content from disk so the editor opens correctly
-    const { readFile } = await import("../../lib/ipc/commands");
-    const content = await readFile(path).catch(() => "");
-    workspaceManager.openFileInWorkspace({ name: path, path, content });
+    // Cross-file: reuse the open buffer if there is one, else read from disk. A
+    // failed read must not open an empty buffer under the real path (saving that
+    // would wipe the file); surface the error instead.
+    const ws = workspaceManager.activeWorkspace;
+    let content = ws?.openFileIndex[path]?.content;
+    if (content === undefined) {
+      try {
+        const { readFile } = await import("../../lib/ipc/commands");
+        content = await readFile(path);
+      } catch (e) {
+        toastFileReadError(path, e);
+        return;
+      }
+    }
+    const name = path.split("/").pop() ?? path;
+    workspaceManager.openFileInWorkspace({ name, path, content });
     setTimeout(() => dispatchEditorAction("goto-line-number", targetLine), 50);
   }
 
@@ -189,21 +203,18 @@
           view!.dispatch({ changes: { from, to, insert: e.newText } });
         }
       } else {
-        // Apply to file on disk
-        const { readFile, writeFile } = await import("../../lib/ipc/commands");
-        const current = await readFile(path);
-        const lines = current.split("\n");
-        const sorted = [...edits].sort(
-          (a, b) => b.range.start.line - a.range.start.line,
-        );
-        for (const e of sorted) {
-          const ln = e.range.start.line;
-          lines[ln] =
-            lines[ln].slice(0, e.range.start.character) +
-            e.newText +
-            lines[ln].slice(e.range.end.character);
+        // Another file. If it is open in this workspace, edit the buffer (it may be
+        // dirty; writing to disk would clobber unsaved work and leave the tab stale).
+        // Otherwise edit the file on disk.
+        const ws = workspaceManager.activeWorkspace;
+        const open = ws?.openFileIndex[path];
+        if (open) {
+          workspaceManager.updateFileContent(path, applyTextEdits(open.content, edits));
+        } else {
+          const { readFile, writeFile } = await import("../../lib/ipc/commands");
+          const current = await readFile(path);
+          await writeFile(path, applyTextEdits(current, edits));
         }
-        await writeFile(path, lines.join("\n"));
       }
     }
   }
