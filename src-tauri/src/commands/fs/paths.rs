@@ -55,7 +55,7 @@ pub(crate) fn rename_path_impl(old_path: &str, new_path: &str, roots: &[PathBuf]
         .map_err(|e| format!("Failed to rename '{}' to '{}': {}", old_path, new_path, e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_path(state: State<'_, Mutex<AppState>>, path: String) -> Result<(), String> {
     delete_path_impl(&path, &allowed_roots(&state)?)
 }
@@ -73,7 +73,7 @@ pub(crate) fn delete_path_impl(path: &str, roots: &[PathBuf]) -> Result<(), Stri
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn duplicate_path(state: State<'_, Mutex<AppState>>, path: String) -> Result<String, String> {
     duplicate_path_impl(&path, &allowed_roots(&state)?)
 }
@@ -116,7 +116,7 @@ pub(crate) fn duplicate_path_impl(path: &str, roots: &[PathBuf]) -> Result<Strin
     Ok(new_path.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn copy_path(
     state: State<'_, Mutex<AppState>>,
     src: String,

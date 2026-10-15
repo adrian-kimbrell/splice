@@ -106,8 +106,11 @@ pub(crate) fn install_hook_entry(
     //
     // terminal_id is read from SPLICE_TERMINAL_ID (also injected by the PTY spawner).
     // claude_pid (os.getppid()) is sent for informational/session-persistence purposes only.
+    // Guarded so the hook is a silent no-op outside a Splice terminal and on a Mac
+    // whose /usr/bin/python3 is the Xcode stub (which would open an install dialog on
+    // every Claude event, everywhere).
     let command = format!(
-        "python3 -c \"import sys,json,urllib.request,os,os.path as op\n\
+        "if [ -n \"$SPLICE_TERMINAL_ID\" ] && command -v python3 >/dev/null 2>&1; then python3 -c \"import sys,json,urllib.request,os,os.path as op\n\
          d=json.load(sys.stdin)\n\
          d['terminal_id']=int(os.environ.get('SPLICE_TERMINAL_ID','0'))\n\
          d['claude_pid']=os.getppid()\n\
@@ -125,7 +128,7 @@ pub(crate) fn install_hook_entry(
          \t\ttry: urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:'+port+'/{url_path}',json.dumps(d).encode(),{{'Content-Type':'application/json','X-Splice-Token':t}}),timeout=0.5); break\n\
          \t\texcept:\n\
          \t\t\tif _r==0:\n\
-         \t\t\t\timport time; time.sleep(0.3)\" # {marker}"
+         \t\t\t\timport time; time.sleep(0.3)\"; fi # {marker}"
     );
     arr.push(serde_json::json!({
         "matcher": "",
@@ -222,7 +225,9 @@ pub(crate) fn install_statusline(root: &mut serde_json::Value, script_path: &str
         "statusLine".to_string(),
         serde_json::json!({
             "type": "command",
-            "command": format!("python3 \"{script_path}\" status"),
+            // Same guard as the hooks: outside Splice, print nothing and never touch
+            // a missing/stub python3.
+            "command": format!("if [ -n \"$SPLICE_TERMINAL_ID\" ] && command -v python3 >/dev/null 2>&1; then python3 \"{script_path}\" status; fi"),
             "padding": 0
         }),
     );

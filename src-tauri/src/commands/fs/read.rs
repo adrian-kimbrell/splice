@@ -8,7 +8,7 @@ use tracing::warn;
 
 use super::{FileEntry, SearchMatch, SearchResult, MAX_BASE64_SIZE, MAX_FILE_SIZE};
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_dir_tree(
     state: State<'_, Mutex<AppState>>,
     path: String,
@@ -60,7 +60,7 @@ pub fn read_dir_tree(
     Ok(entries)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_file(
     state: State<'_, Mutex<AppState>>,
     path: String,
@@ -133,7 +133,10 @@ pub async fn get_git_branch(
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-#[tauri::command]
+/// Files larger than this are not searched.
+const MAX_SEARCH_FILE_BYTES: u64 = 10 * 1024 * 1024;
+
+#[tauri::command(async)]
 pub fn search_files(
     state: State<'_, Mutex<AppState>>,
     root_path: String,
@@ -188,6 +191,11 @@ pub fn search_files(
         }
         // Guard: skip entries that escaped the validated root (e.g., via followed symlinks)
         if !path.starts_with(&canonical) {
+            continue;
+        }
+        // Skip huge files (logs, SQL dumps, bundles): reading them whole per search
+        // stalled the UI and could exhaust memory.
+        if entry.metadata().map(|m| m.len() > MAX_SEARCH_FILE_BYTES).unwrap_or(true) {
             continue;
         }
 

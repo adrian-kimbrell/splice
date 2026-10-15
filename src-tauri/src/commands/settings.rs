@@ -131,10 +131,13 @@ pub fn update_settings(
 /// Returns an empty string if the file is absent. Returns an error only on
 /// I/O failures (permissions, etc.) — malformed JSON is the caller's problem.
 #[tauri::command]
-pub fn read_project_settings(workspace_root: String) -> Result<String, String> {
-    let path = std::path::Path::new(&workspace_root)
-        .join(".splice")
-        .join("settings.json");
+pub fn read_project_settings(
+    state: State<'_, Mutex<AppState>>,
+    workspace_root: String,
+) -> Result<String, String> {
+    let roots = state.lock().map_err(|e| e.to_string())?.allowed_roots.clone();
+    let root = crate::state::validate_path(&workspace_root, &roots)?;
+    let path = root.join(".splice").join("settings.json");
     if !path.exists() {
         return Ok(String::new());
     }
@@ -145,8 +148,14 @@ pub fn read_project_settings(workspace_root: String) -> Result<String, String> {
 /// creating the `.splice` directory if needed. Atomic temp+rename like the
 /// user-settings write.
 #[tauri::command]
-pub fn write_project_settings(workspace_root: String, json: String) -> Result<(), String> {
-    let dir = std::path::Path::new(&workspace_root).join(".splice");
+pub fn write_project_settings(
+    state: State<'_, Mutex<AppState>>,
+    workspace_root: String,
+    json: String,
+) -> Result<(), String> {
+    let roots = state.lock().map_err(|e| e.to_string())?.allowed_roots.clone();
+    let root = crate::state::validate_path(&workspace_root, &roots)?;
+    let dir = root.join(".splice");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("settings.json");
     let tmp = path.with_extension("json.tmp");

@@ -45,6 +45,15 @@ fn config_path(label: &str) -> std::path::PathBuf {
     }
 }
 
+/// Window labels are interpolated into config file names; keep them to a safe
+/// alphabet so `x/../../settings` cannot name a file outside the config dir.
+fn ensure_valid_label(label: &str) -> Result<(), String> {
+    let ok = !label.is_empty()
+        && label.len() <= 64
+        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if ok { Ok(()) } else { Err(format!("Invalid window label: {:?}", label)) }
+}
+
 fn windows_registry_path() -> std::path::PathBuf {
     config_dir().join("windows.json")
 }
@@ -307,7 +316,22 @@ pub fn handle_opened(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
         }
     }
     if any {
-        let _ = app.emit("open-path", ());
+        // Deliver to the focused window so the file opens where the user is looking.
+        // Every window drains the shared queue, so broadcasting let a background
+        // window win the race.
+        use tauri::Manager;
+        let focused = app
+            .webview_windows()
+            .into_iter()
+            .find(|(_, w)| w.is_focused().unwrap_or(false));
+        match focused {
+            Some((_, w)) => {
+                let _ = w.emit("open-path", ());
+            }
+            None => {
+                let _ = app.emit("open-path", ());
+            }
+        }
     }
 }
 
@@ -566,6 +590,7 @@ pub fn reorder_workspaces(
 /// Must be called BEFORE creating the WebviewWindow.
 #[tauri::command]
 pub fn register_window(label: String) -> Result<(), String> {
+    ensure_valid_label(&label)?;
     let mut registry = read_windows_registry();
     if !registry.labels.contains(&label) {
         registry.labels.push(label);
@@ -579,6 +604,7 @@ pub fn unregister_window(
     state: State<'_, Mutex<AppState>>,
     label: String,
 ) -> Result<(), String> {
+    ensure_valid_label(&label)?;
     // Remove from registry
     let mut registry = read_windows_registry();
     registry.labels.retain(|l| l != &label);
@@ -861,5 +887,15 @@ mod tests {
             assert!(roots.contains(&std::path::PathBuf::from(expected)), "missing {expected} in {roots:?}");
         }
         assert!(!roots.iter().any(|r| r.as_os_str().is_empty()));
+    }
+
+    #[test]
+    fn window_labels_are_restricted_to_a_safe_alphabet() {
+        assert!(ensure_valid_label("main").is_ok());
+        assert!(ensure_valid_label("main-19d2b4f").is_ok());
+        assert!(ensure_valid_label("").is_err());
+        assert!(ensure_valid_label("x/../../settings").is_err());
+        assert!(ensure_valid_label("a b").is_err());
+        assert!(ensure_valid_label(&"a".repeat(65)).is_err());
     }
 }

@@ -27,6 +27,10 @@ export function isSafeKeyPath(p: string): boolean {
  * path, exec login shell).
  */
 export function buildSshExtraArgs(sshConfig: SshConfig): string[] {
+  // A host or user starting with "-" would be parsed as an ssh option.
+  if (!sshConfig.host || sshConfig.host.startsWith("-") || sshConfig.user.startsWith("-")) {
+    throw new Error(`Unsafe SSH host or user rejected: "${sshConfig.user}@${sshConfig.host}"`);
+  }
   const target = sshConfig.user ? `${sshConfig.user}@${sshConfig.host}` : sshConfig.host;
   const escapedPath = sshConfig.remotePath.replace(/'/g, "'\\''");
   const keyArgs: string[] = [];
@@ -41,6 +45,7 @@ export function buildSshExtraArgs(sshConfig: SshConfig): string[] {
     "-p", String(sshConfig.port),
     "-t",
     "-o", "StrictHostKeyChecking=accept-new",
+    "--", // end of options: the destination can never be read as a flag
     target,
     `cd '${escapedPath}' && exec $SHELL -l`,
   ];

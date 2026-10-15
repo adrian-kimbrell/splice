@@ -44,6 +44,11 @@ pub fn save_temp_image(data: Vec<u8>, ext: String) -> Result<String, String> {
 /// Filename is timestamp-based to avoid collisions.
 #[tauri::command]
 pub fn save_screenshot(data: Vec<u8>) -> Result<String, String> {
+    // Dev tooling only: a packaged app's cwd is "/", where docs/screenshots cannot
+    // be created, and shipping a write-to-cwd command makes no sense.
+    if !cfg!(debug_assertions) {
+        return Err("Screenshots are a development-only feature".to_string());
+    }
     let project_dir = std::env::current_dir()
         .map_err(|e| format!("Failed to get current dir: {}", e))?;
     let screenshots_dir = project_dir.join("docs").join("screenshots");

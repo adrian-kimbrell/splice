@@ -265,8 +265,8 @@ export function initKeybindings(): () => void {
     if (mod && e.altKey && e.code === "KeyI") { e.preventDefault(); return; }
     if (e.key === "F12") { e.preventDefault(); return; }
 
-    // Numpad 3 — take a screenshot and save to docs/screenshots/
-    if (e.code === "Numpad3" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    // Numpad 3 — take a screenshot and save to docs/screenshots/ (dev builds only)
+    if (import.meta.env.DEV && e.code === "Numpad3" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
       (async () => {
