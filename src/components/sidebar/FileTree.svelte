@@ -1,5 +1,13 @@
 <script lang="ts">
   import { log } from "../../lib/utils/log";
+  import { pushToast } from "../../lib/stores/toasts.svelte";
+
+  /** Log a failed file operation and tell the user; the Rust error text is already human-readable. */
+  function fileOpFailed(what: string, e: unknown): void {
+    log.error(`Failed to ${what}:`, e);
+    const detail = String(e).replace(/^Error:\s*/, "").slice(0, 160);
+    pushToast(`Could not ${what}: ${detail}`, "error", 6000);
+  }
   import FileTreeItem from "./FileTreeItem.svelte";
   import type { FileEntry } from "../../lib/stores/files.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
@@ -433,7 +441,7 @@
         preview: false,
       });
     } catch (e) {
-      log.error("Failed to create file:", e);
+      fileOpFailed("create file", e);
     }
   }
 
@@ -443,7 +451,7 @@
       await createDirectoryAt(dir, name);
       await refreshTree();
     } catch (e) {
-      log.error("Failed to create folder:", e);
+      fileOpFailed("create folder", e);
     }
   }
 
@@ -475,7 +483,7 @@
       await duplicatePath(path);
       await refreshTree();
     } catch (e) {
-      log.error("Failed to duplicate:", e);
+      fileOpFailed("duplicate", e);
     }
   }
 
@@ -497,7 +505,7 @@
         fileClipboard.clear();
       }
     } catch (e) {
-      log.error("Failed to paste:", e);
+      fileOpFailed("paste", e);
     }
   }
 
@@ -550,7 +558,7 @@
         }
       }
     } catch (e) {
-      log.error("Failed to rename:", e);
+      fileOpFailed("rename", e);
     }
   }
 
@@ -580,7 +588,7 @@
         }
       }
     } catch (e) {
-      log.error("Failed to delete:", e);
+      fileOpFailed("delete", e);
     }
   }
 

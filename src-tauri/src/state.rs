@@ -16,7 +16,7 @@ use crate::terminal::pty::PtySession;
 use crate::workspace::layout::{Settings, Workspace};
 use notify::RecommendedWatcher;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub struct AppState {
@@ -94,4 +94,24 @@ pub fn validate_path(path: &str, allowed_roots: &[PathBuf]) -> Result<PathBuf, S
         }
     }
     Err(format!("Access denied: '{}' is outside allowed directories", path))
+}
+
+/// Validates a path that names a directory *entry* to be created, renamed, deleted
+/// or duplicated. The parent is canonicalised and checked against the allowed roots
+/// (it must exist); the final component is kept verbatim and must be a plain name,
+/// never `.` or `..`. Unlike `validate_path`, the leaf is not resolved, so a symlink
+/// inside a root is addressed as the link itself rather than as its target, and the
+/// entry does not have to exist yet.
+pub fn validate_entry_path(path: &str, allowed_roots: &[PathBuf]) -> Result<PathBuf, String> {
+    let p = Path::new(path);
+    let name = match p.components().next_back() {
+        Some(std::path::Component::Normal(n)) => n.to_os_string(),
+        _ => return Err(format!("Invalid path '{}': no file name", path)),
+    };
+    let parent = p
+        .parent()
+        .filter(|q| !q.as_os_str().is_empty())
+        .ok_or_else(|| format!("Invalid path '{}': no parent directory", path))?;
+    let canonical_parent = validate_path(&parent.to_string_lossy(), allowed_roots)?;
+    Ok(canonical_parent.join(name))
 }
