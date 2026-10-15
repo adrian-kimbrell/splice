@@ -7,7 +7,7 @@ Tauri v2 (Rust) + Svelte 5 (runes) + Tailwind v3 + Canvas-based terminal emulato
 ```bash
 npm run tauri:dev          # Dev mode with hot reload
 npm run tauri:build        # Production build
-cargo test                 # Rust unit tests (275+ terminal tests across 18 modules)
+cargo test                 # Rust unit tests (400+ across terminal, attention, workspace, fs)
 npm test                   # Vitest frontend tests
 npm run test:e2e           # WebdriverIO E2E (requires build:e2e first)
 ```
@@ -35,7 +35,7 @@ npm run test:e2e           # WebdriverIO E2E (requires build:e2e first)
 │  └─────────────────────────────────────────┘        │
 │                     │                               │
 │            lib/ipc/commands.ts                      │
-│            (67 typed invoke wrappers)               │
+│            (72 typed invoke wrappers)               │
 └──────────────────── │ ──────────────────────────────┘
                       │  Tauri IPC (camelCase → snake_case)
 ┌──────────────────── │ ──────────────────────────────┐
@@ -86,8 +86,8 @@ UI mutates settings reactive state → debouncedSaveSettings() (500ms)
 ### Attention/Claude Hook System
 ```
 Splice starts → attention::start_server (HTTP on port 19876-19878)
-→ install_hook() writes Python one-liner to ~/.config/claude/hooks/
-→ Claude Code triggers hook → curl POST to localhost with Bearer token
+→ install_hook() writes splice_hook.py to ~/.claude/splice-hooks/ and registers it in ~/.claude/settings.json
+→ Claude Code triggers hook → Python urllib POST to localhost with X-Splice-Token header
 → server.rs parses request → emits "terminal:attention-notify" event
 → attention.svelte.ts store → TitleBar shows notification badge
 ```
@@ -129,6 +129,9 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 ## Conventions
 
 - **IPC naming**: Frontend uses camelCase (`readFile`), Rust uses snake_case (`read_file`). The `lib/ipc/commands.ts` file is the single source of truth for all command signatures.
+- **Adding a Tauri command**: add the `#[tauri::command]` fn, list it once in the `splice_handlers!` macro in `lib.rs` (the e2e build appends its extras there), and add the typed wrapper in `lib/ipc/commands.ts`.
+- **Logging**: use `log.debug/warn/error` from `lib/utils/log.ts`, never bare `console.*`. `debug` is silent in release builds; `window.__spliceLog.setLevel("debug")` turns it on at runtime.
+- **Closing workspaces**: always go through `requestCloseWorkspace` (`lib/utils/close-workspace.ts`), which confirms before terminals are killed.
 - **Svelte 5 runes**: All reactive state uses `$state()`, `$derived()`, `$effect()`. No legacy `$:` or writable stores.
 - **Store pattern**: Stores export a single `$state` object (e.g., `export const ui = $state({...})`). Complex stores like workspace use a class with methods.
 - **Path security**: All file operations go through `state.rs::validate_path()` which canonicalizes and checks against `allowed_roots`.
