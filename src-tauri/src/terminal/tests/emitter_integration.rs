@@ -274,3 +274,16 @@ fn round_trip_sgr_reset_clears_colors() {
     use crate::terminal::color::DEFAULT_FG;
     assert_eq!(fg_n, DEFAULT_FG);
 }
+
+#[test]
+fn header_cursor_col_is_clamped_to_last_column_when_line_is_full() {
+    // After the 10th character the grid sits in pending-wrap state with
+    // cursor_col == cols. The renderer only draws a cursor when col < cols, so the
+    // header must report the last column or the cursor vanishes on every full line.
+    let mut h = TerminalHarness::new(10, 3);
+    h.feed_str("ABCDEFGHIJ");
+    assert_eq!(h.cursor().0, 10, "internal pending-wrap state is preserved");
+    let data = serialize_grid(&h.emu.grid, 0);
+    assert_eq!(header_cursor_col(&data), 9);
+    assert_eq!(header_cursor_visible(&data), 1);
+}

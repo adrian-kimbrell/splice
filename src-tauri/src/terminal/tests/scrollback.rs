@@ -137,3 +137,17 @@ fn scrollback_scroll_clears_the_cleared_flag() {
     h.feed_str("\n");        // LF at scroll_bottom → scroll_up_in_region → clears cleared flag
     assert!(!h.emu.grid.primary.cleared);
 }
+
+#[test]
+fn scrolled_out_keeps_counting_once_scrollback_is_at_capacity() {
+    // Scroll anchoring derives "how far did content move" from this counter; the
+    // deque length stops changing at the cap, so it must not be used for that.
+    let mut h = TerminalHarness::with_scrollback(10, 2, 3);
+    for i in 0..10 {
+        h.feed_str(&format!("{i}\r\n"));
+    }
+    assert_eq!(h.scrollback_len(), 3);
+    // Ten lines into a two-row grid: the first LF only moves the cursor down, the
+    // other nine each evict a row. The deque kept 3 of them; the counter saw all 9.
+    assert_eq!(h.emu.grid.primary.scrolled_out, 9);
+}

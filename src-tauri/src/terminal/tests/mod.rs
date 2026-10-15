@@ -18,6 +18,7 @@ pub mod scrollback;
 pub mod sgr;
 pub mod split_sequence;
 pub mod tabs;
+pub mod wide;
 
 // ── TerminalHarness ───────────────────────────────────────────────────────────
 

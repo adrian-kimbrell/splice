@@ -254,23 +254,22 @@ impl PtySession {
                                     p.into_inner()
                                 }
                             };
-                            let old_sb = if emu.grid.active_is_alt {
-                                0
-                            } else {
-                                emu.grid.primary.scrollback.len()
-                            };
+                            // Rows evicted into scrollback by this chunk. Counting
+                            // evictions (not diffing len) stays correct once the deque
+                            // is at capacity, where len no longer changes.
+                            let old_sb = emu.grid.primary.scrolled_out;
                             emu.advance(&buf[..n]);
                             let new_sb = if emu.grid.active_is_alt {
-                                0
+                                old_sb
                             } else {
-                                emu.grid.primary.scrollback.len()
+                                emu.grid.primary.scrolled_out
                             };
                             let reply: Vec<u8> = emu.pending_reply.drain(..).collect();
                             let title = emu.pending_title.take();
                             let bell = std::mem::replace(&mut emu.pending_bell, false);
                             let clipboard = emu.pending_clipboard.take();
                             let attention = emu.pending_attention.take();
-                            let sb_delta = new_sb.saturating_sub(old_sb) as i32;
+                            let sb_delta = new_sb.saturating_sub(old_sb).min(i32::MAX as u64) as i32;
                             (reply, title, bell, clipboard, attention, sb_delta)
                         }));
                         let (reply, title, bell, clipboard, attention, sb_delta) = match outcome {
@@ -384,7 +383,7 @@ impl PtySession {
                 as i32
         };
         let old = self.scroll_offset.load(Ordering::Relaxed);
-        let new_val = (old + delta).clamp(0, max);
+        let new_val = old.saturating_add(delta).clamp(0, max.max(0));
         self.scroll_offset.store(new_val, Ordering::Relaxed);
         self.version.fetch_add(1, Ordering::Relaxed);
         self.notify.notify();

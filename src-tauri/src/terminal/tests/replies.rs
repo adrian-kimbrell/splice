@@ -94,3 +94,11 @@ fn take_reply_clears_the_buffer() {
     let second = h.take_reply();
     assert!(second.is_empty(), "reply buffer should be empty after take");
 }
+
+#[test]
+fn dsr_after_filling_the_line_reports_the_last_column_not_cols_plus_one() {
+    let mut h = TerminalHarness::new(10, 3);
+    h.feed_str("ABCDEFGHIJ"); // pending-wrap: internal cursor_col == cols
+    h.feed_str("\x1b[6n");
+    assert_eq!(h.take_reply(), b"\x1b[1;10R".to_vec());
+}

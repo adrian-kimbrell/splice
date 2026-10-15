@@ -249,6 +249,16 @@ describe("TerminalRenderer", () => {
     expect(r.getSelectedText(frame)).toBe("");
   });
 
+  it("getSelectedText_skips_wide_char_placeholders", () => {
+    const frame = buildFrame({
+      cols: 10, rows: 2, fdhr: 0,
+      cells: { "0,0": { ch: "漢", width: 2 }, "0,1": { ch: " ", width: 0 }, "0,2": { ch: "字", width: 2 }, "0,3": { ch: " ", width: 0 }, "0,4": { ch: "x" } },
+    });
+    r.render(frame);
+    r.setSelection({ historyRow: 0, col: 0 }, { historyRow: 0, col: 4 });
+    expect(r.getSelectedText(frame)).toBe("漢字x");
+  });
+
   it("selection_uses_history_rows_so_it_survives_scrollback_growth", () => {
     // Same selection (historyRow 7) lands on a different display row once fdhr moves.
     r.setSelection({ historyRow: 7, col: 0 }, { historyRow: 7, col: 2 });
