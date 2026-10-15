@@ -279,7 +279,13 @@ export interface GitLogEntry {
   refs: string;
 }
 
-export async function gitStatus(path: string): Promise<GitFileStatus[]> {
+export interface GitStatusResult {
+  /** Canonical repository root; every `files[].path` is relative to this, not to the workspace root. */
+  repo_root: string;
+  files: GitFileStatus[];
+}
+
+export async function gitStatus(path: string): Promise<GitStatusResult> {
   return invoke("git_status", { path });
 }
 

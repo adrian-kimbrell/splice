@@ -107,7 +107,7 @@ export async function refreshGitStatus(workspaceId: string, rootPath: string): P
 
   try {
     const { gitStatus } = await import("../ipc/commands");
-    const files = await gitStatus(rootPath);
+    const { repo_root, files } = await gitStatus(rootPath);
 
     // Discard stale results if a newer refresh started while we awaited
     if (refreshGenerations.get(workspaceId) !== gen) return;
@@ -117,8 +117,9 @@ export async function refreshGitStatus(workspaceId: string, rootPath: string): P
     const unstaged: GitFileStatus[] = [];
     const untracked: GitFileStatus[] = [];
 
-    // Ensure rootPath ends with /
-    const root = rootPath.endsWith("/") ? rootPath : rootPath + "/";
+    // Status paths are relative to the repository root, which may sit above a
+    // workspace opened on a sub-directory of its repo.
+    const root = repo_root.endsWith("/") ? repo_root : repo_root + "/";
 
     for (const file of files) {
       const absolutePath = root + file.path;
