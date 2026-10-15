@@ -193,6 +193,28 @@ pub fn resize_terminal(
     Ok(())
 }
 
+/// Ask the emitter to re-send the current grid for `id` without touching the PTY.
+///
+/// The emitter only emits when the grid version changes, so a frame that was
+/// emitted before the frontend listener was registered (common under heavy
+/// system load, when `listen` IPC round-trips are slow) is simply lost and the
+/// pane stays blank until the shell prints something. The frontend calls this
+/// after registering its listener, and retries until a frame arrives.
+#[tauri::command]
+pub fn refresh_terminal(state: State<'_, Mutex<AppState>>, id: u32) -> Result<(), String> {
+    let (version, notify) = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        let session = state
+            .terminals
+            .get(&id)
+            .ok_or_else(|| format!("Terminal {} not found", id))?;
+        (Arc::clone(&session.version), Arc::clone(&session.notify))
+    };
+    version.fetch_add(1, Ordering::Relaxed);
+    notify.notify();
+    Ok(())
+}
+
 #[tauri::command]
 pub fn scroll_terminal(
     state: State<'_, Mutex<AppState>>,

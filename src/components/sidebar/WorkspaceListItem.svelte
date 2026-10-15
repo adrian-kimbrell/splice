@@ -123,6 +123,9 @@
       {:else}
         <div class="flex-1 min-w-0 flex flex-col truncate">
           <div class="workspace-title truncate" class:text-txt-bright={isActive}>
+            {#if workspace.icon}
+              <i class="bi {workspace.icon} workspace-icon" aria-hidden="true"></i>
+            {/if}
             {#if workspace.sshConfig}
               <i class="bi bi-hdd-network" style="font-size: var(--ui-xs); opacity: 0.7; margin-right: 4px;"></i>
             {/if}
@@ -156,7 +159,10 @@
       onmousedown={onHeaderMousedown}
       title={workspace.name}
     >
-      <i class="bi {workspace.sshConfig ? 'bi-hdd-network' : 'bi-diagram-2'}"></i>
+      <i
+        class="bi {workspace.icon ?? (workspace.sshConfig ? 'bi-hdd-network' : 'bi-diagram-2')}"
+        class:workspace-icon={!!workspace.icon}
+      ></i>
     </div>
   {/if}
   <div class="session-list">
@@ -226,6 +232,13 @@
 </div>
 
 <style>
+  /* User-chosen workspace icon: accent-coloured so it reads as a marker. */
+  .workspace-icon {
+    color: var(--accent);
+    margin-right: 5px;
+    font-size: var(--ui-body);
+  }
+  .workspace-header-compact .workspace-icon { margin-right: 0; }
   .attention-permission {
     animation: sidebar-pulse-permission 1.2s ease-in-out infinite;
   }

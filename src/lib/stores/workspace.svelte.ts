@@ -128,6 +128,16 @@ class WorkspaceManager {
     if (!ws) return;
     ws.name = name;
     ws.nameManuallySet = true;
+    this.debouncedPersistWorkspace(id);
+  }
+
+  /** Set (or clear, with null) the Bootstrap-icon class shown beside the workspace
+   *  name in the workspaces bar. Persists so it survives restart. */
+  setWorkspaceIcon(id: string, icon: string | null): void {
+    const ws = this.workspaces[id];
+    if (!ws) return;
+    ws.icon = icon && icon.trim() ? icon.trim() : null;
+    this.debouncedPersistWorkspace(id);
   }
 
   /** Rename a pane (e.g. a terminal). Empty/whitespace titles are ignored so a
@@ -243,9 +253,20 @@ class WorkspaceManager {
     this.debouncedPersistWorkspace(wsId);
   }
 
-  async createWorkspaceFromDirectory(rootPath: string): Promise<Workspace | null> {
-    const dirName = rootPath.split("/").filter(Boolean).pop() || "Untitled";
-    const id = generateId();
+  /**
+   * Create a workspace rooted at `rootPath` with a single fresh terminal.
+   *
+   * `saved` carries identity from a persisted record when the workspace is being
+   * recreated at startup without session restore. Reusing the saved id matters:
+   * the Rust side keys its list by id, so a fresh id would leave the old record
+   * in place and the workspace would be duplicated on every launch.
+   */
+  async createWorkspaceFromDirectory(
+    rootPath: string,
+    saved?: { id?: string; name?: string; icon?: string | null },
+  ): Promise<Workspace | null> {
+    const dirName = saved?.name || rootPath.split("/").filter(Boolean).pop() || "Untitled";
+    const id = saved?.id ?? generateId();
 
     // Spawn terminal first so we have a real terminalId (no placeholder)
     let terminalId: number;
@@ -278,6 +299,7 @@ class WorkspaceManager {
       explorerVisible: true,
       explorerWidth: ui.explorerWidth,
       expandedPaths: new Set(),
+      icon: saved?.icon ?? null,
     };
 
     this.workspaces[id] = ws;
@@ -995,10 +1017,22 @@ class WorkspaceManager {
 
       let globalResumeIndex = 0;
       for (const rws of workspaces) {
-        if (shouldRestore && rws.panes.length > 0) {
-          globalResumeIndex += await this.restoreWorkspace(rws, globalResumeIndex);
-        } else {
-          await this.createWorkspaceFromDirectory(rws.root_path);
+        // Isolate each workspace: one corrupt or unrestorable record must not abort
+        // the loop and silently hide every workspace after it in the list.
+        try {
+          if (shouldRestore && rws.panes.length > 0) {
+            globalResumeIndex += await this.restoreWorkspace(rws, globalResumeIndex);
+          } else {
+            // Recreate under the saved id so the Rust-side record is updated in
+            // place rather than duplicated on every launch.
+            await this.createWorkspaceFromDirectory(rws.root_path, {
+              id: rws.id,
+              name: rws.name,
+              icon: rws.icon ?? null,
+            });
+          }
+        } catch (e) {
+          console.error(`Failed to restore workspace "" ():`, e);
         }
       }
 

@@ -236,6 +236,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
             remote_path: ws.sshConfig.remotePath,
           }
         : null,
+      icon: ws.icon ?? null,
     } as RustWorkspace);
   } catch (e) {
     console.error("Failed to persist workspace:", e);
@@ -281,6 +282,7 @@ export async function restoreWorkspaceImpl(
           remotePath: rws.ssh_config.remote_path,
         }
       : null,
+    icon: rws.icon ?? null,
   };
 
   for (const paneInfo of rws.panes) {

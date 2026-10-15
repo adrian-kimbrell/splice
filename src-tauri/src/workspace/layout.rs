@@ -43,6 +43,10 @@ pub struct Workspace {
     pub explorer_width: u32,
     #[serde(default)]
     pub ssh_config: Option<SshConfig>,
+    /// Optional Bootstrap-icon class (e.g. "bi-star-fill") shown next to the workspace
+    /// name in the workspaces bar. None = default icon.
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +260,29 @@ impl Default for TerminalSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_workspace_json(extra: &str) -> String {
+        format!(
+            r#"{{"id":"w1","name":"W","root_path":"/tmp","layout":{{"type":"Leaf","pane_id":"p1"}},"panes":[],"terminal_ids":[],"open_file_paths":[],"active_file_path":null{}}}"#,
+            extra
+        )
+    }
+
+    #[test]
+    fn workspace_icon_defaults_to_none() {
+        let ws: Workspace = serde_json::from_str(&make_workspace_json("")).unwrap();
+        assert!(ws.icon.is_none());
+    }
+
+    #[test]
+    fn workspace_icon_round_trips() {
+        let ws: Workspace =
+            serde_json::from_str(&make_workspace_json(r#","icon":"bi-star-fill""#)).unwrap();
+        assert_eq!(ws.icon.as_deref(), Some("bi-star-fill"));
+        let json = serde_json::to_string(&ws).unwrap();
+        let ws2: Workspace = serde_json::from_str(&json).unwrap();
+        assert_eq!(ws2.icon.as_deref(), Some("bi-star-fill"));
+    }
 
     fn make_pane_json(extra: &str) -> String {
         format!(

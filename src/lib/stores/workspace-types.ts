@@ -83,6 +83,10 @@ export interface Workspace {
 
   // SSH remote workspace config (null = local workspace)
   sshConfig?: SshConfig | null;
+
+  // Optional Bootstrap-icon class (e.g. "bi-star-fill") shown next to the name in
+  // the workspaces bar so a workspace can be picked out at a glance. Persisted.
+  icon?: string | null;
 }
 
 export function generateId(): string {

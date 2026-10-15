@@ -43,6 +43,7 @@
   import TitleBar from "./topbar/TitleBar.svelte";
   import { showContextMenu } from "../lib/utils/context-menu";
   import { openNewWindow } from "../lib/utils/new-window";
+  import { confirmUnsaved, requestCloseWorkspace } from "../lib/utils/close-workspace";
   import { ui } from "../lib/stores/ui.svelte";
   import { initKeybindings, enterZenMode, exitZenMode, bumpFocusedPaneFont, resetFocusedPaneFont } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
@@ -101,36 +102,8 @@
     }
   }
 
-  /** Returns "save" | "discard" | "cancel" */
-  async function confirmUnsaved(): Promise<"save" | "discard" | "cancel"> {
-    if (isTauri) {
-      try {
-        const { ask } = await import("@tauri-apps/plugin-dialog");
-        // Dialog 1: "Save" keeps file; "Cancel" means don't save → proceeds to
-      // dialog 2 so the user can still abort. This gives a Cancel path from
-      // the very first dialog, unlike a "Don't Save" label that implies finality.
-      const save = await ask("This pane has unsaved changes. Save before closing?", {
-          title: "Unsaved Changes",
-          kind: "warning",
-          okLabel: "Save",
-          cancelLabel: "Cancel",
-        });
-        if (save) return "save";
-        // Dialog 2: confirm the discard, or truly cancel.
-        const discard = await ask("Close without saving? Unsaved changes will be lost.", {
-          title: "Close Without Saving",
-          kind: "warning",
-          okLabel: "Close Without Saving",
-          cancelLabel: "Cancel",
-        });
-        return discard ? "discard" : "cancel";
-      } catch {
-        return window.confirm("Discard unsaved changes?") ? "discard" : "cancel";
-      }
-    }
-    const ok = confirm("You have unsaved changes. Close anyway?");
-    return ok ? "discard" : "cancel";
-  }
+  // confirmUnsaved lives in lib/utils/close-workspace.ts so the workspaces bar can
+  // share it. Imported above.
 
   async function handleClosePane(paneId: string) {
     if (workspaceManager.hasDirtyFiles(paneId)) {
@@ -193,18 +166,7 @@
   async function handleCloseWorkspace() {
     const ws = workspaceManager.activeWorkspace;
     if (!ws) return;
-    const dirtyFiles = ws.openFiles.filter((f) => f.dirty);
-    if (dirtyFiles.length > 0) {
-      const choice = await confirmUnsaved();
-      if (choice === "cancel") return;
-      if (choice === "save") {
-        for (const f of dirtyFiles) {
-          const saved = await workspaceManager.saveFile(f.path);
-          if (!saved) return;
-        }
-      }
-    }
-    await workspaceManager.closeWorkspaceWithCleanup(ws.id);
+    await requestCloseWorkspace(ws.id);
   }
 
   async function handleTabClose(path: string, paneId: string) {

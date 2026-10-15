@@ -1,5 +1,7 @@
 <script lang="ts">
   import WorkspaceListItem from "./WorkspaceListItem.svelte";
+  import WorkspaceIconPicker from "./WorkspaceIconPicker.svelte";
+  import { requestCloseWorkspace } from "../../lib/utils/close-workspace";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { positionFixedMenu } from "../../lib/utils/context-menu";
@@ -110,8 +112,13 @@
   }
 
   async function handleCloseWorkspace(id: string) {
-    await workspaceManager.closeWorkspaceWithCleanup(id);
+    // Guarded: confirms before killing terminals / discarding unsaved files, so a
+    // stray click on the hover "×" can't silently remove a workspace.
+    await requestCloseWorkspace(id);
   }
+
+  // --- Icon picker (opened from the workspace context menu) ---
+  let iconPicker = $state<{ wsId: string; x: number; y: number } | null>(null);
 
   // --- Context menu ---
   import { onDestroy } from "svelte";
@@ -154,6 +161,7 @@
       else if (action === "new-terminal") workspaceManager.spawnTerminalInWorkspace();
       else if (action === "open-file") handleOpenFile();
       else if (action === "toggle-view-mode" && targetWsId) workspaceManager.toggleViewMode(targetWsId);
+      else if (action === "set-icon" && targetWsId) iconPicker = { wsId: targetWsId, x: e.clientX, y: e.clientY };
       removeCtxMenu();
     });
     document.body.appendChild(ctxMenuEl);
@@ -176,6 +184,7 @@
       isSingle
         ? { icon: "bi-layout-split", label: "Split View", action: "toggle-view-mode" }
         : { icon: "bi-square", label: "Single View", action: "toggle-view-mode" },
+      { icon: workspaceManager.workspaces[wsId]?.icon ?? "bi-star", label: "Set Icon…", action: "set-icon" },
     ], wsId);
   }
 
@@ -257,6 +266,15 @@
       </div>
     {/if}
   </div>
+
+  {#if iconPicker}
+    <WorkspaceIconPicker
+      wsId={iconPicker.wsId}
+      x={iconPicker.x}
+      y={iconPicker.y}
+      onClose={() => (iconPicker = null)}
+    />
+  {/if}
 
   <!-- Splice logo lockup at bottom -->
   <div class="shrink-0 flex items-center justify-center gap-1.5 py-2.5 opacity-20">
