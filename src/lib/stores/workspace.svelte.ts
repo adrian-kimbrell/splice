@@ -182,7 +182,22 @@ class WorkspaceManager {
     if (this.activeWorkspaceId === id) {
       const remaining = Object.keys(this.workspaces);
       this.activeWorkspaceId = remaining.length > 0 ? remaining[0] : null;
+      // Same handoff as switchWorkspace: the next workspace's explorer state must
+      // become the UI state, or the closed workspace's state leaks into it and is
+      // persisted as its own on the next save.
+      const next = this.activeWorkspace;
+      if (next) {
+        ui.explorerVisible = next.explorerVisible;
+        ui.explorerWidth = next.explorerWidth;
+      }
     }
+  }
+
+  /** Kill a PTY that was spawned but never placed in a pane (the workspace vanished or a drag interrupted). */
+  private discardSpawnedTerminal(terminalId: number): void {
+    import("../ipc/commands")
+      .then(({ killTerminal }) => killTerminal(terminalId))
+      .catch(e => log.warn("Failed to kill orphaned terminal:", terminalId, e));
   }
 
   // --- Workspace creation ---
@@ -354,14 +369,16 @@ class WorkspaceManager {
       }
 
       // Re-validate workspace still exists after await
-      if (!this.workspaces[wsId]) return null;
+      if (!this.workspaces[wsId]) {
+        this.discardSpawnedTerminal(terminalId);
+        return null;
+      }
       const ws2 = this.workspaces[wsId]!;
 
       // Re-check after await in case layout changed while we were spawning
       if (ws2.layout && treeDepth(ws2.layout) >= MAX_SPLIT_DEPTH) {
         log.warn("Split depth limit reached after spawn, killing orphaned terminal");
-        const { killTerminal } = await import("../ipc/commands");
-        killTerminal(terminalId).catch(e => log.warn("Failed to kill terminal:", terminalId, e));
+        this.discardSpawnedTerminal(terminalId);
         return null;
       }
 
@@ -390,6 +407,9 @@ class WorkspaceManager {
       }
 
       ws2.activePaneId = paneId;
+      // Persist now: closing the workspace kills the terminals in its *saved*
+      // record, so an unsaved terminal would survive the close headless.
+      this.debouncedPersistWorkspace(wsId);
       return terminalId;
     } catch (e) {
       log.error("Failed to spawn terminal:", e);
@@ -428,8 +448,15 @@ class WorkspaceManager {
         attentionStore.clear(tid);
       }
       try {
-        const { closeWorkspace: closeWsIpc } = await import("../ipc/commands");
-        await closeWsIpc(id);
+        const { closeWorkspace: closeWsIpc, killTerminal } = await import("../ipc/commands");
+        const killed = await closeWsIpc(id);
+        // The backend kills the terminals listed in the persisted record; anything
+        // spawned inside the debounce window since the last save is only known here.
+        for (const tid of ws.terminalIds) {
+          if (!killed.includes(tid)) {
+            killTerminal(tid).catch(e => log.warn("Failed to kill terminal:", tid, e));
+          }
+        }
       } catch (e) {
         log.error("Failed to close workspace on backend:", e);
         // IPC failed — kill terminals individually and remove the workspace record
@@ -516,7 +543,11 @@ class WorkspaceManager {
     if (!ws.layout) {
       ws.layout = { type: "leaf", paneId };
     } else {
-      const splitTarget = ws.activePaneId ?? findFirstLeaf(ws.layout);
+      // At the depth cap, split the shallowest leaf instead of the active one so the
+      // tree cannot grow past MAX_SPLIT_DEPTH (every other split path checks this).
+      const splitTarget = treeDepth(ws.layout) >= MAX_SPLIT_DEPTH
+        ? findShallowestLeaf(ws.layout)
+        : (ws.activePaneId ?? findFirstLeaf(ws.layout));
       if (splitTarget) {
         const result = splitNodeInTree(ws.layout, splitTarget, paneId, "horizontal");
         if (result.found) ws.layout = result.tree;
@@ -789,9 +820,15 @@ class WorkspaceManager {
         }
 
         // Re-validate workspace still exists after await
-        if (!this.workspaces[wsId]) return;
+        if (!this.workspaces[wsId]) {
+          this.discardSpawnedTerminal(terminalId);
+          return;
+        }
         ws = this.workspaces[wsId]!;
-        if (isCornerDragActive() || isTabDragging()) return;
+        if (isCornerDragActive() || isTabDragging()) {
+          this.discardSpawnedTerminal(terminalId);
+          return;
+        }
 
         ws.terminalIds.push(terminalId);
         ws.activeTerminalId = terminalId;
@@ -876,6 +913,9 @@ class WorkspaceManager {
           const fileIdx = ws.openFiles.findIndex((f) => f.path === path);
           if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
           delete ws.openFileIndex[path];
+          if (!path.startsWith("untitled-") && !ws.sshConfig) {
+            import("../ipc/commands").then(({ unwatchPath }) => unwatchPath(path)).catch(() => {});
+          }
         }
       }
     } else {
@@ -1033,7 +1073,7 @@ class WorkspaceManager {
             });
           }
         } catch (e) {
-          log.error(`Failed to restore workspace "" ():`, e);
+          log.error(`Failed to restore workspace "${rws.name}" (${rws.id}):`, e);
         }
       }
 
@@ -1054,13 +1094,14 @@ class WorkspaceManager {
     const ws = result.ws;
 
     if (ws.sshConfig) {
-      // Reconnect SSH session on restore, then load the remote file tree and spawn
-      // a fresh SSH terminal (panes were not restored for SSH workspaces).
+      // Reconnect the SSH session on restore, then load the remote file tree. Panes
+      // are restored like local ones; only a workspace that ended up with none gets
+      // a fresh terminal (spawning unconditionally added one per launch).
       import("../ipc/commands").then(async ({ sshConnect }) => {
         try {
           await sshConnect(ws.id, ws.sshConfig!);
           this.loadFileTree(ws.id);
-          await this.spawnTerminalInWorkspace(ws.id);
+          if (Object.keys(ws.panes).length === 0) await this.spawnTerminalInWorkspace(ws.id);
         } catch (e) {
           log.error("Failed to reconnect SSH session:", e);
         }

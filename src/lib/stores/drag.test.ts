@@ -163,6 +163,28 @@ describe("drag store", () => {
     registerPane("p1", pane); // for afterEach symmetry
   });
 
+  it("window_blur_cancels_a_drag_in_progress", () => {
+    start();
+    mouse("mousemove", 50, 50);
+    expect(isDragging()).toBe(true);
+    window.dispatchEvent(new Event("blur"));
+    expect(isDragging()).toBe(false);
+    expect(getDragActive()).toBeNull();
+    expect(document.body.classList.contains("tab-dragging")).toBe(false);
+    mouse("mouseup", 50, 50); // the late mouseup must not drop anything
+    expect(drop).not.toHaveBeenCalled();
+  });
+
+  it("escape_cancels_a_drag_in_progress", () => {
+    start();
+    mouse("mousemove", 50, 50);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(isDragging()).toBe(false);
+    expect(document.body.classList.contains("tab-dragging")).toBe(false);
+    mouse("mouseup", 50, 50);
+    expect(drop).not.toHaveBeenCalled();
+  });
+
   it("beginDrag_twice_replaces_the_previous_drag", () => {
     start();
     mouse("mousemove", 50, 50);

@@ -311,6 +311,41 @@ pub fn handle_opened(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
     }
 }
 
+/// Roots some part of the app still needs: every workspace root in *every* window,
+/// the parent directory of every file open in those workspaces (Finder "Open With"
+/// grants the file's folder), and anything the OS asked us to open that the
+/// frontend has not drained yet. `revoke_unused_roots` used to see only the
+/// closing window's workspaces, so closing a workspace in window B revoked the
+/// root window A was working in and A's saves failed with "Access denied".
+fn active_roots_for(state: &AppState) -> Vec<std::path::PathBuf> {
+    fn canon(p: &std::path::Path) -> std::path::PathBuf {
+        std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+    }
+    let mut roots = Vec::new();
+    for (_, workspaces) in state.window_workspaces.values() {
+        for w in workspaces {
+            if !w.root_path.is_empty() {
+                roots.push(canon(std::path::Path::new(&w.root_path)));
+            }
+            for f in &w.open_file_paths {
+                if let Some(dir) = std::path::Path::new(f).parent() {
+                    if !dir.as_os_str().is_empty() {
+                        roots.push(canon(dir));
+                    }
+                }
+            }
+        }
+    }
+    for target in &state.pending_open_paths {
+        let p = std::path::Path::new(&target.path);
+        let dir = if target.is_dir { Some(p) } else { p.parent() };
+        if let Some(d) = dir.filter(|d| !d.as_os_str().is_empty()) {
+            roots.push(canon(d));
+        }
+    }
+    roots
+}
+
 /// Remove entries from `allowed_roots` that are not in `active_roots`, keeping the
 /// process-default roots (the home directory) that `AppState::new` grants.
 ///
@@ -422,20 +457,16 @@ pub fn delete_workspace(
     let (workspaces, active_id) = {
         let mut state = state.lock().map_err(|e| e.to_string())?;
 
-        let (workspaces, active_id, active_roots) = {
+        let (workspaces, active_id) = {
             let entry = state.window_workspaces.entry(label.clone()).or_insert_with(|| (None, Vec::new()));
             entry.1.retain(|w| w.id != id);
             if entry.0.as_deref() == Some(&id) {
                 entry.0 = entry.1.first().map(|w| w.id.clone());
             }
-            let active_roots: Vec<std::path::PathBuf> = entry.1.iter()
-                .filter(|w| !w.root_path.is_empty())
-                .map(|w| std::fs::canonicalize(&w.root_path)
-                    .unwrap_or_else(|_| std::path::PathBuf::from(&w.root_path)))
-                .collect();
-            (entry.1.clone(), entry.0.clone(), active_roots)
+            (entry.1.clone(), entry.0.clone())
         };
 
+        let active_roots = active_roots_for(&state);
         revoke_unused_roots(&mut state.allowed_roots, &active_roots);
         (workspaces, active_id)
     };
@@ -467,20 +498,16 @@ pub fn close_workspace(
         // Modify workspace list and compute active_roots in inner block
         // so that the mutable borrow of window_workspaces is released
         // before we mutably borrow allowed_roots.
-        let (workspaces, active_id, active_roots) = {
+        let (workspaces, active_id) = {
             let entry = state.window_workspaces.entry(label.clone()).or_insert_with(|| (None, Vec::new()));
             entry.1.retain(|w| w.id != id);
             if entry.0.as_deref() == Some(&id) {
                 entry.0 = entry.1.first().map(|w| w.id.clone());
             }
-            let active_roots: Vec<std::path::PathBuf> = entry.1.iter()
-                .filter(|w| !w.root_path.is_empty())
-                .map(|w| std::fs::canonicalize(&w.root_path)
-                    .unwrap_or_else(|_| std::path::PathBuf::from(&w.root_path)))
-                .collect();
-            (entry.1.clone(), entry.0.clone(), active_roots)
+            (entry.1.clone(), entry.0.clone())
         };
 
+        let active_roots = active_roots_for(&state);
         revoke_unused_roots(&mut state.allowed_roots, &active_roots);
         (terminal_ids, workspaces, active_id)
     };
@@ -813,5 +840,26 @@ mod tests {
             .collect();
         assert_eq!(backups.len(), 1);
         assert_eq!(scan_workspace_labels_in_dir(dir.path()), vec!["main-abc123".to_string()]);
+    }
+
+    #[test]
+    fn active_roots_span_all_windows_open_files_and_pending_opens() {
+        let mut state = AppState::new();
+        let mut a: Workspace = serde_json::from_str(&ws_json("a")).unwrap();
+        a.root_path = "/Volumes/work/projA".into();
+        let mut b: Workspace = serde_json::from_str(&ws_json("b")).unwrap();
+        b.root_path = String::new(); // empty workspace with one file opened via Finder
+        b.open_file_paths = vec!["/Volumes/drop/notes/todo.md".into(), "untitled-1".into()];
+        state.window_workspaces.insert("main".into(), (None, vec![a]));
+        state.window_workspaces.insert("main-2".into(), (None, vec![b]));
+        state.pending_open_paths.push(crate::state::OpenTarget { path: "/Volumes/drop/in/x.txt".into(), is_dir: false });
+        state.pending_open_paths.push(crate::state::OpenTarget { path: "/Volumes/drop/dir".into(), is_dir: true });
+
+        let roots = active_roots_for(&state);
+
+        for expected in ["/Volumes/work/projA", "/Volumes/drop/notes", "/Volumes/drop/in", "/Volumes/drop/dir"] {
+            assert!(roots.contains(&std::path::PathBuf::from(expected)), "missing {expected} in {roots:?}");
+        }
+        assert!(!roots.iter().any(|r| r.as_os_str().is_empty()));
     }
 }

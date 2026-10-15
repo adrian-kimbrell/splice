@@ -30,7 +30,11 @@ pub struct Workspace {
     pub id: String,
     pub name: String,
     pub root_path: String,
-    pub layout: LayoutNode,
+    /// `None` when every pane has been closed. Such a workspace is still open (it
+    /// keeps its root, name and icon) and must round-trip as "no panes" rather than
+    /// resurrecting the panes of its last non-empty save on the next launch.
+    #[serde(default)]
+    pub layout: Option<LayoutNode>,
     pub panes: Vec<PaneInfo>,
     pub terminal_ids: Vec<u32>,
     pub open_file_paths: Vec<String>,
@@ -435,5 +439,17 @@ mod tests {
         let d = Settings::default();
         let c = d.clone().clamped();
         assert_eq!(serde_json::to_value(&c).unwrap(), serde_json::to_value(&d).unwrap());
+    }
+
+    #[test]
+    fn workspace_with_no_panes_round_trips_a_null_layout() {
+        let json = r#"{"id":"w","name":"W","root_path":"/tmp/w","layout":null,"panes":[],"terminal_ids":[],"open_file_paths":[],"active_file_path":null}"#;
+        let ws: Workspace = serde_json::from_str(json).unwrap();
+        assert!(ws.layout.is_none());
+        let back: Workspace = serde_json::from_str(&serde_json::to_string(&ws).unwrap()).unwrap();
+        assert!(back.layout.is_none());
+        // A record from an older build that simply omits the field also loads.
+        let json = r#"{"id":"w","name":"W","root_path":"/tmp/w","panes":[],"terminal_ids":[],"open_file_paths":[],"active_file_path":null}"#;
+        assert!(serde_json::from_str::<Workspace>(json).unwrap().layout.is_none());
     }
 }

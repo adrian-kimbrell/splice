@@ -459,7 +459,9 @@
       if (lastSyncedPath) stateCache.set(lastSyncedPath, view.state);
       lastSyncedPath = path;
       const cached = stateCache.get(path);
-      if (cached && cached.doc.length === doc.length) {
+      // Compare content, not length: an external edit that kept the length (a
+      // flipped digit in a config) would otherwise restore the stale cached text.
+      if (cached && cached.doc.toString() === doc) {
         view.setState(cached);
       } else {
         stateCache.delete(path);

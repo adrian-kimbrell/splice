@@ -114,9 +114,11 @@ export function remapLayout(node: unknown, idMap: Map<string, string>, depth = 0
   }
   const children = n.children as unknown[];
   if (!Array.isArray(children) || children.length < 2) {
-    log.warn("remapLayout: malformed split (expected 2 children), treating as leaf", n);
-    const firstId = idMap.size > 0 ? idMap.values().next().value! : "pane-fallback";
-    return { type: "leaf", paneId: firstId };
+    log.warn("remapLayout: malformed split (expected 2 children)", n);
+    // One child: keep it. None: a leaf with an id no pane owns, so the dangling-leaf
+    // sweep after restore removes it instead of a second leaf pointing at a live pane.
+    if (Array.isArray(children) && children.length === 1) return remapLayout(children[0], idMap, depth + 1);
+    return { type: "leaf", paneId: "pane-malformed" };
   }
   const direction = (n.direction as string).toLowerCase() as SplitDirection;
   return {

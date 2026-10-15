@@ -162,17 +162,18 @@ export function scheduleClaudeResume(
 }
 
 export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string | null): Promise<void> {
-  if (!ws.layout) return; // nothing to persist if no panes
-
+  // A workspace whose last pane was closed still exists (root, name, icon) and must
+  // be saved as "no panes"; skipping the save left the previous record on disk and
+  // its terminals came back on the next launch.
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   if (!isTauri) return;
 
   // Capture layout and panes before the first await. layoutSnapshot is a reference
   // alias (not a copy), so it reflects the tree as-of-now. panesSnapshot is a
   // shallow object copy — it freezes the set of pane IDs but not pane contents.
-  const layoutSnapshot = ws.layout;
+  const layoutSnapshot = ws.layout; // null when every pane has been closed
   const panesSnapshot = { ...ws.panes };
-  const layoutLeafIds = collectLeafIds(layoutSnapshot);
+  const layoutLeafIds = layoutSnapshot ? collectLeafIds(layoutSnapshot) : new Set<string>();
 
   try {
     const { saveWorkspace, getTerminalCwd } = await import("../ipc/commands");
@@ -219,7 +220,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
       id: ws.id,
       name: ws.name,
       root_path: ws.rootPath,
-      layout: frontendToRustLayout(layoutSnapshot),
+      layout: layoutSnapshot ? frontendToRustLayout(layoutSnapshot) : null,
       panes,
       terminal_ids: ws.terminalIds,
       open_file_paths: ws.openFiles.map((f) => f.path),

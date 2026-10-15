@@ -47,6 +47,7 @@
   import { isImagePath, toastFileReadError, readFileForWs, openDroppedFiles, openFolderPath, openFilePath, drainOpenPaths } from "../lib/utils/open-paths";
   import WelcomeScreen from "./WelcomeScreen.svelte";
   import { confirmUnsaved, requestCloseWorkspace } from "../lib/utils/close-workspace";
+  import { wasRecentlyWrittenBySplice } from "../lib/stores/self-writes";
   import { ui } from "../lib/stores/ui.svelte";
   import { initKeybindings, enterZenMode, exitZenMode, bumpFocusedPaneFont, resetFocusedPaneFont } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
@@ -141,6 +142,9 @@
     const pane = ws.panes[ws.activePaneId];
     if (!pane || pane.kind !== "editor") return;
     const paths = [...(pane.filePaths ?? [])];
+    // Save As renames an untitled file in place; keep the file objects so we close
+    // whatever path each one ends up with.
+    const files = paths.map((p) => ws.openFileIndex[p]);
     // Check for dirty files
     const dirtyPaths = paths.filter((p) =>
       ws.openFileIndex[p]?.dirty,
@@ -155,9 +159,9 @@
         }
       }
     }
-    for (const p of paths) {
-      workspaceManager.closeFileInWorkspace(p, ws.activePaneId);
-    }
+    paths.forEach((p, i) => {
+      workspaceManager.closeFileInWorkspace(files[i]?.path ?? p, ws.activePaneId!);
+    });
   }
 
   async function handleCloseWorkspace() {
@@ -167,6 +171,8 @@
   }
 
   async function handleTabClose(path: string, paneId: string) {
+    // Save As renames an untitled file in place: close the path it ends up with.
+    const file = workspaceManager.activeWorkspace?.openFileIndex[path];
     if (workspaceManager.isFileDirty(path)) {
       const choice = await confirmUnsaved();
       if (choice === "cancel") return;
@@ -175,7 +181,7 @@
         if (!saved) return; // User cancelled Save As → abort close
       }
     }
-    workspaceManager.closeFileInWorkspace(path, paneId);
+    workspaceManager.closeFileInWorkspace(file?.path ?? path, paneId);
   }
 
   function handlePaneClick(paneId: string) {
@@ -754,7 +760,11 @@
           const file = ws.openFileIndex[changedPath];
           if (!file) continue;
           if (file.dirty) {
-            pushToast("File changed externally: " + (changedPath.split("/").pop() ?? changedPath), "warning", 5000);
+            // Our own save followed by a quick keystroke looks exactly like this;
+            // only warn when the write did not come from Splice.
+            if (!wasRecentlyWrittenBySplice(changedPath)) {
+              pushToast("File changed externally: " + (changedPath.split("/").pop() ?? changedPath), "warning", 5000);
+            }
           } else {
             try {
               const { readFile } = await getCommands();
@@ -851,6 +861,9 @@
 
       const ws = workspaceManager.activeWorkspace;
       if (!ws) return;
+      // The drag may have started in a workspace that was switched away mid-drag
+      // (⌘⌥⇧→ with the button held); its source pane is not in this workspace.
+      if (!ws.panes[data.sourcePaneId]) return;
 
       const sourceKind = data.kind ?? "editor";
       const targetKind = ws.panes[targetPaneId]?.kind ?? "editor";
