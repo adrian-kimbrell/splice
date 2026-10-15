@@ -132,6 +132,12 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 - **Adding a Tauri command**: add the `#[tauri::command]` fn, list it once in the `splice_handlers!` macro in `lib.rs` (the e2e build appends its extras there), and add the typed wrapper in `lib/ipc/commands.ts`.
 - **Logging**: use `log.debug/warn/error` from `lib/utils/log.ts`, never bare `console.*`. `debug` is silent in release builds; `window.__spliceLog.setLevel("debug")` turns it on at runtime.
 - **Closing workspaces**: always go through `requestCloseWorkspace` (`lib/utils/close-workspace.ts`), which confirms before terminals are killed.
+- **Entry vs. content paths (Rust)**: commands that act on a directory *entry* (delete, rename, duplicate, copy destination, create) use `validate_entry_path` (canonical parent + verbatim leaf, so a symlink is handled as the link); commands that read or write *content* use `validate_path` (resolves the target).
+- **Config files**: parse leniently (`#[serde(default)]` on every settings/workspace field; `Workspace.layout` is `Option`, `None` = no panes) and never overwrite a file that failed to parse; back it up as `<name>.corrupt-<ts>` first. Same rule for `~/.claude/settings.json`, which is left untouched on a parse error.
+- **git status**: `git_status` returns `{ repo_root, files }`; `files[].path` is relative to `repo_root`, which can lie above the workspace root. All pathspec commands run from the repo root and read status with `-z`.
+- **File watchers**: `watch_path` / `unwatch_path` are reference counted per canonical path. Always pair them; never assume a path has exactly one watcher.
+- **Self-writes**: call `markSelfWrite(path)` (`lib/stores/self-writes.ts`) before writing a file the watcher may report, so the `file:changed` handler can tell our own saves from external edits.
+- **openFiles / openFileIndex**: insert through `addOpenFile` so both hold the same `$state` proxy; pushing a raw object into both creates two proxies that do not share writes.
 - **Svelte 5 runes**: All reactive state uses `$state()`, `$derived()`, `$effect()`. No legacy `$:` or writable stores.
 - **Store pattern**: Stores export a single `$state` object (e.g., `export const ui = $state({...})`). Complex stores like workspace use a class with methods.
 - **Path security**: All file operations go through `state.rs::validate_path()` which canonicalizes and checks against `allowed_roots`.
@@ -146,4 +152,5 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 - **`#[cfg(debug_assertions)]` modules**: `dev_server.rs` and `commands/dev.rs` are gitignored. Never reference them in committed code or CI will fail.
 - **Layout proxy reparenting**: Svelte 5's `$state` proxies break when you move a node between parents. `layout.svelte.ts` uses `structuredClone` + fresh assignment for structural mutations.
 - **Workspace persistence**: Per-window config files at `~/.config/Splice/workspace-{label}.json`. Active windows tracked in `~/.config/Splice/windows.json`.
+- **Terminal shutdown**: dropping a `PtySession` SIGHUPs the shell's process group and reaps it on a detached thread (`terminate_child`). Closing our fds alone never delivers a hangup because the reader thread holds a dup of the master.
 - **Traffic light animation**: macOS native controls are repositioned via `setTrafficLightPosition` IPC with a JS requestAnimationFrame lerp to animate between compact (22px) and normal (32px) title bar states.
