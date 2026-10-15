@@ -98,7 +98,7 @@ pub fn spawn_terminal(
     let (cols, rows) = clamp_terminal_size(cols, rows);
 
     let mut state = state.lock().map_err(|e| e.to_string())?;
-    let id = if let Some(requested) = terminal_id {
+    let id = if let Some(requested) = terminal_id.filter(|r| !state.terminals.contains_key(r)) {
         // Caller (e.g. workspace restore) requested a specific ID — use it directly,
         // and bump the counter past it so future fresh spawns don't collide.
         let next = requested
@@ -109,6 +109,12 @@ pub fn spawn_terminal(
         }
         requested
     } else {
+        if let Some(requested) = terminal_id {
+            // The saved id is already live (another window restored it, or a fresh
+            // spawn got there first). Inserting over it would silently kill that
+            // session, so hand out a fresh id instead; callers use the returned id.
+            warn!(requested, "Requested terminal id is in use; allocating a fresh one");
+        }
         let id = state.next_terminal_id;
         state.next_terminal_id = state.next_terminal_id
             .checked_add(1)

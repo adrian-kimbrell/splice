@@ -12,12 +12,16 @@
 //! Login shell: `-l` is appended unless `extra_args` are provided. `extra_args` is used by
 //! SSH terminals, which pass explicit `ssh -t user@host` args instead of a login flag.
 //!
-//! `Drop` sets `running = false` and wakes the emitter so both threads exit cleanly
-//! without requiring explicit kill/join from the caller.
+//! `Drop` sets `running = false`, wakes the emitter, and hands the child to
+//! `terminate_child`, which hangs up the shell's process group (SIGHUP, then SIGKILL
+//! after a grace period) and reaps it on a detached thread. The reader thread keeps a
+//! dup of the master fd, so merely closing our handles would never deliver a hangup:
+//! without the explicit signal every closed terminal left an orphaned shell, a
+//! blocked reader thread, and the whole grid + scrollback pinned in memory.
 
 use crate::terminal::emitter::{spawn_emitter, EmitterNotify};
 use crate::terminal::term::Emulator;
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -74,6 +78,9 @@ fn pid_cwd(_pid: u32) -> Option<String> {
 pub struct PtySession {
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pub child_pid: Option<u32>,
+    /// The shell process. Kept so Drop can signal and reap it; `None` only after Drop
+    /// has taken it.
+    child: Option<Box<dyn Child + Send + Sync>>,
     /// Wrapped in Arc<Mutex> so resize_terminal can clone it and release
     /// the AppState lock before issuing the PTY ioctl (may block).
     pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
@@ -90,7 +97,47 @@ impl Drop for PtySession {
     fn drop(&mut self) {
         self.running.store(false, Ordering::Relaxed);
         self.notify.notify(); // wake emitter so it can exit
+        if let Some(child) = self.child.take() {
+            terminate_child(child);
+        }
     }
+}
+
+/// Grace period between SIGHUP and SIGKILL when a closed terminal's shell (or the
+/// program running in it) does not exit on hangup.
+const TERMINATE_GRACE: Duration = Duration::from_secs(2);
+
+/// End the process behind a closed terminal and reap it.
+///
+/// Runs on a detached thread because `PtySession::drop` executes under the
+/// `AppState` lock and must return immediately. The shell is the session leader of
+/// its pty, so its pid is also its process-group id: SIGHUP to the group reaches the
+/// shell and whatever it is running in the foreground, exactly like closing a
+/// terminal window. Anything that ignores SIGHUP is killed after `TERMINATE_GRACE`.
+/// The final `wait` reaps the child so it never lingers as a zombie.
+pub(crate) fn terminate_child(mut child: Box<dyn Child + Send + Sync>) {
+    thread::spawn(move || {
+        #[cfg(unix)]
+        if let Some(pid) = child.process_id() {
+            // SAFETY: plain libc call; a stale pid is harmless (ESRCH), and the pgid
+            // equals the pid because portable-pty spawns the shell with setsid().
+            unsafe {
+                libc::killpg(pid as libc::pid_t, libc::SIGHUP);
+            }
+        }
+        let deadline = Instant::now() + TERMINATE_GRACE;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) | Err(_) => return,
+                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(25)),
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return;
+                }
+            }
+        }
+    });
 }
 
 impl PtySession {
@@ -147,7 +194,6 @@ impl PtySession {
             .spawn_command(cmd)
             .map_err(|e| e.to_string())?;
         let child_pid = child.process_id();
-        drop(child);
 
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let writer = Arc::new(Mutex::new(
@@ -310,6 +356,7 @@ impl PtySession {
         Ok(Self {
             writer,
             child_pid,
+            child: Some(child),
             master,
             emulator,
             version,
