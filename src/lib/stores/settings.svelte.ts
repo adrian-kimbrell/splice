@@ -114,6 +114,42 @@ const defaultSettings: Settings = {
 
 export const settings = $state<Settings>(structuredClone(defaultSettings));
 
+/** Allowed ranges for numeric settings. Mirrors the Rust side (workspace/layout.rs). */
+export const SETTING_RANGES = {
+  fontSize: [8, 32],
+  uiScale: [50, 200],
+  tabSize: [1, 8],
+  autoSaveDelay: [100, 10000],
+  scrollback: [100, 100000],
+  sidebarWidth: [120, 2000],
+} as const;
+
+function clampNum(value: unknown, [lo, hi]: readonly [number, number], fallback: number): number {
+  // Anything that is not a finite number (null, a string, NaN) means the stored
+  // value is unusable: fall back to the default rather than treating it as 0.
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(hi, Math.max(lo, Math.round(value)));
+}
+
+/**
+ * Pull every numeric setting into its allowed range, in place. A settings file
+ * with `font_size: 0` or `ui_scale: 0` (hand edit, old bug) would otherwise give
+ * a 0px terminal font or a CSS zoom of 0.
+ */
+export function clampSettings(s: Settings): Settings {
+  const d = defaultSettings;
+  s.general.auto_save_delay = clampNum(s.general.auto_save_delay, SETTING_RANGES.autoSaveDelay, d.general.auto_save_delay);
+  s.editor.font_size = clampNum(s.editor.font_size, SETTING_RANGES.fontSize, d.editor.font_size);
+  s.editor.tab_size = clampNum(s.editor.tab_size, SETTING_RANGES.tabSize, d.editor.tab_size);
+  s.appearance.font_size = clampNum(s.appearance.font_size, SETTING_RANGES.fontSize, d.appearance.font_size);
+  s.appearance.ui_scale = clampNum(s.appearance.ui_scale, SETTING_RANGES.uiScale, d.appearance.ui_scale);
+  s.appearance.explorer_width = clampNum(s.appearance.explorer_width, SETTING_RANGES.sidebarWidth, d.appearance.explorer_width);
+  s.appearance.workspaces_width = clampNum(s.appearance.workspaces_width, SETTING_RANGES.sidebarWidth, d.appearance.workspaces_width);
+  s.terminal.font_size = clampNum(s.terminal.font_size, SETTING_RANGES.fontSize, d.terminal.font_size);
+  s.terminal.scrollback_lines = clampNum(s.terminal.scrollback_lines, SETTING_RANGES.scrollback, d.terminal.scrollback_lines);
+  return s;
+}
+
 /** A partial subset of Settings — anything not specified falls through to user settings. */
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
 
@@ -203,6 +239,7 @@ export async function initSettings(): Promise<void> {
       if (loaded.editor) Object.assign(settings.editor, loaded.editor);
       if (loaded.appearance) Object.assign(settings.appearance, loaded.appearance);
       if (loaded.terminal) Object.assign(settings.terminal, loaded.terminal);
+      clampSettings(settings);
     } catch (e) {
       log.error("Failed to load settings:", e);
     }

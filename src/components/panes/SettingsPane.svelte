@@ -184,6 +184,14 @@
     emitSettingsChanged();
   }
 
+  /** Numeric inputs: ignore an empty field (Number("") is 0) and clamp to the control's range. */
+  function setNumberValue(def: SettingDef, raw: string): void {
+    if (def.control.type !== "number" || raw.trim() === "") return;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    setValue(def.key, Math.min(def.control.max, Math.max(def.control.min, n)));
+  }
+
   // Auto-save settings on any change
   $effect(() => {
     JSON.stringify(settings);
@@ -322,7 +330,8 @@
                       min={def.control.min}
                       max={def.control.max}
                       step={def.control.step ?? 1}
-                      oninput={(e) => setValue(def.key, Number(e.currentTarget.value))}
+                      oninput={(e) => setNumberValue(def, e.currentTarget.value)}
+                      onblur={(e) => { e.currentTarget.value = String(getValue(def.key)); }}
                       class="settings-number"
                     />
                   {:else if def.control.type === "select"}
