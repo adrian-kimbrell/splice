@@ -8,6 +8,11 @@ import {
 } from "./workspace-session";
 import type { RustWorkspace, RustPaneInfo } from "../ipc/commands";
 
+// Vitest 4 types a bare vi.fn() as Mock<Procedure | Constructable>, which is not
+// assignable to a specific function type — so the frame-subscriber mocks are
+// given their contract explicitly.
+type SubscribeFn = (id: number, cb: (data: Uint8Array) => void) => Promise<() => void>;
+
 // IPC + settings module mocks for restoreWorkspaceImpl tests.
 // scheduleClaudeResume tests further down use direct dep-injection and are
 // unaffected because they don't import from these modules.
@@ -77,7 +82,7 @@ describe("isValidSessionId", () => {
 describe("waitForShellReady", () => {
   let frameCallback: ((data: Uint8Array) => void) | null = null;
 
-  const mockSubscribe = vi.fn().mockImplementation((_id: number, cb: (data: Uint8Array) => void) => {
+  const mockSubscribe = vi.fn<SubscribeFn>().mockImplementation((_id: number, cb: (data: Uint8Array) => void) => {
     frameCallback = cb;
     return Promise.resolve(() => { frameCallback = null; });
   });
@@ -209,7 +214,7 @@ describe("cancelPendingResume", () => {
   it("cancel_clears_all_timers", async () => {
     const writeToTerminal = vi.fn().mockResolvedValue(undefined);
     const checkPidAlive = vi.fn().mockResolvedValue(false);
-    const subscribeToFrames = vi.fn().mockImplementation((_id: number, _cb: (d: Uint8Array) => void) => {
+    const subscribeToFrames = vi.fn<SubscribeFn>().mockImplementation((_id: number, _cb: (d: Uint8Array) => void) => {
       return Promise.resolve(() => {});
     });
 
@@ -241,11 +246,11 @@ describe("scheduleClaudeResume", () => {
   // Retry timers fire at: staggerMs+600, staggerMs+5600, staggerMs+13600.
   const STABLE_MS = 600;
 
-  let subscribeToFrames: ReturnType<typeof vi.fn>;
+  let subscribeToFrames: SubscribeFn;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    subscribeToFrames = vi.fn().mockImplementation((_id: number, _cb: (d: Uint8Array) => void) => {
+    subscribeToFrames = vi.fn<SubscribeFn>().mockImplementation((_id: number, _cb: (d: Uint8Array) => void) => {
       return Promise.resolve(() => {});
     });
   });

@@ -14,9 +14,11 @@ export default defineConfig({
     globalSetup: ["tests/api/global-setup.ts"],
     testTimeout: 30_000,
     hookTimeout: 15_000,
-    // Run serially — tests share a single live app instance
+    // Run serially — tests share a single live app instance.
+    // (Vitest 4 removed poolOptions; fileParallelism + isolate replace singleFork.)
     pool: "forks",
-    poolOptions: { forks: { singleFork: true } },
+    fileParallelism: false,
+    isolate: false,
     reporters: ["verbose"],
   },
 });
