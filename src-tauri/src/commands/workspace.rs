@@ -26,9 +26,7 @@ fn config_dir() -> std::path::PathBuf {
     let name = "Splice-dev";
     #[cfg(not(debug_assertions))]
     let name = "Splice";
-    let dir = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(name);
+    let dir = crate::state::splice_config_dir(name);
     std::fs::create_dir_all(&dir).ok();
     dir
 }

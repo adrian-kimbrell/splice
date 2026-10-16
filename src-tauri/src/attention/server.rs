@@ -94,10 +94,7 @@ async fn read_request_head(stream: &mut TcpStream) -> Option<(Vec<u8>, usize)> {
 
 /// Write the bound port to a file next to the token so hooks know where to connect.
 fn write_port_file(port: u16) {
-    let port_path = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("Splice")
-        .join(".attention_port");
+    let port_path = crate::state::splice_config_dir("Splice").join(".attention_port");
     if let Some(parent) = port_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }

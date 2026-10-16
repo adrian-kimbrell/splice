@@ -234,6 +234,12 @@ pub(crate) fn install_statusline(root: &mut serde_json::Value, script_path: &str
 }
 
 pub fn install_hook() -> Result<(), String> {
+    // A sandboxed instance (SPLICE_CONFIG_DIR set, e.g. the E2E harness) must never
+    // touch the user's ~/.claude/settings.json; its port file lives elsewhere anyway.
+    if crate::state::config_dir_is_sandboxed() {
+        tracing::info!("SPLICE_CONFIG_DIR is set; skipping Claude hook install");
+        return Ok(());
+    }
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
     let settings_path = home.join(".claude").join("settings.json");
     install_hook_at(&settings_path).map(|_| ())

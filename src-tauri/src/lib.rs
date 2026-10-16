@@ -6,15 +6,18 @@
 //! - Starts the attention HTTP server (`attention::start_server`) and installs the Claude hook
 //! - Sets up the macOS dock right-click menu (`dock::setup`)
 //!
-//! Two invoke-handler lists exist behind a feature gate:
-//! - default: production handler set
-//! - `e2e`: adds `get_debug_stats` and enables `tauri_plugin_webdriver`
+//! The invoke-handler list is assembled from `splice_handlers!` plus extras:
+//! - debug builds add the `commands::dev` bridge and start the dev API server
+//!   (`dev_server.rs`), which the E2E suite and screenshot tooling drive over HTTP
+//! - the `e2e` feature adds `get_debug_stats` and enables `tauri_plugin_webdriver`
 //!
 //! The `new-window` menu event is handled here — not forwarded to the frontend — so exactly
 //! one window opens regardless of how many webviews are currently listening.
 
 mod attention;
 mod commands;
+#[cfg(debug_assertions)]
+mod dev_server;
 #[cfg(target_os = "macos")]
 mod dock;
 pub mod lsp;
@@ -261,6 +264,15 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             dock::setup(app.handle());
 
+            // Dev API (debug builds only): local HTTP server that the E2E suite and
+            // screenshot tooling use to drive the UI. See dev_server.rs.
+            #[cfg(debug_assertions)]
+            {
+                let dev_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    dev_server::start_dev_server(dev_handle).await;
+                });
+            }
 
             let token = attention::load_or_create_token();
             let handle = app.handle().clone();
@@ -274,6 +286,7 @@ pub fn run() {
                     // Install/update Claude hooks now that the server is running.
                     // Do this here (not from the frontend) to avoid a race where
                     // installClaudeHook() fires before attention_port is set.
+                    // No-op when SPLICE_CONFIG_DIR sandboxes this instance (E2E harness).
                     if let Err(e) = attention::install_hook() {
                         tracing::warn!("Failed to install Claude hook: {}", e);
                     }
@@ -318,10 +331,31 @@ pub fn run() {
             }
         })
         .invoke_handler({
-            #[cfg(not(feature = "e2e"))]
+            #[cfg(all(not(debug_assertions), not(feature = "e2e")))]
             { splice_handlers![] }
-            #[cfg(feature = "e2e")]
+            #[cfg(all(not(debug_assertions), feature = "e2e"))]
             { splice_handlers![commands::terminal::get_debug_stats] }
+            #[cfg(all(debug_assertions, not(feature = "e2e")))]
+            {
+                splice_handlers![
+                    commands::dev::resolve_dev_dom,
+                    commands::dev::dev_log,
+                    commands::dev::save_screenshot_bytes,
+                    commands::dev::resolve_dev_state,
+                    commands::dev::get_terminal_last_lines,
+                ]
+            }
+            #[cfg(all(debug_assertions, feature = "e2e"))]
+            {
+                splice_handlers![
+                    commands::dev::resolve_dev_dom,
+                    commands::dev::dev_log,
+                    commands::dev::save_screenshot_bytes,
+                    commands::dev::resolve_dev_state,
+                    commands::dev::get_terminal_last_lines,
+                    commands::terminal::get_debug_stats,
+                ]
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

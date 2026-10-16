@@ -193,6 +193,15 @@
     // If the user clicked a specific pane, activePaneId will already be updated
     // by the time this runs, so we focus the right pane rather than the old one.
     setTimeout(() => {
+      // An open overlay or a focused text field outside the panes (command palette,
+      // search, rename input, settings) keeps focus: yanking it into the pane would
+      // send the next keystroke to the shell — Escape meant for the palette, say.
+      if (ui.commandPaletteOpen || ui.settingsDrawerOpen || ui.addPromptModal) return;
+      const active = document.activeElement as HTMLElement | null;
+      const inTextField =
+        !!active &&
+        (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+      if (inTextField && !active.closest("[data-pane-id]")) return;
       const paneId = ui.zoomedPaneId ?? workspaceManager.activeWorkspace?.activePaneId;
       if (!paneId) return;
       const paneEl = document.querySelector(`[data-pane-id="${paneId}"]`);
@@ -496,6 +505,19 @@
 
   onMount(async () => {
     const stopKeybindings = initKeybindings();
+    // Dev tooling: WebDriver test hooks (`window.__spliceTest`) and the dev API event
+    // bridge for dev_server.rs. Vite drops this block from production builds; it is
+    // live in `tauri:dev` and in `vite build --mode e2e` (npm run build:e2e), where the
+    // Rust side is a debug build that runs the dev API server.
+    if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
+      import("../lib/dev/test-helpers")
+        .then(({ registerTestHelpers }) =>
+          registerTestHelpers({ workspaceManager, readFileForWs, ui, settings, openNewWindow }),
+        )
+        .catch((e) => log.warn("[dev] test helpers failed to load:", e));
+      // Standalone module so its listeners survive App.svelte HMR updates.
+      import("../lib/dev/index").catch((e) => log.warn("[dev] dev API bridge failed to load:", e));
+    }
     // Eagerly pre-import commands module
     import("../lib/ipc/commands").then(m => { _commands = m; });
     // Await settings before initializing workspaces (restore_previous_session check)
@@ -842,10 +864,6 @@
           openDroppedFiles(paths);
         }
       });
-
-      // Dev API event listeners — loaded once as a standalone module so they
-      // survive App.svelte HMR updates. Vite tree-shakes this import entirely
-      // in production builds (import.meta.env.DEV is statically false).
     }
 
     // Listen for close-active-tab from keybindings
@@ -938,6 +956,7 @@
 
 
 <div
+  id="app-root"
   class="grid"
   data-tauri-drag-region
   style="height: 100vh; background: var(--bg-editor); padding: 6px; grid-template-columns: {leftVisible && !ui.zenMode

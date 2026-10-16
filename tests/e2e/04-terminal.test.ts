@@ -55,7 +55,7 @@ describe("Terminal pane", () => {
     await browser.keys(["l"]);
     await sleep(100);
     // App should still be alive — check root element still present
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 });

@@ -7,7 +7,7 @@ pub struct CustomTheme {
 }
 
 fn themes_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|p| p.join("Splice").join("themes"))
+    Some(crate::state::splice_config_dir("Splice").join("themes"))
 }
 
 /// Largest theme file we accept (a theme is a few KB of colour keys).

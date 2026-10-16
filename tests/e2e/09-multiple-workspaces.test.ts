@@ -169,7 +169,7 @@ describe("Multiple workspaces", () => {
     }) as string;
 
     // Active workspace should have changed (or only 1 remains — either is fine)
-    const stillAlive = await browser.$(".grid.h-screen, [data-pane-id]");
+    const stillAlive = await browser.$("#app-root, [data-pane-id]");
     await expect(stillAlive).toExist();
     // If there were 2+ workspaces the active ID should differ
     if (groupsBefore >= 2) {

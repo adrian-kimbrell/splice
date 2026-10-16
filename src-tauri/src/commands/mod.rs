@@ -7,7 +7,10 @@
 //! - **terminal** -- PTY spawning, resize, input/output, and terminal lifecycle
 //! - **themes** -- Editor theme loading and listing
 //! - **workspace** -- Window layout serialization, tab state, and workspace config
+//! - **dev** -- Dev API bridge commands (debug builds only; see `dev_server.rs`)
 
+#[cfg(debug_assertions)]
+pub mod dev;
 pub mod fs;
 pub mod git;
 pub mod settings;

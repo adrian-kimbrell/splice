@@ -78,7 +78,7 @@ describe("Terminal interaction", () => {
     await browser.keys(["\uE007"]); // WebDriver Enter
     await sleep(200);
 
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 
@@ -195,7 +195,7 @@ describe("Terminal interaction", () => {
     }
 
     // Always verify the app is alive
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 });

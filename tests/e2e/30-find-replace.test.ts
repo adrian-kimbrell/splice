@@ -97,7 +97,7 @@ describe("Find & Replace", () => {
     // After a successful replace, a status message "Replaced N occurrences" should appear
     const msgs = await browser.$$(".flex.flex-col.gap-1\\.5 div.text-\\[10px\\]");
     // Not all themes render the message div the same way — just verify app is alive
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
     const _ = msgs; // suppress unused
   });

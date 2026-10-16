@@ -18,9 +18,7 @@ use tauri::{Emitter, Manager, State};
 use tracing::{error, info, warn};
 
 fn settings_path() -> std::path::PathBuf {
-    let dir = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("Splice");
+    let dir = crate::state::splice_config_dir("Splice");
     std::fs::create_dir_all(&dir).ok();
     dir.join("settings.json")
 }

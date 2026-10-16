@@ -96,7 +96,7 @@ describe("LSP Hover", () => {
       console.warn("No .cm-tooltip after hover — LSP may not have responded in time");
     }
     // Verify app is still alive regardless
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 });

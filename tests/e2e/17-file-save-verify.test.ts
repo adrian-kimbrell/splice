@@ -73,7 +73,7 @@ describe("File save verification", () => {
     await pressKey(browser, "s", { meta: true });
     await sleep(200);
 
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 });

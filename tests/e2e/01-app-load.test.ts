@@ -14,7 +14,7 @@ describe("App load", () => {
   });
 
   it("root grid container is present", async () => {
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 
@@ -33,8 +33,8 @@ describe("App load", () => {
   });
 
   it("top bar is rendered", async () => {
-    // The topbar is the second grid row; it contains .topbar-btn elements
-    const btn = await browser.$("button.topbar-btn");
+    // The topbar is the second grid row; it contains .title-btn elements
+    const btn = await browser.$("button.title-btn");
     await expect(btn).toExist();
   });
 

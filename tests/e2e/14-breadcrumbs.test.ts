@@ -34,7 +34,7 @@ describe("Breadcrumbs", () => {
     // With no file open the breadcrumb bar should be absent or empty
     const chevrons = await browser.$$(".bi-chevron-right");
     // Zero or more — just verifying the app loaded correctly
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
     void chevrons; // may be present for other UI elements
   });

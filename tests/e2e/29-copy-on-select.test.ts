@@ -32,7 +32,7 @@ describe("Copy-on-select settings UI", () => {
     await sleep(500);
 
     // Settings window: look for a window or panel containing "Settings" text
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 
@@ -53,7 +53,7 @@ describe("Copy-on-select settings UI", () => {
       console.warn("copy-on-select label not found in current DOM — settings window may be in a separate webview");
     }
     // Whether in main window or a separate settings window, the app should remain alive
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 
@@ -68,7 +68,7 @@ describe("Copy-on-select settings UI", () => {
 
     // If __spliceTest.getSettings is not available, just verify app health
     if (before === null) {
-      const root = await browser.$(".grid.h-screen");
+      const root = await browser.$("#app-root");
       await expect(root).toExist();
       return;
     }

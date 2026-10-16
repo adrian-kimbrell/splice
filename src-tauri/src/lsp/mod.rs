@@ -210,6 +210,9 @@ async fn lsp_reader(
 
         // Server-to-client requests have both "id" and "method".
         // We must respond to them or the server will stall waiting.
+        if let Some(method) = msg.get("method").and_then(Value::as_str) {
+            tracing::debug!(method, is_request = msg.get("id").is_some(), "lsp <- server");
+        }
         if msg.get("method").is_some() {
             if msg.get("id").is_none() {
                 // Pure notification (no id) — handle specific ones we care about
@@ -299,7 +302,7 @@ impl LspSession {
             .env("PATH", augmented_path())
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null());
+            .stderr(std::process::Stdio::piped());
         if !workspace_root.is_empty() {
             command.current_dir(workspace_root);
         }
@@ -310,6 +313,18 @@ impl LspSession {
 
         let stdin = child.stdin.take().ok_or("Failed to get stdin")?;
         let stdout = child.stdout.take().ok_or("Failed to get stdout")?;
+        // Surface the server's own stderr at debug level: it is the only place a
+        // crash on startup explains itself (RUST_LOG=splice_lib::lsp=debug).
+        if let Some(stderr) = child.stderr.take() {
+            let lang = language_id.to_string();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    tracing::debug!(language_id = %lang, "lsp stderr: {}", line);
+                }
+            });
+        }
+        tracing::info!(language_id, cmd = %cmd_name, "language server started");
 
         let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<Vec<u8>>();
 
@@ -363,6 +378,7 @@ impl LspSession {
     }
 
     pub fn notify(&self, method: &str, params: Value) -> Result<(), String> {
+        tracing::debug!(method, "lsp -> server (notify)");
         let msg = json!({
             "jsonrpc": "2.0",
             "method": method,
@@ -376,6 +392,7 @@ impl LspSession {
 
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        tracing::debug!(method, id, "lsp -> server (request)");
         let (tx, rx) = oneshot::channel();
         {
             let mut map = self
@@ -455,6 +472,11 @@ impl LspSession {
                     },
                     "hover": {
                         "contentFormat": ["plaintext", "markdown"]
+                    },
+                    // typescript-language-server (5.x) only pushes diagnostics when the
+                    // client says it can receive them; without this it stays silent.
+                    "publishDiagnostics": {
+                        "relatedInformation": true
                     }
                 }
             }
@@ -566,6 +588,7 @@ pub async fn lsp_notify(
     method: String,
     params: Value,
 ) -> Result<(), String> {
+    tracing::debug!(language_id, method, "lsp -> server (notify, ipc)");
     let stdin_tx = {
         let locked = state
             .lock()
@@ -594,6 +617,7 @@ pub async fn lsp_request(
     method: String,
     params: Value,
 ) -> Result<Value, String> {
+    tracing::debug!(language_id, method, "lsp -> server (request, ipc)");
     let (stdin_tx, pending, next_id) = {
         let locked = state
             .lock()

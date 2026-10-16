@@ -79,7 +79,8 @@ workspace.svelte.ts (source of truth for all workspace state)
 ### Settings Persistence
 ```
 UI mutates settings reactive state → debouncedSaveSettings() (500ms)
-→ updateSettings IPC → Rust saves to ~/.config/Splice/settings.json
+→ updateSettings IPC → Rust saves settings.json in the Splice config dir
+   (`~/Library/Application Support/Splice` on macOS, `~/.config/Splice` on Linux)
 → Rust emits "settings-changed" to all windows → other windows update
 ```
 
@@ -149,8 +150,8 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 ## Important Gotchas
 
 - **Svelte a11y warnings**: Suppressed in `vite.config.ts` via `onwarn` — this is a desktop app, not a web page.
-- **`#[cfg(debug_assertions)]` modules**: `dev_server.rs` and `commands/dev.rs` are gitignored. Never reference them in committed code or CI will fail.
+- **Dev API / E2E hooks**: `dev_server.rs` and `commands/dev.rs` compile only in debug builds (`#[cfg(debug_assertions)]`) and are listed in the debug arms of `invoke_handler`. The frontend bridge `src/lib/dev/` (dev API listeners + `window.__spliceTest`) loads only when `import.meta.env.DEV` or `MODE === "e2e"`, so `npm run build:e2e` builds through `src-tauri/tauri.e2e.conf.json`, whose `beforeBuildCommand` is `vite build --mode e2e` (a plain `tauri build` would overwrite `dist/` with the production bundle). Specs find the root element by `#app-root`.
 - **Layout proxy reparenting**: Svelte 5's `$state` proxies break when you move a node between parents. `layout.svelte.ts` uses `structuredClone` + fresh assignment for structural mutations.
-- **Workspace persistence**: Per-window config files at `~/.config/Splice/workspace-{label}.json`. Active windows tracked in `~/.config/Splice/windows.json`.
+- **Workspace persistence**: Per-window files `workspace-{label}.json` plus `windows.json` in the Splice config dir (`~/Library/Application Support/Splice` on macOS; debug builds use `Splice-dev` for these). Every config path goes through `state::splice_config_dir`, and `SPLICE_CONFIG_DIR` overrides it wholesale (the E2E harness sets it to a temp dir; the Claude hook is not installed when it is set).
 - **Terminal shutdown**: dropping a `PtySession` SIGHUPs the shell's process group and reaps it on a detached thread (`terminate_child`). Closing our fds alone never delivers a hangup because the reader thread holds a dup of the master.
 - **Traffic light animation**: macOS native controls are repositioned via `setTrafficLightPosition` IPC with a JS requestAnimationFrame lerp to animate between compact (22px) and normal (32px) title bar states.

@@ -18,6 +18,26 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Splice's own config directory: `~/Library/Application Support/<name>` on macOS,
+/// `~/.config/<name>` on Linux. `SPLICE_CONFIG_DIR` overrides the whole path so a
+/// sandboxed instance (the E2E harness) never touches the user's real settings,
+/// workspaces, or attention port file. Callers pass the per-file folder name they
+/// already use (`"Splice"`, or `"Splice-dev"` for debug-build workspaces).
+pub fn splice_config_dir(name: &str) -> PathBuf {
+    if let Some(dir) = std::env::var_os("SPLICE_CONFIG_DIR").filter(|v| !v.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(name)
+}
+
+/// True when `SPLICE_CONFIG_DIR` is set, i.e. this instance runs against a scratch
+/// config directory and must not modify anything outside it (such as the Claude hook).
+pub fn config_dir_is_sandboxed() -> bool {
+    std::env::var_os("SPLICE_CONFIG_DIR").is_some_and(|v| !v.is_empty())
+}
+
 pub struct AppState {
     pub terminals: HashMap<u32, PtySession>,
     pub next_terminal_id: u32,
@@ -114,4 +134,27 @@ pub fn validate_entry_path(path: &str, allowed_roots: &[PathBuf]) -> Result<Path
         .ok_or_else(|| format!("Invalid path '{}': no parent directory", path))?;
     let canonical_parent = validate_path(&parent.to_string_lossy(), allowed_roots)?;
     Ok(canonical_parent.join(name))
+}
+
+#[cfg(test)]
+mod config_dir_tests {
+    use super::*;
+
+    #[test]
+    fn splice_config_dir_honours_override_or_appends_name() {
+        // Never mutate the env here: cargo runs tests in parallel and other tests
+        // write real config files through this helper.
+        match std::env::var_os("SPLICE_CONFIG_DIR").filter(|v| !v.is_empty()) {
+            Some(dir) => {
+                assert_eq!(splice_config_dir("Splice-x"), PathBuf::from(&dir));
+                assert_eq!(splice_config_dir("Other"), PathBuf::from(dir));
+                assert!(config_dir_is_sandboxed());
+            }
+            None => {
+                let p = splice_config_dir("Splice-x");
+                assert_eq!(p.file_name().and_then(|n| n.to_str()), Some("Splice-x"));
+                assert!(!config_dir_is_sandboxed());
+            }
+        }
+    }
 }

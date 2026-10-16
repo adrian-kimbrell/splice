@@ -3,10 +3,7 @@ use tracing::warn;
 /// Load a persisted token from disk, or create a new random one and save it.
 /// Token is 32 lowercase hex chars (128 bits of entropy from /dev/urandom).
 pub fn load_or_create_token() -> String {
-    let token_path = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("Splice")
-        .join(".attention_token");
+    let token_path = crate::state::splice_config_dir("Splice").join(".attention_token");
 
     // Try to reuse an existing valid token
     if let Ok(existing) = std::fs::read_to_string(&token_path) {

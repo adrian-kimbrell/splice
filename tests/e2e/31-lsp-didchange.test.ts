@@ -14,6 +14,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
 import { loadApp, openWorkspace, closeAllWorkspaces, sleep } from "./helpers";
+import { api } from "./dev-api.js";
 
 function tslsAvailable(): boolean {
   try {
@@ -78,20 +79,13 @@ describe("LSP didChange — diagnostics update on edit", () => {
   it("clears lint errors after editing the file to valid TypeScript", async () => {
     if (skip) return;
 
-    // Click into the editor to give CodeMirror focus
     const editor = await browser.$(".cm-editor");
     await editor.waitForExist({ timeout: 5_000 });
-    await editor.click();
-    await sleep(200);
 
-    // Select all content and replace with valid TypeScript
-    await browser.keys(["Meta", "a"]);
-    await sleep(100);
-    await browser.keys(["Meta", "a"]); // second press ensures full selection in CM6
-    await sleep(100);
-
-    // Type the replacement — valid code with no type errors
-    await browser.keys("const count: number = 42;");
+    // Replace the buffer through the dev API. The embedded WebDriver does not
+    // deliver the Meta+A chord reliably, and the path under test (store → editor
+    // doc → debounced didChange → server) is the same one typing exercises.
+    await api.setFileContent("const count: number = 42;\n");
     await sleep(300);
 
     // Wait for LSP to receive didChange, re-evaluate, and clear diagnostics
@@ -104,7 +98,7 @@ describe("LSP didChange — diagnostics update on edit", () => {
     expect(marks.length).toBe(0);
 
     // Verify the app is still healthy
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 });
