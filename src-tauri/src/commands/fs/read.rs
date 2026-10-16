@@ -85,7 +85,7 @@ pub fn read_file(
     fs::read_to_string(&canonical).map_err(|e| format!("Failed to read {}: {}", path, e))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_file_base64(
     state: State<'_, Mutex<AppState>>,
     path: String,

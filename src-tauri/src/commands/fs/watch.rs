@@ -45,6 +45,24 @@ pub(crate) fn is_relevant(event: &notify::Event) -> bool {
     event.need_rescan() || !matches!(event.kind, EventKind::Access(_))
 }
 
+/// Could this event change what the explorer shows under `root`? The tree hides
+/// dot-entries, so a change whose every path sits inside a hidden directory
+/// (`.git/index`, `.cache/...`) cannot alter it, and refreshing for one only
+/// costs a tree reload plus a `git status`. Hidden components are judged
+/// relative to `root`, so a workspace that itself lives under `~/.config` is
+/// not silenced. Rescan markers and paths outside `root` always count.
+pub(crate) fn touches_visible_path(event: &notify::Event, root: &Path) -> bool {
+    if event.need_rescan() || event.paths.is_empty() {
+        return true;
+    }
+    event.paths.iter().any(|p| match p.strip_prefix(root) {
+        Ok(rel) => !rel
+            .components()
+            .any(|c| c.as_os_str().to_string_lossy().starts_with('.')),
+        Err(_) => true,
+    })
+}
+
 /// Register `watcher` under `key`, or bump the reference count of the existing
 /// entry (in which case `watcher` is dropped). Returns the resulting count.
 pub(crate) fn acquire(
@@ -101,12 +119,13 @@ pub fn watch_path(
     // AFTER the burst has settled rather than mid-write. Every burst produces at
     // least one emit — no events are silently dropped.
     let pending = std::sync::Arc::new(std::sync::Mutex::new(false));
+    let root = canonical.clone();
 
     let config = notify::Config::default();
     let mut watcher = RecommendedWatcher::new(
         move |res: Result<notify::Event, notify::Error>| {
             let Ok(event) = res else { return };
-            if !is_relevant(&event) {
+            if !is_relevant(&event) || (is_dir && !touches_visible_path(&event, &root)) {
                 return;
             }
             // Claim the slot for this burst.
@@ -199,6 +218,39 @@ mod tests {
         assert_eq!(alive, dead);
         // and it is canonical (e.g. /tmp → /private/tmp on macOS)
         assert_eq!(alive, dir.path().canonicalize().unwrap().join("gone.txt").to_string_lossy());
+    }
+
+    #[test]
+    fn changes_inside_hidden_directories_do_not_touch_the_tree() {
+        let root = Path::new("/ws/app");
+        let ev = |p: &str| Event::new(EventKind::Modify(notify::event::ModifyKind::Any)).add_path(p.into());
+
+        assert!(!touches_visible_path(&ev("/ws/app/.git/index.lock"), root));
+        assert!(!touches_visible_path(&ev("/ws/app/src/.cache/x"), root));
+        assert!(touches_visible_path(&ev("/ws/app/src/main.rs"), root));
+        // A top-level dot-file is hidden too; the explorer never lists it.
+        assert!(!touches_visible_path(&ev("/ws/app/.env"), root));
+        // One visible path in a multi-path event is enough.
+        let multi = ev("/ws/app/.git/HEAD").add_path("/ws/app/README.md".into());
+        assert!(touches_visible_path(&multi, root));
+    }
+
+    #[test]
+    fn hidden_components_are_judged_relative_to_the_watched_root() {
+        let root = Path::new("/home/u/.config/app");
+        let ev = |p: &str| Event::new(EventKind::Create(notify::event::CreateKind::File)).add_path(p.into());
+        assert!(touches_visible_path(&ev("/home/u/.config/app/settings.json"), root));
+        assert!(!touches_visible_path(&ev("/home/u/.config/app/.git/index"), root));
+    }
+
+    #[test]
+    fn rescans_paths_outside_root_and_pathless_events_always_count() {
+        let root = Path::new("/ws/app");
+        let rescan = Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan).add_path("/ws/app/.git/x".into());
+        assert!(touches_visible_path(&rescan, root));
+        let outside = Event::new(EventKind::Any).add_path("/elsewhere/.hidden".into());
+        assert!(touches_visible_path(&outside, root));
+        assert!(touches_visible_path(&Event::new(EventKind::Any), root));
     }
 
     #[test]
