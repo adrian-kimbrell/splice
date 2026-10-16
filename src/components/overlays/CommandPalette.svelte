@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import { ui } from "../../lib/stores/ui.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
@@ -47,7 +48,7 @@
             const content = await readFile(path);
             const name = path.split("/").pop() ?? "untitled";
             workspaceManager.openFileInWorkspace({ name, path, content });
-          } catch (e) { console.error("Failed to open recent file:", e); }
+          } catch (e) { log.error("Failed to open recent file:", e); }
         })();
       },
     })),

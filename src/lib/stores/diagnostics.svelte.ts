@@ -16,6 +16,7 @@
  */
 
 import { listen } from "@tauri-apps/api/event";
+import { fileUriToPath } from "../lsp/uri";
 
 export interface LspDiagnostic {
   range: {
@@ -33,8 +34,9 @@ export const diagnosticsStore = {
   get value() { return _diagnostics; },
 };
 
+/** Keyed by decoded file path; accepts a path or a file:// URI. */
 export function getDiagnosticsForUri(uri: string): LspDiagnostic[] {
-  return _diagnostics[uri] ?? [];
+  return _diagnostics[fileUriToPath(uri)] ?? [];
 }
 
 export function getDiagnosticCounts(): { errors: number; warnings: number } {
@@ -53,6 +55,7 @@ const isTauri = "__TAURI_INTERNALS__" in window;
 if (isTauri) {
   listen<{ uri: string; diagnostics: LspDiagnostic[] }>("lsp:diagnostics", (event) => {
     const { uri, diagnostics } = event.payload;
-    _diagnostics = { ..._diagnostics, [uri]: diagnostics };
+    // Servers percent-encode URIs; store by path so lookups by path always match.
+    _diagnostics = { ..._diagnostics, [fileUriToPath(uri)]: diagnostics };
   }).catch(() => {});
 }

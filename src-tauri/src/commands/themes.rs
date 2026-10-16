@@ -7,7 +7,24 @@ pub struct CustomTheme {
 }
 
 fn themes_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|p| p.join("Splice").join("themes"))
+    Some(crate::state::splice_config_dir("Splice").join("themes"))
+}
+
+/// Largest theme file we accept (a theme is a few KB of colour keys).
+const MAX_THEME_BYTES: u64 = 1024 * 1024;
+
+/// The `name` stored inside a theme file on disk, if it parses.
+fn stored_theme_name(path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    json.get("name")?.as_str().map(str::to_string)
+}
+
+/// Distinct names can share a sanitised file name ("a b", "a_b", "a/b" → a_b.json).
+/// Importing must not silently replace another theme, and deleting by name must
+/// only remove the file that actually holds that theme.
+fn file_belongs_to(path: &std::path::Path, name: &str) -> bool {
+    stored_theme_name(path).as_deref() == Some(name)
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -68,6 +85,10 @@ pub async fn list_custom_themes() -> Result<Vec<CustomTheme>, String> {
 
 #[tauri::command]
 pub async fn import_theme(file_path: String) -> Result<CustomTheme, String> {
+    let size = std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
+    if size > MAX_THEME_BYTES {
+        return Err(format!("Theme file is too large ({} bytes)", size));
+    }
     let content = std::fs::read_to_string(&file_path)
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -104,6 +125,13 @@ pub async fn import_theme(file_path: String) -> Result<CustomTheme, String> {
 
     let filename = sanitize_filename(&name);
     let dest = dir.join(format!("{}.json", filename));
+    if dest.exists() && !file_belongs_to(&dest, &name) {
+        return Err(format!(
+            "A different theme ({}) is already stored under the file name {}.json; rename one of them",
+            stored_theme_name(&dest).unwrap_or_else(|| "unknown".into()),
+            filename
+        ));
+    }
     let tmp = dest.with_extension("json.tmp");
 
     std::fs::write(&tmp, &content).map_err(|e| e.to_string())?;
@@ -117,8 +145,25 @@ pub async fn delete_custom_theme(name: String) -> Result<(), String> {
     let dir = themes_dir().ok_or("Could not determine config directory")?;
     let filename = sanitize_filename(&name);
     let path = dir.join(format!("{}.json", filename));
-    if path.exists() {
+    if path.exists() && file_belongs_to(&path, &name) {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distinct_names_can_collide_on_disk_and_are_told_apart_by_stored_name() {
+        assert_eq!(sanitize_filename("a b"), sanitize_filename("a_b"));
+        assert_eq!(sanitize_filename("a/b"), "a_b");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a_b.json");
+        std::fs::write(&path, r#"{"name":"a b","colors":{}}"#).unwrap();
+        assert!(file_belongs_to(&path, "a b"));
+        assert!(!file_belongs_to(&path, "a_b"), "a different theme must not claim this file");
+        assert!(!file_belongs_to(&dir.path().join("missing.json"), "a b"));
+    }
 }

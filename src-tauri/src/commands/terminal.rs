@@ -98,7 +98,7 @@ pub fn spawn_terminal(
     let (cols, rows) = clamp_terminal_size(cols, rows);
 
     let mut state = state.lock().map_err(|e| e.to_string())?;
-    let id = if let Some(requested) = terminal_id {
+    let id = if let Some(requested) = terminal_id.filter(|r| !state.terminals.contains_key(r)) {
         // Caller (e.g. workspace restore) requested a specific ID — use it directly,
         // and bump the counter past it so future fresh spawns don't collide.
         let next = requested
@@ -109,6 +109,12 @@ pub fn spawn_terminal(
         }
         requested
     } else {
+        if let Some(requested) = terminal_id {
+            // The saved id is already live (another window restored it, or a fresh
+            // spawn got there first). Inserting over it would silently kill that
+            // session, so hand out a fresh id instead; callers use the returned id.
+            warn!(requested, "Requested terminal id is in use; allocating a fresh one");
+        }
         let id = state.next_terminal_id;
         state.next_terminal_id = state.next_terminal_id
             .checked_add(1)
@@ -176,18 +182,41 @@ pub fn resize_terminal(
         )
     }; // AppState lock released here
 
+    // Resize PTY master first (syscall; outside AppState lock). If the ioctl fails
+    // we bail before touching the emulator, so grid and PTY never disagree.
+    master
+        .lock().map_err(|e| e.to_string())?
+        .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| e.to_string())?;
+
     // Resize emulator grid (no syscall)
     {
         let mut emu = emulator.write().map_err(|e| e.to_string())?;
         emu.resize(cols, rows);
     }
 
-    // Resize PTY master (syscall; outside AppState lock)
-    master
-        .lock().map_err(|e| e.to_string())?
-        .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-        .map_err(|e| e.to_string())?;
+    version.fetch_add(1, Ordering::Relaxed);
+    notify.notify();
+    Ok(())
+}
 
+/// Ask the emitter to re-send the current grid for `id` without touching the PTY.
+///
+/// The emitter only emits when the grid version changes, so a frame that was
+/// emitted before the frontend listener was registered (common under heavy
+/// system load, when `listen` IPC round-trips are slow) is simply lost and the
+/// pane stays blank until the shell prints something. The frontend calls this
+/// after registering its listener, and retries until a frame arrives.
+#[tauri::command]
+pub fn refresh_terminal(state: State<'_, Mutex<AppState>>, id: u32) -> Result<(), String> {
+    let (version, notify) = {
+        let state = state.lock().map_err(|e| e.to_string())?;
+        let session = state
+            .terminals
+            .get(&id)
+            .ok_or_else(|| format!("Terminal {} not found", id))?;
+        (Arc::clone(&session.version), Arc::clone(&session.notify))
+    };
     version.fetch_add(1, Ordering::Relaxed);
     notify.notify();
     Ok(())
@@ -259,77 +288,102 @@ pub fn search_terminal(
     }; // AppState mutex released here
 
     // Step 2: hold read lock only for text extraction (strings, not full Row structs)
-    let (scrollback_strings, scrollback_len, lines_strings) = {
+    let (scrollback_rows, scrollback_len, live_rows) = {
         let emulator = emulator_arc.read().map_err(|e| e.to_string())?;
         let buf = emulator.grid.active();
-        let sb: Vec<String> = buf.scrollback.iter()
-            .map(|row| row.cells.iter().map(|c| c.ch).collect())
+        let cols = emulator.grid.cols as usize;
+        let sb: Vec<(String, Vec<usize>)> = buf
+            .scrollback
+            .iter()
+            .map(|row| row_text_and_columns(&row.cells, cols))
             .collect();
         let len = sb.len();
-        let ls: Vec<String> = buf.lines.iter()
-            .map(|row| row.cells.iter().map(|c| c.ch).collect())
+        let ls: Vec<(String, Vec<usize>)> = buf
+            .lines
+            .iter()
+            .map(|row| row_text_and_columns(&row.cells, cols))
             .collect();
         (sb, len, ls)
     }; // read lock released here
 
     // Step 3: search strings — all searching happens after locks are released
     let query_lower = if case_sensitive { query.clone() } else { query.to_lowercase() };
-    let advance = query_lower.len().max(1);
-    let query_chars_len = query_lower.chars().count();
     let mut results = Vec::new();
 
-    // Search scrollback (negative row indices)
+    // Scrollback rows are negative, live rows 0+.
     let scrollback_len_i64 = scrollback_len as i64;
-    for (i, line) in scrollback_strings.iter().enumerate() {
-        let line_search = if case_sensitive { line.clone() } else { line.to_lowercase() };
-        let line_char_count = line_search.chars().count();
-        let mut start = 0;
-        while let Some(pos) = line_search[start..].find(&query_lower) {
-            let byte_col = start + pos;
-            let col_start = line_search[..byte_col].chars().count();
-            results.push(TerminalSearchMatch {
-                row: i as i64 - scrollback_len_i64,
-                col_start,
-                col_end: (col_start + query_chars_len).min(line_char_count),
-            });
-            // Advance past the match. Clamp to len and round up to the next
-            // char boundary defensively — prevents any panic on edge-case input.
-            let next_start = (byte_col + advance).min(line_search.len());
-            let mut safe_start = next_start;
-            while safe_start < line_search.len() && !line_search.is_char_boundary(safe_start) {
-                safe_start += 1;
-            }
-            start = safe_start;
-            if results.len() >= MAX_SEARCH_RESULTS { return Ok(results); }
-        }
+    for (i, (text, colmap)) in scrollback_rows.iter().enumerate() {
+        find_in_row(text, colmap, &query_lower, case_sensitive, i as i64 - scrollback_len_i64, &mut results);
+        if results.len() >= MAX_SEARCH_RESULTS { return Ok(results); }
     }
-
-    // Search visible lines
-    for (i, line) in lines_strings.iter().enumerate() {
-        let line_search = if case_sensitive { line.clone() } else { line.to_lowercase() };
-        let line_char_count = line_search.chars().count();
-        let mut start = 0;
-        while let Some(pos) = line_search[start..].find(&query_lower) {
-            let byte_col = start + pos;
-            let col_start = line_search[..byte_col].chars().count();
-            results.push(TerminalSearchMatch {
-                row: i as i64,
-                col_start,
-                col_end: (col_start + query_chars_len).min(line_char_count),
-            });
-            // Advance past the match. Clamp to len and round up to the next
-            // char boundary defensively — prevents any panic on edge-case input.
-            let next_start = (byte_col + advance).min(line_search.len());
-            let mut safe_start = next_start;
-            while safe_start < line_search.len() && !line_search.is_char_boundary(safe_start) {
-                safe_start += 1;
-            }
-            start = safe_start;
-            if results.len() >= MAX_SEARCH_RESULTS { return Ok(results); }
-        }
+    for (i, (text, colmap)) in live_rows.iter().enumerate() {
+        find_in_row(text, colmap, &query_lower, case_sensitive, i as i64, &mut results);
+        if results.len() >= MAX_SEARCH_RESULTS { return Ok(results); }
     }
 
     Ok(results)
+}
+
+/// Text of one row for copy and search, plus a character-index → cell-column map.
+///
+/// A wide character occupies two cells but is one character, so the width-0
+/// right-half placeholders are skipped (otherwise "漢字" copied as "漢 字" and could
+/// never be found by search). `columns[i]` is the cell column where character `i`
+/// starts; one extra trailing entry marks the end, so `columns[text_len]` is valid.
+pub(crate) fn row_text_and_columns(
+    cells: &[crate::terminal::grid::Cell],
+    max_cols: usize,
+) -> (String, Vec<usize>) {
+    let mut text = String::new();
+    let mut columns = Vec::new();
+    for (i, c) in cells.iter().take(max_cols).enumerate() {
+        if c.width == 0 {
+            continue;
+        }
+        columns.push(i);
+        text.push(if c.ch == '\0' { ' ' } else { c.ch });
+    }
+    columns.push(cells.len().min(max_cols));
+    (text, columns)
+}
+
+/// Find every occurrence of `query_lower` in `text` and report it in cell columns
+/// via `colmap` (see `row_text_and_columns`). `query_lower` is already lower-cased
+/// when `case_sensitive` is false.
+fn find_in_row(
+    text: &str,
+    colmap: &[usize],
+    query_lower: &str,
+    case_sensitive: bool,
+    row: i64,
+    results: &mut Vec<TerminalSearchMatch>,
+) {
+    if query_lower.is_empty() {
+        return;
+    }
+    let hay = if case_sensitive { text.to_string() } else { text.to_lowercase() };
+    let query_chars = query_lower.chars().count();
+    let last = colmap.len().saturating_sub(1);
+    let mut start = 0;
+    while let Some(pos) = hay[start..].find(query_lower) {
+        let byte_col = start + pos;
+        let char_start = hay[..byte_col].chars().count();
+        let char_end = char_start + query_chars;
+        results.push(TerminalSearchMatch {
+            row,
+            col_start: colmap[char_start.min(last)],
+            col_end: colmap[char_end.min(last)],
+        });
+        if results.len() >= MAX_SEARCH_RESULTS {
+            return;
+        }
+        // Advance past the match, rounding up to a char boundary.
+        let mut next = (byte_col + query_lower.len().max(1)).min(hay.len());
+        while next < hay.len() && !hay.is_char_boundary(next) {
+            next += 1;
+        }
+        start = next;
+    }
 }
 
 #[tauri::command]
@@ -393,32 +447,25 @@ pub fn get_terminal_text_range(
     let cols = emu.grid.cols as usize;
 
     let lo = history_start.max(0) as usize;
-    let hi = history_end.max(0) as usize;
+    let total = scrollback_len + buf.lines.len();
+    if total == 0 {
+        return Ok(vec![]);
+    }
+    // Clamp the upper bound to what exists: an unbounded `hi` from a frontend bug
+    // would otherwise size a Vec by `hi - lo + 1` and loop that many times.
+    let hi = (history_end.max(0) as usize).min(total - 1);
     if lo > hi {
         return Ok(vec![]);
     }
 
     let mut result = Vec::with_capacity(hi - lo + 1);
     for history_row in lo..=hi {
-        let text = if history_row < scrollback_len {
-            let row = &buf.scrollback[history_row];
-            row.cells[..cols.min(row.cells.len())]
-                .iter()
-                .map(|c| if c.ch == '\0' { ' ' } else { c.ch })
-                .collect()
+        let row = if history_row < scrollback_len {
+            &buf.scrollback[history_row]
         } else {
-            let live_idx = history_row - scrollback_len;
-            if live_idx < buf.lines.len() {
-                let row = &buf.lines[live_idx];
-                row.cells[..cols.min(row.cells.len())]
-                    .iter()
-                    .map(|c| if c.ch == '\0' { ' ' } else { c.ch })
-                    .collect()
-            } else {
-                String::new()
-            }
+            &buf.lines[history_row - scrollback_len]
         };
-        result.push(text);
+        result.push(row_text_and_columns(&row.cells, cols).0);
     }
 
     Ok(result)
@@ -452,6 +499,52 @@ mod tests {
         kill_terminal_sessions(&mut sessions, 1);
 
         assert!(!sessions.contains_key(&1));
+    }
+
+    fn cell(ch: char, width: u8) -> crate::terminal::grid::Cell {
+        crate::terminal::grid::Cell { ch, width, ..Default::default() }
+    }
+
+    #[test]
+    fn row_text_skips_wide_placeholders_and_maps_columns() {
+        // 漢(2) ▯(0) 字(2) ▯(0) x(1)
+        let cells = [cell('漢', 2), cell(' ', 0), cell('字', 2), cell(' ', 0), cell('x', 1)];
+        let (text, cols) = super::row_text_and_columns(&cells, 5);
+        assert_eq!(text, "漢字x");
+        assert_eq!(cols, vec![0, 2, 4, 5]);
+    }
+
+    #[test]
+    fn row_text_respects_max_cols_and_maps_nul_to_space() {
+        let cells = [cell('a', 1), cell('\0', 1), cell('c', 1)];
+        let (text, cols) = super::row_text_and_columns(&cells, 2);
+        assert_eq!(text, "a ");
+        assert_eq!(cols, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn search_reports_cell_columns_across_wide_chars() {
+        let cells = [cell('漢', 2), cell(' ', 0), cell('字', 2), cell(' ', 0), cell('x', 1)];
+        let (text, cols) = super::row_text_and_columns(&cells, 5);
+        let mut results = Vec::new();
+        super::find_in_row(&text, &cols, "字x", true, 3, &mut results);
+        assert_eq!(results.len(), 1);
+        assert_eq!((results[0].row, results[0].col_start, results[0].col_end), (3, 2, 5));
+        // Previously placeholders became spaces so "漢字" could never match.
+        results.clear();
+        super::find_in_row(&text, &cols, "漢字", true, 0, &mut results);
+        assert_eq!(results.len(), 1);
+        assert_eq!((results[0].col_start, results[0].col_end), (0, 4));
+    }
+
+    #[test]
+    fn search_is_case_insensitive_and_finds_repeats() {
+        let cells: Vec<_> = "ab AB ab".chars().map(|c| cell(c, 1)).collect();
+        let (text, cols) = super::row_text_and_columns(&cells, cells.len());
+        let mut results = Vec::new();
+        super::find_in_row(&text, &cols, "ab", false, 0, &mut results);
+        assert_eq!(results.iter().map(|r| r.col_start).collect::<Vec<_>>(), vec![0, 3, 6]);
+        assert!(results.iter().all(|r| r.col_end == r.col_start + 2));
     }
 
     #[test]

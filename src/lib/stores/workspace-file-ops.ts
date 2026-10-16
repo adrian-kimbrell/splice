@@ -1,8 +1,10 @@
+import { log } from "../utils/log";
 import type { OpenFile } from "./files.svelte";
 import type { Workspace } from "./workspace-types";
-import { generateId, findFirstLeaf, applyFileRename, markFileSaved } from "./workspace-types";
+import { generateId, findFirstLeaf, applyFileRename, markFileSaved, addOpenFile } from "./workspace-types";
 import { isFileReferencedInAnyPane, validateLayout } from "./workspace-tab-ops";
-import { cloneLayout, findSiblingLeaf, removeNodeFromTree } from "./layout.svelte";
+import { cloneLayout, findSiblingLeaf, removeNodeFromTree, treeDepth, findShallowestLeaf, splitNodeInTree, MAX_SPLIT_DEPTH } from "./layout.svelte";
+import { markSelfWrite } from "./self-writes";
 
 // --- Query helpers ---
 
@@ -43,6 +45,10 @@ export function ensureEditorPane(ws: Workspace, paneId?: string, filePaths?: str
   // Check if layout is empty (no panes)
   if (!ws.layout) {
     ws.layout = { type: "leaf", paneId: editorPaneId };
+  } else if (treeDepth(ws.layout) >= MAX_SPLIT_DEPTH) {
+    // Wrapping the whole tree would exceed the depth cap; split the shallowest leaf.
+    const result = splitNodeInTree(ws.layout, findShallowestLeaf(ws.layout), editorPaneId, "horizontal");
+    if (result.found) ws.layout = result.tree;
   } else {
     // Deep-clone the existing tree to avoid reparenting a Svelte $state proxy node —
     // see layout.svelte.ts: structural mutations must return fresh plain objects.
@@ -106,8 +112,7 @@ export function openFileInWorkspace(ws: Workspace, file: OpenFile, targetPaneId?
       existing.preview = false;
     }
   } else {
-    ws.openFiles.push(file);
-    ws.openFileIndex[file.path] = file;
+    addOpenFile(ws, file);
   }
 
   if (paneId && ws.panes[paneId]) {
@@ -170,7 +175,7 @@ export function closeFileInWorkspace(ws: Workspace, path: string, paneId?: strin
 
       if (ws.layout) {
         const removeResult = removeNodeFromTree(ws.layout, targetPaneId!);
-        if (!removeResult.found) console.warn(`closeFileInWorkspace: pane "${targetPaneId}" not found in layout`);
+        if (!removeResult.found) log.warn(`closeFileInWorkspace: pane "${targetPaneId}" not found in layout`);
         ws.layout = removeResult.tree;
       }
 
@@ -260,7 +265,7 @@ export async function saveActiveFile(ws: Workspace): Promise<void> {
     }
     markFileSaved(file);
   } catch (e) {
-    console.error("Failed to save file:", e);
+    log.error("Failed to save file:", e);
   }
 }
 
@@ -314,6 +319,7 @@ export async function saveFile(ws: Workspace, path: string): Promise<boolean> {
       await sftpWriteFile(ws.id, savePath, file.content);
     } else {
       const { writeFile } = await import("../ipc/commands");
+      markSelfWrite(savePath);
       await writeFile(savePath, file.content);
     }
     if (savePath !== path) {
@@ -322,7 +328,7 @@ export async function saveFile(ws: Workspace, path: string): Promise<boolean> {
     markFileSaved(file);
     return true;
   } catch (e) {
-    console.error("Failed to save file:", e);
+    log.error("Failed to save file:", e);
     return false;
   }
 }
@@ -338,11 +344,12 @@ export async function saveFileQuiet(ws: Workspace, path: string): Promise<void> 
       await sftpWriteFile(ws.id, path, file.content);
     } else {
       const { writeFile } = await import("../ipc/commands");
+      markSelfWrite(path);
       await writeFile(path, file.content);
     }
     markFileSaved(file); // fixes Critical Issue 3: also clears file.preview
   } catch (e) {
-    console.error("Auto-save failed:", e);
+    log.error("Auto-save failed:", e);
   }
 }
 

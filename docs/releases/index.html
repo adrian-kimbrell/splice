@@ -31,7 +31,7 @@
     "name": "Splice",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "macOS",
-    "softwareVersion": "0.5.8",
+    "softwareVersion": "0.6.0",
     "url": "https://www.spliceditor.xyz/",
     "releaseNotes": "https://www.spliceditor.xyz/releases",
     "downloadUrl": "https://github.com/adrian-kimbrell/splice/releases",
@@ -77,12 +77,78 @@
   <!-- Release list -->
   <section class="max-w-6xl mx-auto px-6 py-16 space-y-12">
 
+    <!-- v0.6.0 -->
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
+        <div class="flex items-center gap-4">
+          <span class="font-mono text-lg font-bold text-white">v0.6.0</span>
+          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
+        </div>
+        <span class="font-mono text-xs text-zinc-500">October 16, 2026</span>
+      </div>
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
+
+        <div>
+          <p class="text-sm text-zinc-400">A stability release. Every fix below came out of a full review of the app against the bugs people hit most: blank terminals, lost workspaces, and a sluggish explorer.</p>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Terminals</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Terminals no longer come up blank under heavy load — a pane that misses its first frame now asks for one instead of waiting for the shell to print again</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Closing a terminal now actually ends the shell and everything it spawned, instead of leaving processes behind</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Wide characters (CJK, emoji) stay paired across edits, copy and search see the same text you see, and the cursor sits correctly at the end of a line</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Scrollback keeps its place while new output arrives, and the saved cursor survives a resize</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Workspaces & files</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>A workspace file that fails to load is backed up as <code>.corrupt-&lt;timestamp&gt;</code> and never overwritten, so a bad write can no longer erase your layout</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Empty workspaces persist, roots are shared correctly across windows, and no stray terminal is spawned on restore</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Closing a workspace — from the sidebar, its hover button, or a secondary window — always confirms before its terminals are killed</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>The explorer follows external changes again — builds, git checkouts and other editors writing files show up without a refresh</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Rename, duplicate and delete act on the entry you clicked, never on a symlink's target, and refuse to silently overwrite an existing name</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Git status handles paths with spaces and repositories whose root is above the workspace folder</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Editor & language servers</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>TypeScript diagnostics now arrive — the client was not asking the server for them</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>A language server that crashes is restarted on the next request instead of hanging every hover for 30 seconds; files in folders with spaces get diagnostics and go-to-definition again</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Save All saves every unsaved tab, and closing a workspace with unsaved changes asks first (both were silently skipped)</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Escape inside a terminal or editor stays with vim and autocomplete instead of leaving zen mode; Option+letter, Ctrl+Enter and Ctrl+Backspace reach the shell as expected</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Quality of life</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Settings with a missing or out-of-range value fall back to defaults instead of failing to load</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>A malformed <code>~/.claude/settings.json</code> is left untouched when Splice installs its attention hook</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>The Claude hook installs only when a real python3 is present, so Macs with the Xcode stub stop seeing an install dialog on every Claude event</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Returning to the window no longer steals focus from the command palette or settings drawer</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>SSH workspaces: saves above ~96 KB no longer fail, and a dropped connection no longer hangs the UI</span></li>
+          </ul>
+        </div>
+
+        <div class="pt-2 flex items-center gap-4">
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.6.0" class="btn-orange px-4 py-2 text-xs font-mono tracking-wide transition-colors inline-flex items-center gap-2">
+            <i class="bi bi-download"></i> Download v0.6.0
+          </a>
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.6.0" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono transition-colors">View on GitHub →</a>
+        </div>
+      </div>
+    </div>
+
     <!-- v0.5.8 -->
     <div class="card" style="border:1px solid #1f232a">
       <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.5.8</span>
-          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">July 30, 2026</span>
       </div>

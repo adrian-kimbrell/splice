@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   /**
    * TerminalPane.svelte -- Wraps a CanvasTerminal with its titlebar and search overlay.
    *
@@ -108,7 +109,7 @@
     // Visible row (>= 0) = snap to live view (offset 0).
     const targetOffset = match.row < 0 ? -match.row : 0;
     import("../../lib/ipc/commands").then(({ setTerminalScrollOffset }) => {
-      setTerminalScrollOffset(terminalId, targetOffset).catch(console.error);
+      setTerminalScrollOffset(terminalId, targetOffset).catch(log.error);
     });
   }
 

@@ -70,10 +70,11 @@ pub(crate) fn dispatch_attention(
         state.lock().map(|s| s.settings.general.claude_notifications).unwrap_or(false)
     };
     if notifications_enabled {
+        // Any Splice window counts: the user may be working in a secondary window.
         let window_focused = app
-            .get_webview_window("main")
-            .and_then(|w| w.is_focused().ok())
-            .unwrap_or(false);
+            .webview_windows()
+            .values()
+            .any(|w| w.is_focused().unwrap_or(false));
         if !window_focused {
             let body = if message.is_empty() {
                 match notification_type.as_str() {

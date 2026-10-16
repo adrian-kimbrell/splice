@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../lib/utils/log";
   /**
    * App.svelte -- Root component for the Splice editor.
    *
@@ -43,6 +44,10 @@
   import TitleBar from "./topbar/TitleBar.svelte";
   import { showContextMenu } from "../lib/utils/context-menu";
   import { openNewWindow } from "../lib/utils/new-window";
+  import { isImagePath, toastFileReadError, readFileForWs, openDroppedFiles, openFolderPath, openFilePath, drainOpenPaths } from "../lib/utils/open-paths";
+  import WelcomeScreen from "./WelcomeScreen.svelte";
+  import { confirmUnsaved, requestCloseWorkspace } from "../lib/utils/close-workspace";
+  import { wasRecentlyWrittenBySplice } from "../lib/stores/self-writes";
   import { ui } from "../lib/stores/ui.svelte";
   import { initKeybindings, enterZenMode, exitZenMode, bumpFocusedPaneFont, resetFocusedPaneFont } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
@@ -61,7 +66,6 @@
   import { pushToast } from "../lib/stores/toasts.svelte";
   import { isUnderRoot } from "../lib/utils/path-utils";
   import { cancelPendingResume } from "../lib/stores/workspace-session";
-  import { getRandomTagline } from "../lib/utils/taglines";
   import { getTabsForPane, getActiveTabForPane, getContentForPane } from "../lib/stores/workspace-view-helpers";
 
   // Pre-import commands module for fast access after first load
@@ -71,11 +75,6 @@
     return _commands;
   }
 
-  const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp"]);
-  function isImagePath(p: string): boolean {
-    const dot = p.lastIndexOf(".");
-    return dot >= 0 && IMAGE_EXTENSIONS.has(p.slice(dot).toLowerCase());
-  }
 
   function handleSplitPane(paneId: string, direction: SplitDirection, side: "before" | "after" = "after") {
     workspaceManager.splitPane(paneId, direction, side);
@@ -101,36 +100,8 @@
     }
   }
 
-  /** Returns "save" | "discard" | "cancel" */
-  async function confirmUnsaved(): Promise<"save" | "discard" | "cancel"> {
-    if (isTauri) {
-      try {
-        const { ask } = await import("@tauri-apps/plugin-dialog");
-        // Dialog 1: "Save" keeps file; "Cancel" means don't save → proceeds to
-      // dialog 2 so the user can still abort. This gives a Cancel path from
-      // the very first dialog, unlike a "Don't Save" label that implies finality.
-      const save = await ask("This pane has unsaved changes. Save before closing?", {
-          title: "Unsaved Changes",
-          kind: "warning",
-          okLabel: "Save",
-          cancelLabel: "Cancel",
-        });
-        if (save) return "save";
-        // Dialog 2: confirm the discard, or truly cancel.
-        const discard = await ask("Close without saving? Unsaved changes will be lost.", {
-          title: "Close Without Saving",
-          kind: "warning",
-          okLabel: "Close Without Saving",
-          cancelLabel: "Cancel",
-        });
-        return discard ? "discard" : "cancel";
-      } catch {
-        return window.confirm("Discard unsaved changes?") ? "discard" : "cancel";
-      }
-    }
-    const ok = confirm("You have unsaved changes. Close anyway?");
-    return ok ? "discard" : "cancel";
-  }
+  // confirmUnsaved lives in lib/utils/close-workspace.ts so the workspaces bar can
+  // share it. Imported above.
 
   async function handleClosePane(paneId: string) {
     if (workspaceManager.hasDirtyFiles(paneId)) {
@@ -171,6 +142,9 @@
     const pane = ws.panes[ws.activePaneId];
     if (!pane || pane.kind !== "editor") return;
     const paths = [...(pane.filePaths ?? [])];
+    // Save As renames an untitled file in place; keep the file objects so we close
+    // whatever path each one ends up with.
+    const files = paths.map((p) => ws.openFileIndex[p]);
     // Check for dirty files
     const dirtyPaths = paths.filter((p) =>
       ws.openFileIndex[p]?.dirty,
@@ -185,29 +159,20 @@
         }
       }
     }
-    for (const p of paths) {
-      workspaceManager.closeFileInWorkspace(p, ws.activePaneId);
-    }
+    paths.forEach((p, i) => {
+      workspaceManager.closeFileInWorkspace(files[i]?.path ?? p, ws.activePaneId!);
+    });
   }
 
   async function handleCloseWorkspace() {
     const ws = workspaceManager.activeWorkspace;
     if (!ws) return;
-    const dirtyFiles = ws.openFiles.filter((f) => f.dirty);
-    if (dirtyFiles.length > 0) {
-      const choice = await confirmUnsaved();
-      if (choice === "cancel") return;
-      if (choice === "save") {
-        for (const f of dirtyFiles) {
-          const saved = await workspaceManager.saveFile(f.path);
-          if (!saved) return;
-        }
-      }
-    }
-    await workspaceManager.closeWorkspaceWithCleanup(ws.id);
+    await requestCloseWorkspace(ws.id);
   }
 
   async function handleTabClose(path: string, paneId: string) {
+    // Save As renames an untitled file in place: close the path it ends up with.
+    const file = workspaceManager.activeWorkspace?.openFileIndex[path];
     if (workspaceManager.isFileDirty(path)) {
       const choice = await confirmUnsaved();
       if (choice === "cancel") return;
@@ -216,7 +181,7 @@
         if (!saved) return; // User cancelled Save As → abort close
       }
     }
-    workspaceManager.closeFileInWorkspace(path, paneId);
+    workspaceManager.closeFileInWorkspace(file?.path ?? path, paneId);
   }
 
   function handlePaneClick(paneId: string) {
@@ -228,6 +193,15 @@
     // If the user clicked a specific pane, activePaneId will already be updated
     // by the time this runs, so we focus the right pane rather than the old one.
     setTimeout(() => {
+      // An open overlay or a focused text field outside the panes (command palette,
+      // search, rename input, settings) keeps focus: yanking it into the pane would
+      // send the next keystroke to the shell — Escape meant for the palette, say.
+      if (ui.commandPaletteOpen || ui.settingsDrawerOpen || ui.addPromptModal) return;
+      const active = document.activeElement as HTMLElement | null;
+      const inTextField =
+        !!active &&
+        (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+      if (inTextField && !active.closest("[data-pane-id]")) return;
       const paneId = ui.zoomedPaneId ?? workspaceManager.activeWorkspace?.activePaneId;
       if (!paneId) return;
       const paneEl = document.querySelector(`[data-pane-id="${paneId}"]`);
@@ -356,33 +330,7 @@
       ? activePane.activeFilePath.split("/").pop() ?? null
       : null,
   );
-  function toastFileReadError(path: string, e: unknown): void {
-    const name = path.split("/").pop() ?? path;
-    const msg = String(e);
-    let detail: string;
-    if (msg.includes("not valid UTF-8") || msg.includes("not a text file")) {
-      detail = "not a text file";
-    } else if (msg.includes("Permission denied") || msg.includes("permission denied")) {
-      detail = "permission denied";
-    } else if (msg.includes("No such file") || msg.includes("not found")) {
-      detail = "file not found";
-    } else {
-      // Include the raw message for unknown errors (trimmed to keep toast short)
-      const raw = msg.replace(/^Error:\s*/, "").slice(0, 120);
-      detail = raw || "read failed";
-    }
-    pushToast(`Cannot open "${name}": ${detail}`, "error", 6000);
-    console.error("Failed to read file:", e);
-  }
 
-  async function readFileForWs(path: string): Promise<string> {
-    if (ws?.sshConfig) {
-      const { sftpReadFile } = await import("../lib/ipc/commands");
-      return sftpReadFile(ws.id, path);
-    }
-    const { readFile } = await getCommands();
-    return readFile(path);
-  }
 
   async function handleFileClick(entry: FileEntry) {
     selectedFilePath = entry.path;
@@ -465,39 +413,12 @@
 
   let showSshForm = $state(false);
 
-  const tagline = getRandomTagline();
 
-  async function openDroppedFiles(paths: string[]) {
-    if (!workspaceManager.activeWorkspace) {
-      workspaceManager.createEmptyWorkspace();
-    }
-
-    for (const filePath of paths) {
-      // Skip directories
-      if (filePath.endsWith("/")) continue;
-
-      try {
-        const content = isImagePath(filePath) ? "" : await readFileForWs(filePath);
-        const name = filePath.split("/").pop() ?? "untitled";
-        workspaceManager.openFileInWorkspace({ name, path: filePath, content });
-        addRecentFile(filePath);
-      } catch (e) {
-        toastFileReadError(filePath, e);
-      }
-    }
-  }
 
   const showWelcome = $derived(
     Object.keys(workspaceManager.workspaces).length === 0,
   );
 
-  async function openFolderPath(path: string) {
-    if (!workspaceManager.activeWorkspace) {
-      workspaceManager.createEmptyWorkspace();
-    }
-    await workspaceManager.openFolderInWorkspace(path);
-    ui.explorerVisible = true;
-  }
 
   async function handleOpenFolder() {
     try {
@@ -505,7 +426,7 @@
       const selected = await open({ directory: true, multiple: false });
       if (selected) await openFolderPath(selected as string);
     } catch (e) {
-      console.error("Failed to open folder:", e);
+      log.error("Failed to open folder:", e);
     }
   }
 
@@ -513,15 +434,6 @@
     workspaceManager.newUntitledFile();
   }
 
-  async function openFilePath(filePath: string) {
-    if (!workspaceManager.activeWorkspace) {
-      workspaceManager.createEmptyWorkspace();
-    }
-    const content = isImagePath(filePath) ? "" : await readFileForWs(filePath);
-    const name = filePath.split("/").pop() ?? "untitled";
-    workspaceManager.openFileInWorkspace({ name, path: filePath, content });
-    addRecentFile(filePath);
-  }
 
   async function handleOpenFile() {
     if (!isTauri) return;
@@ -535,26 +447,6 @@
     }
   }
 
-  // Finder "Open With → Splice" hands paths to the Rust side, which buffers them
-  // and pings us via the "open-path" event. Drain on startup (cold launch) and
-  // on every ping (already-running). take_pending_open_paths drains atomically,
-  // so the two triggers never double-open the same file.
-  async function drainOpenPaths() {
-    if (!isTauri) return;
-    try {
-      const { takePendingOpenPaths } = await getCommands();
-      for (const t of await takePendingOpenPaths()) {
-        try {
-          if (t.is_dir) await openFolderPath(t.path);
-          else await openFilePath(t.path);
-        } catch (e) {
-          toastFileReadError(t.path, e);
-        }
-      }
-    } catch (e) {
-      console.error("Failed to open paths from OS:", e);
-    }
-  }
 
   // Hide sidebars on welcome screen, but user can toggle them back via drawers
   $effect(() => {
@@ -613,6 +505,19 @@
 
   onMount(async () => {
     const stopKeybindings = initKeybindings();
+    // Dev tooling: WebDriver test hooks (`window.__spliceTest`) and the dev API event
+    // bridge for dev_server.rs. Vite drops this block from production builds; it is
+    // live in `tauri:dev` and in `vite build --mode e2e` (npm run build:e2e), where the
+    // Rust side is a debug build that runs the dev API server.
+    if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
+      import("../lib/dev/test-helpers")
+        .then(({ registerTestHelpers }) =>
+          registerTestHelpers({ workspaceManager, readFileForWs, ui, settings, openNewWindow }),
+        )
+        .catch((e) => log.warn("[dev] test helpers failed to load:", e));
+      // Standalone module so its listeners survive App.svelte HMR updates.
+      import("../lib/dev/index").catch((e) => log.warn("[dev] dev API bridge failed to load:", e));
+    }
     // Eagerly pre-import commands module
     import("../lib/ipc/commands").then(m => { _commands = m; });
     // Await settings before initializing workspaces (restore_previous_session check)
@@ -784,7 +689,7 @@
       const { onAttentionNotify } = await import("../lib/ipc/events");
       const { attentionStore } = await import("../lib/stores/attention.svelte");
 
-      installClaudeHook().catch(console.warn);
+      installClaudeHook().catch(log.warn);
 
       unlistenAttention = await onAttentionNotify((payload) => {
         // Only show notifications for terminals with an active Claude session
@@ -827,6 +732,25 @@
         const currentLabel = appWindow.label;
         unlistenClosing = await appWindow.onCloseRequested(async (event) => {
           event.preventDefault();
+          // A secondary window owns its workspaces: closing it deletes its workspace
+          // file (unregisterWindow below), so everything in it is gone for good.
+          // Confirm first when there is anything to lose.
+          if (currentLabel !== "main") {
+            const count = Object.keys(workspaceManager.workspaces).length;
+            if (count > 0) {
+              let ok = true;
+              try {
+                const { ask } = await import("@tauri-apps/plugin-dialog");
+                ok = await ask(
+                  `Close this window? ${count} workspace${count === 1 ? "" : "s"} in it will be removed, and their terminals ended.`,
+                  { title: "Close Window", kind: "warning", okLabel: "Close Window", cancelLabel: "Cancel" },
+                );
+              } catch {
+                ok = window.confirm("Close this window and remove its workspaces?");
+              }
+              if (!ok) return;
+            }
+          }
           flushSettingsSave();
           // Cancel + flush any pending debounced persistence so state mutated
           // <500ms before quit is not lost when timers fire after destroy.
@@ -839,7 +763,7 @@
           // Graceful close of secondary window: remove from registry + delete workspace file
           if (currentLabel !== "main") {
             const { unregisterWindow } = await getCommands();
-            await unregisterWindow(currentLabel).catch(console.warn);
+            await unregisterWindow(currentLabel).catch(log.warn);
           }
           try {
             await appWindow.destroy();
@@ -847,7 +771,7 @@
             await appWindow.close();
           }
         });
-      }).catch(console.warn);
+      }).catch(log.warn);
 
       // Listen for file watcher events
       const { listen } = await import("@tauri-apps/api/event");
@@ -858,7 +782,11 @@
           const file = ws.openFileIndex[changedPath];
           if (!file) continue;
           if (file.dirty) {
-            pushToast("File changed externally: " + (changedPath.split("/").pop() ?? changedPath), "warning", 5000);
+            // Our own save followed by a quick keystroke looks exactly like this;
+            // only warn when the write did not come from Splice.
+            if (!wasRecentlyWrittenBySplice(changedPath)) {
+              pushToast("File changed externally: " + (changedPath.split("/").pop() ?? changedPath), "warning", 5000);
+            }
           } else {
             try {
               const { readFile } = await getCommands();
@@ -879,6 +807,7 @@
         treeChangeTimer = setTimeout(async () => {
           treeChangeTimer = null;
           const changedPath = event.payload;
+          log.debug("[watch] tree:changed", changedPath);
           const { refreshGitStatus } = await import("../lib/stores/git.svelte");
           for (const [wsId, w] of Object.entries(workspaceManager.workspaces)) {
             if (w.rootPath && isUnderRoot(changedPath, w.rootPath)) {
@@ -924,7 +853,7 @@
               await copyPath(src, dest);
               ok++;
             } catch (e) {
-              console.error(`Failed to copy ${src} → ${dest}:`, e);
+              log.error(`Failed to copy ${src} → ${dest}:`, e);
               pushToast(`Could not copy ${name}: ${e}`, "error");
             }
           }
@@ -935,10 +864,6 @@
           openDroppedFiles(paths);
         }
       });
-
-      // Dev API event listeners — loaded once as a standalone module so they
-      // survive App.svelte HMR updates. Vite tree-shakes this import entirely
-      // in production builds (import.meta.env.DEV is statically false).
     }
 
     // Listen for close-active-tab from keybindings
@@ -954,6 +879,9 @@
 
       const ws = workspaceManager.activeWorkspace;
       if (!ws) return;
+      // The drag may have started in a workspace that was switched away mid-drag
+      // (⌘⌥⇧→ with the button held); its source pane is not in this workspace.
+      if (!ws.panes[data.sourcePaneId]) return;
 
       const sourceKind = data.kind ?? "editor";
       const targetKind = ws.panes[targetPaneId]?.kind ?? "editor";
@@ -1028,6 +956,7 @@
 
 
 <div
+  id="app-root"
   class="grid"
   data-tauri-drag-region
   style="height: 100vh; background: var(--bg-editor); padding: 6px; grid-template-columns: {leftVisible && !ui.zenMode
@@ -1229,66 +1158,7 @@
         {/if}
       </div>
     {:else}
-      <div class="welcome-screen flex-1 flex items-center justify-center">
-        <div class="welcome-container">
-          <div class="welcome-header">
-            <div style="width: 64px; height: 64px; background-color: var(--accent); -webkit-mask-image: url('/logo.png'); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; mask-image: url('/logo.png'); mask-size: contain; mask-repeat: no-repeat; mask-position: center;" aria-label="Splice"></div>
-            <div>
-              <div class="text-txt-bright text-xl font-medium">Splice</div>
-              <div class="text-txt-dim text-xs">{tagline}</div>
-            </div>
-          </div>
-
-          <fieldset class="welcome-section">
-            <legend class="welcome-legend">Get Started</legend>
-            <button class="welcome-item" onclick={handleNewFile}>
-              <i class="bi bi-file-earmark-plus"></i>
-              <span>New File</span>
-              <kbd>Cmd N</kbd>
-            </button>
-            {#if isTauri}
-              <button class="welcome-item" onclick={handleOpenFolder}>
-                <i class="bi bi-folder2-open"></i>
-                <span>Open Folder</span>
-                <kbd>Cmd O</kbd>
-              </button>
-              <button class="welcome-item" onclick={() => workspaceManager.spawnTerminalInWorkspace()}>
-                <i class="bi bi-terminal"></i>
-                <span>Open Terminal</span>
-              </button>
-            {/if}
-            <button class="welcome-item" onclick={() => (ui.commandPaletteOpen = true)}>
-              <i class="bi bi-command"></i>
-              <span>Command Palette</span>
-              <kbd>Cmd P</kbd>
-            </button>
-          </fieldset>
-
-          {#if recentProjects.length > 0 && !ui.prMode}
-            <fieldset class="welcome-section">
-              <legend class="welcome-legend">Recent</legend>
-              {#each recentProjects.slice(0, 5) as projectPath}
-                <button class="welcome-item" onclick={() => {
-                  workspaceManager.createWorkspaceFromDirectory(projectPath);
-                }}>
-                  <i class="bi bi-folder2" style="flex-shrink: 0;"></i>
-                  <span style="flex: none;">{projectPath.split("/").filter(Boolean).pop()}</span>
-                  <span class="text-txt-dim text-[10px] truncate" style="flex: 1; min-width: 0;">{projectPath}</span>
-                </button>
-              {/each}
-            </fieldset>
-          {/if}
-
-          <fieldset class="welcome-section">
-            <legend class="welcome-legend">Configure</legend>
-            <button class="welcome-item" onclick={() => ui.settingsDrawerOpen = true}>
-              <i class="bi bi-gear"></i>
-              <span>Open Settings</span>
-              <kbd>Cmd ,</kbd>
-            </button>
-          </fieldset>
-        </div>
-      </div>
+      <WelcomeScreen onNewFile={handleNewFile} onOpenFolder={handleOpenFolder} />
     {/each}
   </div>
 
@@ -1363,81 +1233,4 @@
     box-shadow: var(--accent-glow);
   }
 
-  @keyframes welcome-in {
-    from { opacity: 0; transform: translateY(16px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .welcome-container {
-    width: 380px;
-    animation: welcome-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-  .welcome-header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    margin-bottom: 32px;
-  }
-  .welcome-section {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 6px 0;
-    margin: 0 0 16px 0;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .welcome-legend {
-    font-size: var(--ui-sm);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-dim);
-    padding: 0 8px;
-    margin-left: 8px;
-  }
-  .welcome-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    min-width: 0;
-    padding: 7px 16px;
-    border: none;
-    background: transparent;
-    color: var(--text);
-    font-size: var(--ui-body);
-    cursor: pointer;
-    transition: background var(--duration-base) var(--ease-default),
-                color var(--duration-base) var(--ease-default);
-    overflow: hidden;
-  }
-  .welcome-item:hover {
-    background: var(--bg-hover);
-    color: var(--text-bright);
-  }
-  :global(.welcome-item i) {
-    font-size: var(--ui-btn);
-    width: 18px;
-    text-align: center;
-    color: var(--text-dim);
-  }
-  :global(.welcome-item:hover i) {
-    color: var(--text-bright);
-  }
-  :global(.welcome-item span) {
-    flex: 1;
-    text-align: left;
-  }
-  :global(.welcome-item kbd) {
-    font-size: 10.5px;
-    color: var(--text-dim);
-    font-family: var(--ui-font);
-  }
-  .welcome-item-compact {
-    justify-content: center;
-    width: auto;
-    padding: 6px 16px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border);
-  }
 </style>

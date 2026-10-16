@@ -160,6 +160,16 @@ function onMouseUp() {
   cleanup();
 }
 
+/// A drag that loses the window (⌘-Tab, a notification click) never receives its
+/// mouseup, which left `body.tab-dragging` (grabbing cursor, no text selection) and
+/// the ghost stuck until the next drag. Blur and Escape cancel the drag instead.
+function onWindowBlur() {
+  cleanup();
+}
+function onKeyDown(e: KeyboardEvent) {
+  if (e.key === "Escape") cleanup();
+}
+
 function cleanup() {
   document.body.classList.remove("tab-dragging");
   active = null;
@@ -168,6 +178,8 @@ function cleanup() {
   dragging = false;
   document.removeEventListener("mousemove", onMouseMove);
   document.removeEventListener("mouseup", onMouseUp);
+  window.removeEventListener("blur", onWindowBlur);
+  document.removeEventListener("keydown", onKeyDown, true);
 }
 
 // --- Public API ---
@@ -186,6 +198,8 @@ export function beginDrag(data: TabDragData, e: MouseEvent) {
 
   document.addEventListener("mousemove", onMouseMove);
   document.addEventListener("mouseup", onMouseUp);
+  window.addEventListener("blur", onWindowBlur);
+  document.addEventListener("keydown", onKeyDown, true);
 }
 
 export function endDrag() {

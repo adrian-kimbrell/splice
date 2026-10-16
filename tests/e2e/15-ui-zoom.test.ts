@@ -1,8 +1,10 @@
 /**
- * Spec 15 – UI zoom
+ * Spec 15 – Pane font zoom
  *
- * Verifies that Cmd+= / Cmd+- / Cmd+0 adjust document.documentElement.style.zoom
- * by the expected 10% steps and that the scale is clamped to [50, 200].
+ * Cmd+= / Cmd+- / Cmd+0 change the font size of the focused pane kind: the
+ * terminal font when a terminal canvas has focus, the editor font otherwise
+ * (`bumpFocusedPaneFont` / `resetFocusedPaneFont` in lib/utils/keybindings.ts).
+ * The size is clamped to [FONT_MIN, FONT_MAX] and persisted through settings.
  */
 
 import { mkdtempSync, rmSync } from "fs";
@@ -10,33 +12,34 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { loadApp, openWorkspace, closeAllWorkspaces, pressKey, sleep } from "./helpers";
 
-/** Read the current zoom level as a number (100 = 100%). */
-async function getZoomScale(): Promise<number> {
+interface FontSizes { terminal: number; editor: number }
+
+async function getFontSizes(): Promise<FontSizes> {
   return await browser.execute(() => {
-    const zoom = document.documentElement.style.zoom;
-    if (!zoom) return 100;
-    return Math.round(parseFloat(zoom) * 100);
-  }) as number;
+    const s = (window as unknown as { __spliceTest: { getSettings: () => { terminal: { font_size: number }; editor: { font_size: number } } } })
+      .__spliceTest.getSettings();
+    return { terminal: s.terminal.font_size, editor: s.editor.font_size };
+  }) as FontSizes;
 }
 
-/** Set zoom directly via settings to reset to a known baseline. */
-async function resetZoom(): Promise<void> {
+/** Give keyboard focus to the first terminal canvas so the shortcuts target the terminal font. */
+async function focusTerminal(): Promise<void> {
   await browser.execute(() => {
-    // Reset via Cmd+0 equivalent (set ui_scale = 100)
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "0",
-        metaKey: true,
-        bubbles: true,
-        cancelable: true,
-      })
-    );
+    (document.querySelector("canvas[tabindex]") as HTMLElement | null)?.focus();
   });
-  await sleep(200);
+  await sleep(100);
 }
 
-describe("UI zoom", () => {
+async function resetFont(): Promise<void> {
+  await focusTerminal();
+  await pressKey(browser, "0", { meta: true });
+  await sleep(150);
+}
+
+describe("Pane font zoom", () => {
   let wsDir: string;
+  let base: number;
+  let editorBase: number;
 
   before(async () => {
     await loadApp(browser);
@@ -45,122 +48,74 @@ describe("UI zoom", () => {
     wsDir = mkdtempSync(join(tmpdir(), "splice-zoom-"));
     await openWorkspace(browser, wsDir);
     await sleep(800);
-    await resetZoom(); // start at 100%
+    await resetFont();
+    const sizes = await getFontSizes();
+    base = sizes.terminal;
+    editorBase = sizes.editor;
   });
 
   after(async () => {
-    await resetZoom(); // leave app at 100% for subsequent tests
+    await resetFont(); // leave the font at its default for subsequent specs
     await closeAllWorkspaces(browser).catch(() => {});
     rmSync(wsDir, { recursive: true, force: true });
   });
 
-  it("initial zoom is 100%", async () => {
-    const scale = await getZoomScale();
-    expect(scale).toBe(100);
+  it("Cmd+0 leaves the terminal at a sane default size", async () => {
+    expect(base).toBeGreaterThanOrEqual(8);
+    expect(base).toBeLessThanOrEqual(32);
   });
 
-  it("Cmd+= zooms in by 10%", async () => {
+  it("Cmd+= grows the focused terminal font by 1", async () => {
+    await focusTerminal();
     await pressKey(browser, "=", { meta: true });
-    await sleep(200);
-
-    const scale = await getZoomScale();
-    expect(scale).toBe(110);
+    await sleep(150);
+    expect((await getFontSizes()).terminal).toBe(base + 1);
   });
 
-  it("another Cmd+= zooms in to 120%", async () => {
+  it("another Cmd+= grows it to +2", async () => {
     await pressKey(browser, "=", { meta: true });
-    await sleep(200);
-
-    const scale = await getZoomScale();
-    expect(scale).toBe(120);
+    await sleep(150);
+    expect((await getFontSizes()).terminal).toBe(base + 2);
   });
 
-  it("Cmd+- zooms out by 10%", async () => {
+  it("Cmd+- shrinks it back to +1", async () => {
     await pressKey(browser, "-", { meta: true });
-    await sleep(200);
-
-    const scale = await getZoomScale();
-    expect(scale).toBe(110);
+    await sleep(150);
+    expect((await getFontSizes()).terminal).toBe(base + 1);
   });
 
-  it("Cmd+0 resets zoom to 100%", async () => {
+  it("terminal zoom leaves the editor font untouched", async () => {
+    expect((await getFontSizes()).editor).toBe(editorBase);
+  });
+
+  it("shrinking repeatedly is clamped at a minimum", async () => {
+    for (let i = 0; i < 40; i++) await pressKey(browser, "-", { meta: true });
+    await sleep(200);
+    const min = (await getFontSizes()).terminal;
+    expect(min).toBeLessThan(base);
+    await pressKey(browser, "-", { meta: true });
+    await sleep(150);
+    expect((await getFontSizes()).terminal).toBe(min);
+  });
+
+  it("growing repeatedly is clamped at a maximum", async () => {
+    for (let i = 0; i < 60; i++) await pressKey(browser, "=", { meta: true });
+    await sleep(200);
+    const max = (await getFontSizes()).terminal;
+    expect(max).toBeGreaterThan(base);
+    await pressKey(browser, "=", { meta: true });
+    await sleep(150);
+    expect((await getFontSizes()).terminal).toBe(max);
+  });
+
+  it("Cmd+0 resets the terminal font to the default", async () => {
     await pressKey(browser, "0", { meta: true });
-    await sleep(200);
-
-    const scale = await getZoomScale();
-    expect(scale).toBe(100);
+    await sleep(150);
+    expect((await getFontSizes()).terminal).toBe(base);
   });
 
-  it("zooming out repeatedly is clamped at 50%", async () => {
-    // Press Cmd+- 10 times (100 → 50)
-    for (let i = 0; i < 10; i++) {
-      await pressKey(browser, "-", { meta: true });
-      await sleep(50);
-    }
-    await sleep(200);
-
-    const scale = await getZoomScale();
-    expect(scale).toBe(50);
-
-    // Another Cmd+- should not go below 50
-    await pressKey(browser, "-", { meta: true });
-    await sleep(200);
-    const scaleClamped = await getZoomScale();
-    expect(scaleClamped).toBe(50);
-
-    await resetZoom();
-  });
-
-  it("zooming in repeatedly is clamped at 200%", async () => {
-    // Press Cmd+= 15 times (100 → 200, clamped)
-    for (let i = 0; i < 15; i++) {
-      await pressKey(browser, "=", { meta: true });
-      await sleep(50);
-    }
-    await sleep(200);
-
-    const scale = await getZoomScale();
-    expect(scale).toBe(200);
-
-    // Another Cmd+= should not exceed 200
-    await pressKey(browser, "=", { meta: true });
-    await sleep(200);
-    const scaleClamped = await getZoomScale();
-    expect(scaleClamped).toBe(200);
-
-    await resetZoom();
-  });
-
-  it("zoom change updates document.documentElement.style.zoom", async () => {
-    await pressKey(browser, "=", { meta: true });
-    await sleep(200);
-
-    const zoom = await browser.execute(
-      () => document.documentElement.style.zoom
-    ) as string;
-
-    // Should be a CSS value like "1.1" representing 110%
-    expect(parseFloat(zoom)).toBeGreaterThan(1.0);
-
-    await resetZoom();
-  });
-
-  it("UI is still functional after zoom changes", async () => {
-    await pressKey(browser, "=", { meta: true });
-    await sleep(100);
-    await pressKey(browser, "=", { meta: true });
-    await sleep(100);
-    await pressKey(browser, "-", { meta: true });
-    await sleep(100);
-    await pressKey(browser, "0", { meta: true });
-    await sleep(200);
-
-    // App root should still be present
-    const root = await browser.$(".grid.h-screen");
+  it("app is functional after the zoom cycle", async () => {
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
-
-    // File tree should still be visible
-    const tree = await browser.$('[role="tree"]');
-    await expect(tree).toExist();
   });
 });

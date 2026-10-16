@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import type { Workspace, SshConfig } from "../../lib/stores/workspace-types";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
@@ -13,6 +14,11 @@
 
   let host = $state("");
   let port = $state(22);
+  /** `bind:value` on an emptied number input yields null; Rust needs a real u16. */
+  function safePort(p: unknown): number {
+    const n = Number(p);
+    return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : 22;
+  }
   let user = $state("");
   let remotePath = $state("~");
   let keyPath = $state("");   // empty = use ~/.ssh/config defaults
@@ -42,7 +48,7 @@
     browseLoading = true;
 
     const config: SshConfig = {
-      host: host.trim(), port,
+      host: host.trim(), port: safePort(port),
       user: user.trim(), keyPath: keyPath.trim(),
       remotePath: remotePath.trim() || "~",
     };
@@ -104,7 +110,7 @@
 
     const config: SshConfig = {
       host: host.trim(),
-      port,
+      port: safePort(port),
       user: user.trim(),
       keyPath: keyPath.trim(),
       remotePath: remotePath.trim() || "~",
@@ -133,7 +139,7 @@
 
       onclose();
     } catch (e) {
-      console.error("[SSH] Error:", e);
+      log.error("[SSH] Error:", e);
       error = String(e);
     } finally {
       connecting = false;

@@ -1,3 +1,4 @@
+import { log } from "../utils/log";
 import type { Workspace } from "./workspace-types";
 import type { SplitDirection } from "./layout.svelte";
 import {
@@ -27,7 +28,7 @@ function collapseEmptySourcePane(ws: Workspace, paneId: string): void {
   delete ws.panes[paneId];
   if (ws.layout) {
     const result = removeNodeFromTree(ws.layout, paneId);
-    if (!result.found) console.warn(`collapseEmptySourcePane: "${paneId}" not found in layout`);
+    if (!result.found) log.warn(`collapseEmptySourcePane: "${paneId}" not found in layout`);
     ws.layout = result.tree;
   }
 }
@@ -48,7 +49,7 @@ export function validateLayout(ws: Workspace): void {
   // Delete orphaned pane configs (in panes but not in layout)
   for (const paneId of paneIds) {
     if (!leafIds.has(paneId)) {
-      console.warn(`validateLayout: orphaned pane config "${paneId}" — removing`);
+      log.warn(`validateLayout: orphaned pane config "${paneId}" — removing`);
       delete ws.panes[paneId];
     }
   }
@@ -56,7 +57,7 @@ export function validateLayout(ws: Workspace): void {
   // Warn about dangling layout leaves (in layout but not in panes)
   for (const leafId of leafIds) {
     if (!paneIds.has(leafId)) {
-      console.warn(`validateLayout: layout leaf "${leafId}" has no pane config`);
+      log.warn(`validateLayout: layout leaf "${leafId}" has no pane config`);
     }
   }
 
@@ -145,7 +146,7 @@ export function moveTabToNewPane(
 
   // Multiple tabs — extract one to a new pane
   if (treeDepth(ws.layout) >= MAX_SPLIT_DEPTH) {
-    console.warn("Split depth limit reached, cannot create new pane from tab drop");
+    log.warn("Split depth limit reached, cannot create new pane from tab drop");
     return;
   }
 
@@ -161,7 +162,7 @@ export function moveTabToNewPane(
   };
 
   const splitResult = splitNodeInTreeWithSide(ws.layout, targetPaneId, newPaneId, direction, side);
-  if (!splitResult.found) console.warn(`splitNodeInTreeWithSide: target "${targetPaneId}" not found in layout`);
+  if (!splitResult.found) log.warn(`splitNodeInTreeWithSide: target "${targetPaneId}" not found in layout`);
   ws.layout = splitResult.tree;
 
   collapseEmptySourcePane(ws, sourcePaneId);

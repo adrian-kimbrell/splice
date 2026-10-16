@@ -71,3 +71,35 @@ jobs:
 
       - run: npm ci
       - run: npm run tauri:build -- --no-bundle
+
+  test-e2e:
+    name: E2E (WebdriverIO, macOS)
+    runs-on: macos-latest
+    needs: [test-frontend, test-rust]
+    # Advisory while the suite proves itself on hosted runners: a failure here
+    # shows up in the checks list but does not block merging or releases.
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # Debug build with the `e2e` feature: registers tauri-plugin-webdriver,
+      # which serves WebDriver from inside the app (no tauri-driver needed).
+      - name: Build e2e binary
+        run: npm run build:e2e
+
+      - name: Run E2E suite
+        run: npm run test:e2e

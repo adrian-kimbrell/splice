@@ -159,9 +159,17 @@ describe("remapLayout", () => {
   it("handles malformed split (missing children) gracefully", () => {
     const idMap = new Map([["a", "pa"]]);
     const raw = { type: "Split", direction: "Horizontal", ratio: 0.5, children: [{ type: "Leaf", pane_id: "a" }] };
-    // Only 1 child — should fall back to a leaf
+    // Only 1 child — keep that child rather than inventing a duplicate leaf
+    const result = remapLayout(raw, idMap);
+    expect(result).toEqual({ type: "leaf", paneId: "pa" });
+  });
+
+  it("malformed split with no children yields a leaf no pane owns", () => {
+    const idMap = new Map([["a", "pa"]]);
+    const raw = { type: "Split", direction: "Horizontal", ratio: 0.5, children: [] };
     const result = remapLayout(raw, idMap);
     expect(result.type).toBe("leaf");
+    expect((result as { paneId: string }).paneId).not.toBe("pa");
   });
 });
 

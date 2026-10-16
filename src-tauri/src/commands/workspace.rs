@@ -26,9 +26,7 @@ fn config_dir() -> std::path::PathBuf {
     let name = "Splice-dev";
     #[cfg(not(debug_assertions))]
     let name = "Splice";
-    let dir = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(name);
+    let dir = crate::state::splice_config_dir(name);
     std::fs::create_dir_all(&dir).ok();
     dir
 }
@@ -45,12 +43,21 @@ fn config_path(label: &str) -> std::path::PathBuf {
     }
 }
 
+/// Window labels are interpolated into config file names; keep them to a safe
+/// alphabet so `x/../../settings` cannot name a file outside the config dir.
+fn ensure_valid_label(label: &str) -> Result<(), String> {
+    let ok = !label.is_empty()
+        && label.len() <= 64
+        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if ok { Ok(()) } else { Err(format!("Invalid window label: {:?}", label)) }
+}
+
 fn windows_registry_path() -> std::path::PathBuf {
     config_dir().join("windows.json")
 }
 
 /// On-disk format (new). Backward-compatible with old `Vec<Workspace>` via fallback parsing.
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct WorkspacesFile {
     #[serde(default)]
     active_workspace_id: Option<String>,
@@ -71,24 +78,116 @@ pub struct WorkspacesResponse {
     pub workspaces: Vec<Workspace>,
 }
 
+/// Outcome of a lenient parse: whatever entries were readable, plus how many were not.
+struct ParsedWorkspaces {
+    file: WorkspacesFile,
+    skipped: usize,
+}
+
+/// Parse a workspaces file entry-by-entry so one bad workspace (hand edit, a
+/// variant from a newer build) cannot take the whole session down with it.
+/// Accepts both the object format and the legacy bare-array format.
+/// Returns `Err` only when the document itself is unusable.
+fn parse_workspaces_lenient(data: &str) -> Result<ParsedWorkspaces, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(data).map_err(|e| format!("invalid JSON: {}", e))?;
+    let (active_workspace_id, entries) = match value {
+        serde_json::Value::Object(mut map) => {
+            let active = map
+                .remove("active_workspace_id")
+                .and_then(|v| v.as_str().map(str::to_string));
+            let entries = match map.remove("workspaces") {
+                Some(serde_json::Value::Array(a)) => a,
+                None => Vec::new(),
+                Some(_) => return Err("`workspaces` is not an array".to_string()),
+            };
+            (active, entries)
+        }
+        serde_json::Value::Array(a) => (None, a),
+        _ => return Err("not a JSON object or array".to_string()),
+    };
+
+    let mut workspaces = Vec::with_capacity(entries.len());
+    let mut skipped = 0usize;
+    for entry in entries {
+        let id = entry
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<no id>")
+            .to_string();
+        match serde_json::from_value::<Workspace>(entry) {
+            Ok(ws) => workspaces.push(ws),
+            Err(e) => {
+                skipped += 1;
+                tracing::warn!(id = %id, error = %e, "skipping unparseable workspace entry");
+            }
+        }
+    }
+    Ok(ParsedWorkspaces {
+        file: WorkspacesFile { active_workspace_id, workspaces },
+        skipped,
+    })
+}
+
+/// Path a damaged workspaces file is preserved under, next to the original.
+fn quarantine_path(path: &std::path::Path) -> std::path::PathBuf {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "workspaces.json".to_string());
+    path.with_file_name(format!("{}.corrupt-{}", name, ts))
+}
+
+/// Interpret the contents of a workspaces file at `path`.
+///
+/// - Fully unparseable: the file is *moved aside* to `<name>.corrupt-<ts>` and an
+///   error is returned. Nothing may ever write over a file we could not read.
+/// - Partially parseable: a copy is kept at `<name>.corrupt-<ts>` (the next save
+///   will rewrite the file without the skipped entries) and the good entries load.
+fn read_workspaces_data(path: &std::path::Path, data: &str) -> Result<WorkspacesFile, String> {
+    match parse_workspaces_lenient(data) {
+        Ok(parsed) => {
+            if parsed.skipped > 0 {
+                let backup = quarantine_path(path);
+                match std::fs::copy(path, &backup) {
+                    Ok(_) => tracing::warn!(
+                        skipped = parsed.skipped,
+                        backup = %backup.display(),
+                        "workspaces file had unreadable entries; original preserved"
+                    ),
+                    Err(e) => tracing::warn!(error = %e, "failed to back up workspaces file"),
+                }
+            }
+            Ok(parsed.file)
+        }
+        Err(e) => {
+            let backup = quarantine_path(path);
+            match std::fs::rename(path, &backup) {
+                Ok(()) => Err(format!(
+                    "Failed to parse workspaces file ({}); moved to {}",
+                    e,
+                    backup.display()
+                )),
+                Err(re) => Err(format!(
+                    "Failed to parse workspaces file ({}); could not move it aside: {}",
+                    e, re
+                )),
+            }
+        }
+    }
+}
+
 fn read_workspaces_file(label: &str) -> Result<WorkspacesFile, String> {
     let path = config_path(label);
     if !path.exists() {
         return Ok(WorkspacesFile::default());
     }
     let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-
-    // Try new object format first; fall back to old array format
-    if let Ok(file) = serde_json::from_str::<WorkspacesFile>(&data) {
-        Ok(file)
-    } else if let Ok(workspaces) = serde_json::from_str::<Vec<Workspace>>(&data) {
-        Ok(WorkspacesFile {
-            active_workspace_id: None,
-            workspaces,
-        })
-    } else {
-        Err("Failed to parse workspaces file".to_string())
-    }
+    read_workspaces_data(&path, &data)
 }
 
 fn write_workspaces_file(
@@ -215,18 +314,89 @@ pub fn handle_opened(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
         }
     }
     if any {
-        let _ = app.emit("open-path", ());
+        // Deliver to the focused window so the file opens where the user is looking.
+        // Every window drains the shared queue, so broadcasting let a background
+        // window win the race.
+        use tauri::Manager;
+        let focused = app
+            .webview_windows()
+            .into_iter()
+            .find(|(_, w)| w.is_focused().unwrap_or(false));
+        match focused {
+            Some((_, w)) => {
+                let _ = w.emit("open-path", ());
+            }
+            None => {
+                let _ = app.emit("open-path", ());
+            }
+        }
     }
 }
 
-/// Remove entries from `allowed_roots` that are not in `active_roots`.
+/// Roots some part of the app still needs: every workspace root in *every* window,
+/// the parent directory of every file open in those workspaces (Finder "Open With"
+/// grants the file's folder), and anything the OS asked us to open that the
+/// frontend has not drained yet. `revoke_unused_roots` used to see only the
+/// closing window's workspaces, so closing a workspace in window B revoked the
+/// root window A was working in and A's saves failed with "Access denied".
+fn active_roots_for(state: &AppState) -> Vec<std::path::PathBuf> {
+    fn canon(p: &std::path::Path) -> std::path::PathBuf {
+        std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+    }
+    let mut roots = Vec::new();
+    for (_, workspaces) in state.window_workspaces.values() {
+        for w in workspaces {
+            if !w.root_path.is_empty() {
+                roots.push(canon(std::path::Path::new(&w.root_path)));
+            }
+            for f in &w.open_file_paths {
+                if let Some(dir) = std::path::Path::new(f).parent() {
+                    if !dir.as_os_str().is_empty() {
+                        roots.push(canon(dir));
+                    }
+                }
+            }
+        }
+    }
+    for target in &state.pending_open_paths {
+        let p = std::path::Path::new(&target.path);
+        let dir = if target.is_dir { Some(p) } else { p.parent() };
+        if let Some(d) = dir.filter(|d| !d.as_os_str().is_empty()) {
+            roots.push(canon(d));
+        }
+    }
+    roots
+}
+
+/// Remove entries from `allowed_roots` that are not in `active_roots`, keeping the
+/// process-default roots (the home directory) that `AppState::new` grants.
+///
 /// Called after a workspace is deleted or closed so the app doesn't retain fs access to
-/// directories that are no longer open.
+/// directories that are no longer open. Without the `protected` carve-out, closing any
+/// workspace dropped HOME from the allow list and every later read outside an open
+/// workspace (recent files, "Open File…", project settings) failed with "Access denied".
 fn revoke_unused_roots(
     allowed_roots: &mut Vec<std::path::PathBuf>,
     active_roots: &[std::path::PathBuf],
 ) {
-    allowed_roots.retain(|root| active_roots.contains(root));
+    let protected = default_allowed_roots();
+    revoke_unused_roots_except(allowed_roots, active_roots, &protected);
+}
+
+/// Roots that are always allowed regardless of open workspaces (currently HOME).
+fn default_allowed_roots() -> Vec<std::path::PathBuf> {
+    dirs::home_dir()
+        .map(|h| std::fs::canonicalize(&h).unwrap_or(h))
+        .into_iter()
+        .collect()
+}
+
+fn revoke_unused_roots_except(
+    allowed_roots: &mut Vec<std::path::PathBuf>,
+    active_roots: &[std::path::PathBuf],
+    protected: &[std::path::PathBuf],
+) {
+    allowed_roots.retain(|root| protected.contains(root) || active_roots.contains(root));
 }
 
 #[tauri::command]
@@ -309,20 +479,16 @@ pub fn delete_workspace(
     let (workspaces, active_id) = {
         let mut state = state.lock().map_err(|e| e.to_string())?;
 
-        let (workspaces, active_id, active_roots) = {
+        let (workspaces, active_id) = {
             let entry = state.window_workspaces.entry(label.clone()).or_insert_with(|| (None, Vec::new()));
             entry.1.retain(|w| w.id != id);
             if entry.0.as_deref() == Some(&id) {
                 entry.0 = entry.1.first().map(|w| w.id.clone());
             }
-            let active_roots: Vec<std::path::PathBuf> = entry.1.iter()
-                .filter(|w| !w.root_path.is_empty())
-                .map(|w| std::fs::canonicalize(&w.root_path)
-                    .unwrap_or_else(|_| std::path::PathBuf::from(&w.root_path)))
-                .collect();
-            (entry.1.clone(), entry.0.clone(), active_roots)
+            (entry.1.clone(), entry.0.clone())
         };
 
+        let active_roots = active_roots_for(&state);
         revoke_unused_roots(&mut state.allowed_roots, &active_roots);
         (workspaces, active_id)
     };
@@ -354,20 +520,16 @@ pub fn close_workspace(
         // Modify workspace list and compute active_roots in inner block
         // so that the mutable borrow of window_workspaces is released
         // before we mutably borrow allowed_roots.
-        let (workspaces, active_id, active_roots) = {
+        let (workspaces, active_id) = {
             let entry = state.window_workspaces.entry(label.clone()).or_insert_with(|| (None, Vec::new()));
             entry.1.retain(|w| w.id != id);
             if entry.0.as_deref() == Some(&id) {
                 entry.0 = entry.1.first().map(|w| w.id.clone());
             }
-            let active_roots: Vec<std::path::PathBuf> = entry.1.iter()
-                .filter(|w| !w.root_path.is_empty())
-                .map(|w| std::fs::canonicalize(&w.root_path)
-                    .unwrap_or_else(|_| std::path::PathBuf::from(&w.root_path)))
-                .collect();
-            (entry.1.clone(), entry.0.clone(), active_roots)
+            (entry.1.clone(), entry.0.clone())
         };
 
+        let active_roots = active_roots_for(&state);
         revoke_unused_roots(&mut state.allowed_roots, &active_roots);
         (terminal_ids, workspaces, active_id)
     };
@@ -426,6 +588,7 @@ pub fn reorder_workspaces(
 /// Must be called BEFORE creating the WebviewWindow.
 #[tauri::command]
 pub fn register_window(label: String) -> Result<(), String> {
+    ensure_valid_label(&label)?;
     let mut registry = read_windows_registry();
     if !registry.labels.contains(&label) {
         registry.labels.push(label);
@@ -439,6 +602,7 @@ pub fn unregister_window(
     state: State<'_, Mutex<AppState>>,
     label: String,
 ) -> Result<(), String> {
+    ensure_valid_label(&label)?;
     // Remove from registry
     let mut registry = read_windows_registry();
     registry.labels.retain(|l| l != &label);
@@ -514,6 +678,33 @@ fn is_pid_alive(_pid: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn revoke_keeps_protected_roots_when_no_workspace_uses_them() {
+        let home = std::path::PathBuf::from("/Users/me");
+        let proj = std::path::PathBuf::from("/Users/me/proj");
+        let other = std::path::PathBuf::from("/Volumes/ext/other");
+        let mut allowed = vec![home.clone(), proj.clone(), other];
+        // Only `proj` is still open; `home` must survive because it is protected.
+        super::revoke_unused_roots_except(&mut allowed, std::slice::from_ref(&proj), std::slice::from_ref(&home));
+        assert_eq!(allowed, vec![home, proj]);
+    }
+
+    #[test]
+    fn revoke_drops_everything_but_protected_when_last_workspace_closes() {
+        let home = std::path::PathBuf::from("/Users/me");
+        let mut allowed = vec![home.clone(), std::path::PathBuf::from("/tmp/x")];
+        super::revoke_unused_roots_except(&mut allowed, &[], std::slice::from_ref(&home));
+        assert_eq!(allowed, vec![home]);
+    }
+
+    #[test]
+    fn default_allowed_roots_is_home() {
+        let roots = super::default_allowed_roots();
+        assert_eq!(roots.len(), 1);
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(roots[0], std::fs::canonicalize(&home).unwrap_or(home));
+    }
+
     use super::*;
 
     #[test]
@@ -589,5 +780,120 @@ mod tests {
         let read_back2 = std::fs::read_to_string(&dest).unwrap();
         assert_eq!(read_back2, r#"{"labels":["c"]}"#);
         assert!(!tmp.exists());
+    }
+    // -----------------------------------------------------------------------
+    // Lenient workspaces-file parsing: one bad entry must not drop the rest,
+    // and a file we cannot read must never be overwritten by the next save.
+    // -----------------------------------------------------------------------
+
+    fn ws_json(id: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","name":"{id}","root_path":"/tmp/{id}","layout":{{"type":"Leaf","pane_id":"p1"}},"panes":[],"terminal_ids":[],"open_file_paths":[],"active_file_path":null}}"#
+        )
+    }
+
+    #[test]
+    fn lenient_parse_reads_object_format() {
+        let data = format!(r#"{{"active_workspace_id":"b","workspaces":[{},{}]}}"#, ws_json("a"), ws_json("b"));
+        let parsed = parse_workspaces_lenient(&data).unwrap();
+        assert_eq!(parsed.skipped, 0);
+        assert_eq!(parsed.file.active_workspace_id.as_deref(), Some("b"));
+        assert_eq!(parsed.file.workspaces.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn lenient_parse_reads_legacy_array_format() {
+        let data = format!("[{}]", ws_json("a"));
+        let parsed = parse_workspaces_lenient(&data).unwrap();
+        assert_eq!(parsed.file.active_workspace_id, None);
+        assert_eq!(parsed.file.workspaces.len(), 1);
+    }
+
+    #[test]
+    fn lenient_parse_skips_one_bad_entry_and_keeps_the_rest() {
+        // `terminal_ids` must be an array of u32 — a string makes this entry unreadable.
+        let bad = r#"{"id":"bad","name":"bad","root_path":"/tmp","layout":{"type":"Leaf","pane_id":"p"},"panes":[],"terminal_ids":"oops","open_file_paths":[],"active_file_path":null}"#;
+        let data = format!(r#"{{"workspaces":[{},{},{}]}}"#, ws_json("a"), bad, ws_json("c"));
+        let parsed = parse_workspaces_lenient(&data).unwrap();
+        assert_eq!(parsed.skipped, 1);
+        assert_eq!(parsed.file.workspaces.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), vec!["a", "c"]);
+    }
+
+    #[test]
+    fn lenient_parse_rejects_unusable_documents() {
+        assert!(parse_workspaces_lenient("not json").is_err());
+        assert!(parse_workspaces_lenient("42").is_err());
+        assert!(parse_workspaces_lenient(r#"{"workspaces":"nope"}"#).is_err());
+    }
+
+    #[test]
+    fn unparseable_file_is_moved_aside_not_left_for_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("workspaces.json");
+        std::fs::write(&path, "{ this is not json").unwrap();
+
+        let err = read_workspaces_data(&path, "{ this is not json").unwrap_err();
+        assert!(err.contains("moved to"), "error should name the backup: {err}");
+        assert!(!path.exists(), "original must be moved aside");
+
+        let backups: Vec<_> = std::fs::read_dir(dir.path()).unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with("workspaces.json.corrupt-"))
+            .collect();
+        assert_eq!(backups.len(), 1);
+        let backup = std::fs::read_to_string(dir.path().join(&backups[0])).unwrap();
+        assert_eq!(backup, "{ this is not json");
+        // The backup must not be mistaken for a per-window workspaces file.
+        assert!(scan_workspace_labels_in_dir(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn partially_readable_file_is_backed_up_and_loaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("workspaces-main-abc123.json");
+        let bad = r#"{"id":"bad","terminal_ids":"oops"}"#;
+        let data = format!(r#"{{"workspaces":[{},{}]}}"#, ws_json("a"), bad);
+        std::fs::write(&path, &data).unwrap();
+
+        let file = read_workspaces_data(&path, &data).unwrap();
+        assert_eq!(file.workspaces.len(), 1);
+        assert!(path.exists(), "original stays in place (next save rewrites it)");
+        let backups: Vec<_> = std::fs::read_dir(dir.path()).unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with("workspaces-main-abc123.json.corrupt-"))
+            .collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(scan_workspace_labels_in_dir(dir.path()), vec!["main-abc123".to_string()]);
+    }
+
+    #[test]
+    fn active_roots_span_all_windows_open_files_and_pending_opens() {
+        let mut state = AppState::new();
+        let mut a: Workspace = serde_json::from_str(&ws_json("a")).unwrap();
+        a.root_path = "/Volumes/work/projA".into();
+        let mut b: Workspace = serde_json::from_str(&ws_json("b")).unwrap();
+        b.root_path = String::new(); // empty workspace with one file opened via Finder
+        b.open_file_paths = vec!["/Volumes/drop/notes/todo.md".into(), "untitled-1".into()];
+        state.window_workspaces.insert("main".into(), (None, vec![a]));
+        state.window_workspaces.insert("main-2".into(), (None, vec![b]));
+        state.pending_open_paths.push(crate::state::OpenTarget { path: "/Volumes/drop/in/x.txt".into(), is_dir: false });
+        state.pending_open_paths.push(crate::state::OpenTarget { path: "/Volumes/drop/dir".into(), is_dir: true });
+
+        let roots = active_roots_for(&state);
+
+        for expected in ["/Volumes/work/projA", "/Volumes/drop/notes", "/Volumes/drop/in", "/Volumes/drop/dir"] {
+            assert!(roots.contains(&std::path::PathBuf::from(expected)), "missing {expected} in {roots:?}");
+        }
+        assert!(!roots.iter().any(|r| r.as_os_str().is_empty()));
+    }
+
+    #[test]
+    fn window_labels_are_restricted_to_a_safe_alphabet() {
+        assert!(ensure_valid_label("main").is_ok());
+        assert!(ensure_valid_label("main-19d2b4f").is_ok());
+        assert!(ensure_valid_label("").is_err());
+        assert!(ensure_valid_label("x/../../settings").is_err());
+        assert!(ensure_valid_label("a b").is_err());
+        assert!(ensure_valid_label(&"a".repeat(65)).is_err());
     }
 }

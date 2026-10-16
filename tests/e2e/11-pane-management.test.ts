@@ -134,7 +134,7 @@ describe("Pane management", () => {
 
     // Either zoomed OR Escape to clear (the behavior depends on which element was focused)
     // Just verify the app didn't crash
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
 
     // Reset zoom via Escape
@@ -159,7 +159,7 @@ describe("Pane management", () => {
     await sleep(200);
 
     // App should still be alive
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 

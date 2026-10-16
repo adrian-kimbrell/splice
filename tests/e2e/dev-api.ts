@@ -235,12 +235,20 @@ export const api = {
   ): Promise<DevState> {
     const { timeoutMs = 8000, intervalMs = 200, label = "condition" } = options;
     const deadline = Date.now() + timeoutMs;
+    let lastError: unknown = null;
     while (Date.now() < deadline) {
-      const s = await api.state();
-      if (predicate(s)) return s;
+      try {
+        const s = await api.state();
+        if (predicate(s)) return s;
+      } catch (e) {
+        // A state snapshot can time out while the page is reloading; keep polling
+        // until our own deadline rather than failing on the first miss.
+        lastError = e;
+      }
       await sleep(intervalMs);
     }
-    throw new Error(`dev-api: timed out waiting for ${label} after ${timeoutMs}ms`);
+    const why = lastError ? ` (last error: ${String(lastError)})` : "";
+    throw new Error(`dev-api: timed out waiting for ${label} after ${timeoutMs}ms${why}`);
   },
 
   /** Wait until at least one workspace exists. */

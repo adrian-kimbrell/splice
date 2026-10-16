@@ -25,9 +25,12 @@ async function openTerminalSearch(): Promise<void> {
     // Fall back to the TerminalPane root div if canvas is not available
     const target = document.querySelector("canvas[tabindex]") ?? document.querySelector("[data-pane-id]");
     if (!target) throw new Error("Terminal canvas not found");
+    // Cmd+F: Ctrl+F is forwarded to the shell (readline forward-char) and the
+    // canvas stops its propagation, so it never reaches the pane's search toggle.
     target.dispatchEvent(new KeyboardEvent("keydown", {
       key: "f",
-      ctrlKey: true,
+      code: "KeyF",
+      metaKey: true,
       bubbles: true,
       cancelable: true,
     }));
@@ -88,7 +91,7 @@ describe("Terminal search UI", () => {
     rmSync(wsDir, { recursive: true, force: true });
   });
 
-  it("terminal search bar opens with Ctrl+F on the canvas", async () => {
+  it("terminal search bar opens with Cmd+F on the canvas", async () => {
     const canvas = await browser.$("canvas[tabindex]");
     await expect(canvas).toExist();
 

@@ -428,7 +428,9 @@ impl<'a> vte::Perform for GridPerformer<'a> {
                     6 => {
                         // Cursor position (1-based)
                         let row = self.grid.cursor_row() + 1;
-                        let col = self.grid.cursor_col() + 1;
+                        // cursor_col can equal cols in the pending-wrap state; xterm
+                        // reports the last column, never cols + 1.
+                        let col = (self.grid.cursor_col() + 1).min(self.grid.cols);
                         let reply = format!("\x1b[{};{}R", row, col);
                         self.pending_reply.extend_from_slice(reply.as_bytes());
                     }

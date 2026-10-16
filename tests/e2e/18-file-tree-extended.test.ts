@@ -103,11 +103,17 @@ describe("File tree extended operations", () => {
     await rightClickElement(browser, '[data-path$="a.ts"]');
     await sleep(200);
     await clickContextMenuItem(browser, "Collapse All");
-    await sleep(400);
 
-    // nested.ts should no longer be in DOM after collapsing
+    // nested.ts should leave the DOM once the collapse has rendered
     const nestedAfter = await browser.$('[data-path$="nested.ts"]');
-    const nestedExists = await nestedAfter.isExisting();
-    expect(nestedExists).toBe(false);
+    await nestedAfter.waitForExist({ reverse: true, timeout: 3_000 }).catch(async (e) => {
+      const dump = await browser.execute(() => ({
+        ui: (window as unknown as { __spliceTest: { getUiState: () => unknown } }).__spliceTest.getUiState(),
+        paths: Array.from(document.querySelectorAll("[data-path]")).map((el) => el.getAttribute("data-path")),
+        menuOpen: document.querySelectorAll("button.split-dropdown-item").length,
+      }));
+      throw new Error(`nested.ts still rendered after Collapse All: ${JSON.stringify(dump)} (${String(e)})`);
+    });
+    expect(await nestedAfter.isExisting()).toBe(false);
   });
 });

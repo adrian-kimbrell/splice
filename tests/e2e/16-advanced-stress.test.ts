@@ -106,7 +106,7 @@ describe("Advanced stress / performance", function () {
       }
     }
 
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
 
     await closeAllWorkspaces(browser);
@@ -164,7 +164,7 @@ describe("Advanced stress / performance", function () {
     });
     await sleep(400);
 
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
 
     await closeAllWorkspaces(browser);
@@ -233,7 +233,7 @@ describe("Advanced stress / performance", function () {
       }
     }
 
-    const root = await browser.$(".grid.h-screen, div.welcome-screen");
+    const root = await browser.$("#app-root, div.welcome-screen");
     await expect(root).toExist();
 
     await closeAllWorkspaces(browser);

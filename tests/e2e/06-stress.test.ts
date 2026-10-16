@@ -87,7 +87,7 @@ describe("Stress / performance", function () {
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
 
     // App must still be alive
-    const root = await browser.$(".grid.h-screen, div.welcome-screen");
+    const root = await browser.$("#app-root, div.welcome-screen");
     await expect(root).toExist();
   });
 
@@ -128,7 +128,7 @@ describe("Stress / performance", function () {
     await sleep(300);
 
     // Still alive?
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
 
     await closeAllWorkspaces(browser);

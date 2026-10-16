@@ -308,6 +308,10 @@ export class TerminalRenderer {
           hasSelection = true;
           const offset = HEADER_SIZE + (row * cols + col) * CELL_SIZE;
           if (offset + CELL_SIZE <= data.length) {
+            // Width-0 cells are the right half of a wide character; its glyph was
+            // already taken from the left half, so adding a space here would turn
+            // "漢字" into "漢 字".
+            if (data[offset + 11] === 0) continue;
             const cp = view.getUint32(offset, true);
             line += cp > 0 ? String.fromCodePoint(cp) : " ";
           }

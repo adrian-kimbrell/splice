@@ -35,7 +35,7 @@ Session state is written to disk on every change and fully restored on relaunch 
 
 Splice is built for the way AI-assisted development actually works: multiple agents running across multiple terminals and projects, while you stay focused on your own work.
 
-The **attention hook system** integrates directly with Claude Code and OpenAI Codex. A small hook is installed into `~/.claude/hooks` that fires on agent events and signals Splice via a named pipe. Splice tracks which terminals have active agents, detects permission prompts and idle states, and surfaces alerts in a persistent footer bar — without interrupting your flow. Multiple alerts stack in a dropdown; click one to jump straight to that terminal.
+The **attention hook system** integrates directly with Claude Code and OpenAI Codex. A small hook script is installed under `~/.claude/splice-hooks` and registered in Claude's settings; it fires on agent events and notifies Splice over a token-authenticated localhost HTTP call. Splice tracks which terminals have active agents, detects permission prompts and idle states, and surfaces alerts in a persistent footer bar — without interrupting your flow. Multiple alerts stack in a dropdown; click one to jump straight to that terminal.
 
 ---
 

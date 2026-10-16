@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   import { settings, debouncedSaveSettings } from "../../lib/stores/settings.svelte";
   import { themeNames } from "../../lib/theme/themes";
   import { customThemeMap, loadCustomThemes, registerCustomTheme, unregisterCustomTheme } from "../../lib/theme/custom-themes.svelte";
@@ -183,6 +184,14 @@
     emitSettingsChanged();
   }
 
+  /** Numeric inputs: ignore an empty field (Number("") is 0) and clamp to the control's range. */
+  function setNumberValue(def: SettingDef, raw: string): void {
+    if (def.control.type !== "number" || raw.trim() === "") return;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    setValue(def.key, Math.min(def.control.max, Math.max(def.control.min, n)));
+  }
+
   // Auto-save settings on any change
   $effect(() => {
     JSON.stringify(settings);
@@ -217,7 +226,7 @@
       setValue("appearance.theme", theme.name);
       await applyTheme(theme.name);
     } catch (e: any) {
-      console.error("Import failed:", e);
+      log.error("Import failed:", e);
       alert("Failed to import theme: " + (e?.message ?? e));
     }
   }
@@ -234,7 +243,7 @@
         await applyTheme("Splice Default");
       }
     } catch (e) {
-      console.error("Failed to delete custom theme:", e);
+      log.error("Failed to delete custom theme:", e);
     }
   }
 
@@ -321,7 +330,8 @@
                       min={def.control.min}
                       max={def.control.max}
                       step={def.control.step ?? 1}
-                      oninput={(e) => setValue(def.key, Number(e.currentTarget.value))}
+                      oninput={(e) => setNumberValue(def, e.currentTarget.value)}
+                      onblur={(e) => { e.currentTarget.value = String(getValue(def.key)); }}
                       class="settings-number"
                     />
                   {:else if def.control.type === "select"}

@@ -32,7 +32,8 @@ use crate::terminal::term::Emulator;
 
 /// Shared notifier to wake the emitter thread immediately on version bumps.
 pub struct EmitterNotify {
-    mutex: Mutex<()>,
+    /// `true` while a notify is waiting to be consumed by the emitter.
+    mutex: Mutex<bool>,
     condvar: Condvar,
 }
 
@@ -45,20 +46,30 @@ impl Default for EmitterNotify {
 impl EmitterNotify {
     pub fn new() -> Self {
         Self {
-            mutex: Mutex::new(()),
+            mutex: Mutex::new(false),
             condvar: Condvar::new(),
         }
     }
 
     pub fn notify(&self) {
-        if let Ok(_lock) = self.mutex.lock() {
+        if let Ok(mut pending) = self.mutex.lock() {
+            *pending = true;
             self.condvar.notify_one();
         }
     }
 
+    /// Wait for a notify or `timeout`. A notify that arrived before the wait
+    /// started is remembered in `pending`, so a version bump landing between the
+    /// emitter's version check and its wait can no longer be lost (which used to
+    /// cost a full idle timeout of latency on that frame).
     fn wait_timeout(&self, timeout: Duration) {
-        if let Ok(lock) = self.mutex.lock() {
-            let _ = self.condvar.wait_timeout(lock, timeout);
+        if let Ok(pending) = self.mutex.lock() {
+            let waited = self
+                .condvar
+                .wait_timeout_while(pending, timeout, |p| !*p)
+                .unwrap_or_else(|e| e.into_inner());
+            let (mut pending, _) = waited;
+            *pending = false;
         } else {
             thread::sleep(timeout);
         }
@@ -166,7 +177,10 @@ pub fn serialize_grid(grid: &Grid, scroll_offset: i32) -> Vec<u8> {
         buf.extend_from_slice(&0u16.to_le_bytes());
         buf.push(0); // cursor not visible
     } else {
-        buf.extend_from_slice(&buf_ref.cursor_col.to_le_bytes());
+        // After writing the last column the grid keeps cursor_col == cols (pending
+        // wrap). The renderer draws nothing for a cursor past the edge, so report
+        // the last column instead, as xterm does.
+        buf.extend_from_slice(&buf_ref.cursor_col.min(cols.saturating_sub(1)).to_le_bytes());
         buf.extend_from_slice(&display_cursor_row.to_le_bytes());
         buf.push(if grid.cursor_visible { 1 } else { 0 });
     }

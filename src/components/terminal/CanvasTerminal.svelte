@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   /**
    * CanvasTerminal.svelte -- HTML5 Canvas-based terminal emulator frontend.
    *
@@ -78,8 +79,33 @@
   let currentCols = 0;
   let currentRows = 0;
 
-  // Cached IPC function from dynamic import
+  // Cached IPC functions from dynamic import
   let cachedResizeTerminal: ((id: number, cols: number, rows: number) => Promise<void>) | null = null;
+  let cachedRefreshTerminal: ((id: number) => Promise<void>) | null = null;
+  // True once at least one grid frame has arrived. Until then the canvas is blank,
+  // so we keep asking the backend to re-emit (see requestFrameUntilReceived).
+  let hasReceivedFrame = false;
+  let frameRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // The emitter only sends a frame when the grid version changes. If the first
+  // frame was emitted before our listener finished registering (listen() is an
+  // IPC round-trip and can take hundreds of ms when the machine is under heavy
+  // load), it is lost and nothing re-sends it until the shell prints again — the
+  // pane just sits blank. So after registering, request a re-emit and keep
+  // retrying with backoff until a frame lands. refresh_terminal only bumps the
+  // grid version; it does not resize the PTY or signal the shell.
+  const FRAME_RETRY_DELAYS_MS = [150, 400, 1000, 2000, 4000, 8000];
+  function requestFrameUntilReceived(attempt = 0) {
+    // A retry chain is already running when frameRetryTimer is set (the chain
+    // clears it right before each recursive call).
+    if (destroyed || hasReceivedFrame || !cachedRefreshTerminal || frameRetryTimer) return;
+    cachedRefreshTerminal(terminalId).catch(() => {});
+    if (attempt >= FRAME_RETRY_DELAYS_MS.length) return;
+    frameRetryTimer = setTimeout(() => {
+      frameRetryTimer = null;
+      requestFrameUntilReceived(attempt + 1);
+    }, FRAME_RETRY_DELAYS_MS[attempt]);
+  }
 
   // Cursor blink state. Only the focused terminal blinks; unfocused panes show a
   // steady (hollow) cursor, so switching workspaces doesn't leave every terminal flashing.
@@ -134,6 +160,9 @@
     if (active && renderer && containerEl) {
       requestAnimationFrame(() => {
         handleResize();
+        // Still blank (never got a frame while hidden)? Ask again now that the
+        // user is looking at it.
+        if (!hasReceivedFrame) requestFrameUntilReceived();
       });
     }
   });
@@ -241,7 +270,7 @@
     if (cols > 0 && rows > 0 && (cols !== currentCols || rows !== currentRows)) {
       currentCols = cols;
       currentRows = rows;
-      cachedResizeTerminal(terminalId, cols, rows).catch(console.error);
+      cachedResizeTerminal(terminalId, cols, rows).catch(log.error);
     }
   }
 
@@ -286,15 +315,16 @@
   onMount(async () => {
     if (!containerEl || !canvasEl || !isTauri || terminalId === 0) return;
 
-    const { writeToTerminal, scrollTerminal, resizeTerminal, saveTempImage, writeToClipboard } = await import(
+    const { writeToTerminal, scrollTerminal, resizeTerminal, refreshTerminal, saveTempImage, writeToClipboard } = await import(
       "../../lib/ipc/commands"
     );
     const { onTerminalGrid, onTerminalExit, onTerminalClipboard } = await import(
       "../../lib/ipc/events"
     );
 
-    // Cache resizeTerminal for use in handleResize
+    // Cache IPC fns for use in handleResize / requestFrameUntilReceived
     cachedResizeTerminal = resizeTerminal;
+    cachedRefreshTerminal = refreshTerminal;
 
     renderer = new TerminalRenderer(canvasEl, effectiveSettings.terminal.font_size, `${effectiveSettings.terminal.font_family}, Consolas, 'Courier New', monospace`);
 
@@ -357,7 +387,6 @@
 
     // Listen for grid updates, throttle rendering to RAF
     let pendingFrame: Uint8Array | null = null;
-    let hasReceivedFrame = false;
 
     const gridUnlisten = await onTerminalGrid(
       terminalId,
@@ -373,6 +402,7 @@
         // Update renderer metadata immediately (before RAF) so that rerender()
         // called from mouse events uses the correct history coordinates in isSelected().
         hasReceivedFrame = true;
+        if (frameRetryTimer) { clearTimeout(frameRetryTimer); frameRetryTimer = null; }
         if (renderer) renderer.setLatestFrame(data);
         pendingFrame = data;
         if (!rafId) {
@@ -388,6 +418,8 @@
     );
     if (destroyed) { gridUnlisten(); return; }
     unlistenGrid = gridUnlisten;
+    // Listener is live on both sides now — ask for the frame we may have missed.
+    requestFrameUntilReceived();
 
     const exitUnlisten = await onTerminalExit(terminalId, (_code: number) => {
       // Could show exit message
@@ -397,7 +429,7 @@
 
     // OSC 52: remote clipboard writes (e.g. from tmux, vim over SSH)
     const clipUnlisten = await onTerminalClipboard(terminalId, (text: string) => {
-      navigator.clipboard.writeText(text).catch(console.error);
+      navigator.clipboard.writeText(text).catch(log.error);
     });
     if (destroyed) { clipUnlisten(); return; }
     unlistenClipboard = clipUnlisten;
@@ -405,15 +437,10 @@
     // Initial resize
     handleResize();
 
-    // Safeguard: if no frame arrives within 500ms, force a resize to trigger
-    // the Rust emitter to re-send the current grid state. This handles the race
-    // condition where initial frames arrive before the event listener registers.
-    const frameCheckTimer = setTimeout(() => {
-      if (!hasReceivedFrame) {
-        handleResize();
-      }
-    }, 500);
-    cleanupFns.push(() => clearTimeout(frameCheckTimer));
+    // (The old 500ms "force a resize" safeguard was a no-op: handleResize only
+    // issues the IPC when cols/rows changed, and they had not. Replaced by
+    // requestFrameUntilReceived above.)
+    cleanupFns.push(() => { if (frameRetryTimer) { clearTimeout(frameRetryTimer); frameRetryTimer = null; } });
 
     /** Extract selected text via the Rust backend (supports cross-scroll selections). */
     async function extractSelectionText(): Promise<string> {
@@ -471,7 +498,7 @@
         e.preventDefault();
         const text = await extractSelectionText();
         if (text) {
-          writeToClipboard(text).catch(console.error);
+          writeToClipboard(text).catch(log.error);
         }
         return;
       }
@@ -487,6 +514,9 @@
       const bytes = keyToBytes(e, (modeFlags & 2) !== 0);
       if (bytes) {
         e.preventDefault();
+        // A key the shell consumed (Escape in vim, Ctrl+key) is not also a Splice
+        // shortcut; ⌘ combos return null above and still reach the global handler.
+        e.stopPropagation();
         // Clear selection on typing
         if (renderer?.selectionStart) {
           renderer.setSelection(null, null);
@@ -523,7 +553,7 @@
               blob.arrayBuffer().then(async (buf) => {
                 const path = await saveTempImage(new Uint8Array(buf), ext);
                 writeToTerminal(terminalId, textEncoder.encode(path));
-              }).catch(console.error);
+              }).catch(log.error);
             }
             return;
           }
@@ -747,7 +777,7 @@
         }
       } else if (effectiveSettings.terminal.copy_on_select && renderer?.selectionStart && renderer?.selectionEnd) {
         const text = await extractSelectionText();
-        if (text) writeToClipboard(text).catch(console.error);
+        if (text) writeToClipboard(text).catch(log.error);
       }
     };
 
@@ -824,7 +854,7 @@
             const wheelBtn = lines < 0 ? 64 : 65; // 64=scroll-up, 65=scroll-down
             for (let i = 0; i < Math.abs(lines); i++) sendMouseEvent(wheelBtn, wheelCol, wheelRow, true);
           } else {
-            scrollTerminal(terminalId, -lines).catch(console.error);
+            scrollTerminal(terminalId, -lines).catch(log.error);
           }
         });
       }
@@ -897,7 +927,7 @@
         "sep",
         { label: "Copy",       shortcut: "⌘C", disabled: !hasSelection, action: async () => {
             const text = await extractSelectionText();
-            if (text) writeToClipboard(text).catch(console.error);
+            if (text) writeToClipboard(text).catch(log.error);
         }},
         { label: "Paste",      shortcut: "⌘V", action: async () => {
             const text = await navigator.clipboard.readText().catch(() => "");

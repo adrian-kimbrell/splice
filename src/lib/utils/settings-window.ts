@@ -5,6 +5,7 @@
  * duplicated. The window loads `/settings.html` as a separate entry point.
  * No-ops gracefully outside a Tauri environment (e.g. during SSR or tests).
  */
+import { log } from "./log";
 
 /** Opens the settings window (singleton -- focuses if already open). */
 export async function openSettingsWindow(): Promise<void> {
@@ -34,6 +35,6 @@ export async function openSettingsWindow(): Promise<void> {
       backgroundColor: { red: 30, green: 30, blue: 30, alpha: 255 },
     });
   } catch (e) {
-    console.error("Failed to open settings window:", e);
+    log.error("Failed to open settings window:", e);
   }
 }

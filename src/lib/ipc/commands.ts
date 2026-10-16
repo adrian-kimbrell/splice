@@ -57,6 +57,13 @@ export async function resizeTerminal(
   return invoke("resize_terminal", { id, cols, rows });
 }
 
+/** Ask the backend to re-emit the current grid frame (no PTY resize, no SIGWINCH).
+ *  Used to recover from the startup race where the first frame is emitted before
+ *  the grid listener is registered. */
+export async function refreshTerminal(id: number): Promise<void> {
+  return invoke("refresh_terminal", { id });
+}
+
 export async function scrollTerminal(
   id: number,
   delta: number,
@@ -144,6 +151,8 @@ export interface RustWorkspace {
   explorer_width?: number;
   expanded_paths?: string[];
   ssh_config?: RustSshConfig | null;
+  /** Bootstrap-icon class shown next to the name in the workspaces bar. */
+  icon?: string | null;
 }
 
 export interface WorkspacesResponse {
@@ -270,7 +279,13 @@ export interface GitLogEntry {
   refs: string;
 }
 
-export async function gitStatus(path: string): Promise<GitFileStatus[]> {
+export interface GitStatusResult {
+  /** Canonical repository root; every `files[].path` is relative to this, not to the workspace root. */
+  repo_root: string;
+  files: GitFileStatus[];
+}
+
+export async function gitStatus(path: string): Promise<GitStatusResult> {
   return invoke("git_status", { path });
 }
 

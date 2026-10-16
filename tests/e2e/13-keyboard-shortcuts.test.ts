@@ -102,7 +102,7 @@ describe("Keyboard shortcuts", () => {
     // Look for a text input that wasn't there before (search input in palette)
     const palette = await browser.$('input[placeholder*="file"], input[placeholder*="command"], input[placeholder*="search"], .command-palette input');
     // May or may not exist depending on palette implementation detail — check app is alive
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
 
     // Close with Escape
@@ -124,7 +124,7 @@ describe("Keyboard shortcuts", () => {
 
     // Cmd+Shift+F sets sidebarMode="search" and explorerVisible=true.
     // Check logical state via __spliceTest (avoids display:contents WebDriver visibility ambiguity).
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
 
     const state = await browser.execute(() =>
@@ -179,7 +179,7 @@ describe("Keyboard shortcuts", () => {
     await sleep(200);
 
     // App should still be responsive
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 
@@ -204,7 +204,7 @@ describe("Keyboard shortcuts", () => {
     await sleep(300);
 
     // Pin icon should appear (or disappear) — just verify app is alive
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
     const _ = styleBefore; // suppress unused warning
   });

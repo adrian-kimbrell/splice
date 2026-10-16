@@ -572,3 +572,82 @@ body.corner-dragging * { cursor: move !important; }
 
 /* Workspace drag-to-reorder drop indicator */
 .ws-drop-indicator { height: 2px; background: var(--accent); margin: 0 4px; border-radius: 1px; flex-shrink: 0; }
+
+/* Welcome screen + empty-workspace quick actions (WelcomeScreen.svelte, App.svelte) */
+@keyframes welcome-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.welcome-container {
+  width: 380px;
+  animation: welcome-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.welcome-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 32px;
+}
+.welcome-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 6px 0;
+  margin: 0 0 16px 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.welcome-legend {
+  font-size: var(--ui-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  padding: 0 8px;
+  margin-left: 8px;
+}
+.welcome-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--ui-body);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--ease-default),
+              color var(--duration-base) var(--ease-default);
+  overflow: hidden;
+}
+.welcome-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+}
+.welcome-item i {
+  font-size: var(--ui-btn);
+  width: 18px;
+  text-align: center;
+  color: var(--text-dim);
+}
+.welcome-item:hover i {
+  color: var(--text-bright);
+}
+.welcome-item span {
+  flex: 1;
+  text-align: left;
+}
+.welcome-item kbd {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-family: var(--ui-font);
+}
+.welcome-item-compact {
+  justify-content: center;
+  width: auto;
+  padding: 6px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}

@@ -14,10 +14,29 @@
 
 use crate::terminal::pty::PtySession;
 use crate::workspace::layout::{Settings, Workspace};
-use notify::RecommendedWatcher;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// Splice's own config directory: `~/Library/Application Support/<name>` on macOS,
+/// `~/.config/<name>` on Linux. `SPLICE_CONFIG_DIR` overrides the whole path so a
+/// sandboxed instance (the E2E harness) never touches the user's real settings,
+/// workspaces, or attention port file. Callers pass the per-file folder name they
+/// already use (`"Splice"`, or `"Splice-dev"` for debug-build workspaces).
+pub fn splice_config_dir(name: &str) -> PathBuf {
+    if let Some(dir) = std::env::var_os("SPLICE_CONFIG_DIR").filter(|v| !v.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(name)
+}
+
+/// True when `SPLICE_CONFIG_DIR` is set, i.e. this instance runs against a scratch
+/// config directory and must not modify anything outside it (such as the Claude hook).
+pub fn config_dir_is_sandboxed() -> bool {
+    std::env::var_os("SPLICE_CONFIG_DIR").is_some_and(|v| !v.is_empty())
+}
 
 pub struct AppState {
     pub terminals: HashMap<u32, PtySession>,
@@ -31,7 +50,8 @@ pub struct AppState {
     /// Auth token for this process's attention server — injected into each terminal's
     /// environment as `SPLICE_ATTENTION_TOKEN` so hooks know which instance to call.
     pub attention_token: Option<String>,
-    pub watchers: HashMap<String, RecommendedWatcher>,
+    /// Reference-counted filesystem watchers keyed by canonical path (see fs/watch.rs).
+    pub watchers: HashMap<String, crate::commands::fs::watch::WatchEntry>,
     /// terminal_id → (session_id, claude_pid)
     /// claude_pid lets us verify Claude is still running at persist time.
     pub terminal_claude_sessions: HashMap<u32, (String, u32)>,
@@ -94,4 +114,47 @@ pub fn validate_path(path: &str, allowed_roots: &[PathBuf]) -> Result<PathBuf, S
         }
     }
     Err(format!("Access denied: '{}' is outside allowed directories", path))
+}
+
+/// Validates a path that names a directory *entry* to be created, renamed, deleted
+/// or duplicated. The parent is canonicalised and checked against the allowed roots
+/// (it must exist); the final component is kept verbatim and must be a plain name,
+/// never `.` or `..`. Unlike `validate_path`, the leaf is not resolved, so a symlink
+/// inside a root is addressed as the link itself rather than as its target, and the
+/// entry does not have to exist yet.
+pub fn validate_entry_path(path: &str, allowed_roots: &[PathBuf]) -> Result<PathBuf, String> {
+    let p = Path::new(path);
+    let name = match p.components().next_back() {
+        Some(std::path::Component::Normal(n)) => n.to_os_string(),
+        _ => return Err(format!("Invalid path '{}': no file name", path)),
+    };
+    let parent = p
+        .parent()
+        .filter(|q| !q.as_os_str().is_empty())
+        .ok_or_else(|| format!("Invalid path '{}': no parent directory", path))?;
+    let canonical_parent = validate_path(&parent.to_string_lossy(), allowed_roots)?;
+    Ok(canonical_parent.join(name))
+}
+
+#[cfg(test)]
+mod config_dir_tests {
+    use super::*;
+
+    #[test]
+    fn splice_config_dir_honours_override_or_appends_name() {
+        // Never mutate the env here: cargo runs tests in parallel and other tests
+        // write real config files through this helper.
+        match std::env::var_os("SPLICE_CONFIG_DIR").filter(|v| !v.is_empty()) {
+            Some(dir) => {
+                assert_eq!(splice_config_dir("Splice-x"), PathBuf::from(&dir));
+                assert_eq!(splice_config_dir("Other"), PathBuf::from(dir));
+                assert!(config_dir_is_sandboxed());
+            }
+            None => {
+                let p = splice_config_dir("Splice-x");
+                assert_eq!(p.file_name().and_then(|n| n.to_str()), Some("Splice-x"));
+                assert!(!config_dir_is_sandboxed());
+            }
+        }
+    }
 }

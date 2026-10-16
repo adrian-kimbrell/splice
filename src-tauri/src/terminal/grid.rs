@@ -95,6 +95,10 @@ pub struct ScreenBuffer {
     /// (screen has been filled since the clear). Used by emitter to
     /// skip view-shift compositing after an explicit clear.
     pub cleared: bool,
+    /// Total rows ever evicted into scrollback. Never decremented, even once the
+    /// deque is at capacity, so the reader can keep a scrolled-back view anchored
+    /// by counting what moved rather than diffing `scrollback.len()`.
+    pub scrolled_out: u64,
     /// DEC charset state: 0=ASCII, 1=DEC special graphics
     pub charset_g0: u8,
     pub charset_g1: u8,
@@ -119,6 +123,7 @@ impl ScreenBuffer {
             scrollback: VecDeque::new(),
             max_scrollback,
             cleared: false,
+            scrolled_out: 0,
             charset_g0: 0,
             charset_g1: 0,
             active_charset: 0,
@@ -140,6 +145,7 @@ impl ScreenBuffer {
             if top == 0 && self.max_scrollback > 0 {
                 let evicted = self.lines[top].clone();
                 self.scrollback.push_back(evicted);
+                self.scrolled_out += 1;
                 if self.scrollback.len() > self.max_scrollback {
                     self.scrollback.pop_front();
                 }
@@ -207,10 +213,41 @@ impl ScreenBuffer {
     }
 
     pub fn restore_cursor(&mut self) {
-        self.cursor_col = self.saved_cursor_col;
-        self.cursor_row = self.saved_cursor_row;
+        // The saved position may predate a shrink; never restore to a row or column
+        // that no longer exists (write_char would silently drop output and ED 1
+        // would index past the end).
+        let max_row = (self.lines.len() as u16).saturating_sub(1);
+        let max_col = self.cols.saturating_sub(1);
+        self.cursor_col = self.saved_cursor_col.min(max_col);
+        self.cursor_row = self.saved_cursor_row.min(max_row);
         self.pen = self.saved_pen;
     }
+}
+
+/// Keep wide-character pairs consistent after the cell at `idx` was overwritten or
+/// shifted. A width-2 left half must be followed by its width-0 placeholder, and a
+/// placeholder must follow a width-2 cell; whichever half lost its partner becomes
+/// a plain blank. The renderer never paints width-0 cells, so an orphaned
+/// placeholder would otherwise leave stale half-glyph pixels on screen forever.
+fn repair_wide_pair(cells: &mut [Cell], idx: usize) {
+    let Some(cell) = cells.get(idx) else { return };
+    let orphaned = match cell.width {
+        2 => cells.get(idx + 1).is_none_or(|next| next.width != 0),
+        0 => idx == 0 || cells[idx - 1].width != 2,
+        _ => false,
+    };
+    if orphaned {
+        let bg = cells[idx].bg;
+        cells[idx] = Cell { ch: ' ', fg: DEFAULT_FG, bg, flags: 0, width: 1 };
+    }
+}
+
+/// Repair both edges of the half-open cell range `[a, b)` that was just rewritten.
+fn repair_wide_boundaries(cells: &mut [Cell], a: usize, b: usize) {
+    if a > 0 {
+        repair_wide_pair(cells, a - 1);
+    }
+    repair_wide_pair(cells, b);
 }
 
 fn default_tab_stops(cols: u16) -> Vec<bool> {
@@ -341,6 +378,9 @@ impl Grid {
                     width: 0,
                 };
             }
+            // Overwriting half of an existing wide character leaves the other half
+            // without a partner; blank it.
+            repair_wide_boundaries(&mut buf.lines[row].cells, col, col + char_width as usize);
         }
         buf.cursor_col += char_width;
     }
@@ -460,9 +500,11 @@ impl Grid {
         match mode {
             0 => {
                 if row < buf.lines.len() {
-                    for c in col..buf.lines[row].cells.len() {
+                    let len = buf.lines[row].cells.len();
+                    for c in col..len {
                         buf.lines[row].cells[c] = blank;
                     }
+                    repair_wide_boundaries(&mut buf.lines[row].cells, col.min(len), len);
                 }
                 for r in (row + 1)..buf.lines.len() {
                     for cell in &mut buf.lines[r].cells {
@@ -477,9 +519,11 @@ impl Grid {
                     }
                 }
                 if row < buf.lines.len() {
-                    for c in 0..=col.min(buf.lines[row].cells.len().saturating_sub(1)) {
+                    let len = buf.lines[row].cells.len();
+                    for c in 0..=col.min(len.saturating_sub(1)) {
                         buf.lines[row].cells[c] = blank;
                     }
+                    repair_wide_boundaries(&mut buf.lines[row].cells, 0, (col + 1).min(len));
                 }
             }
             2 => {
@@ -511,24 +555,18 @@ impl Grid {
             return;
         }
         let blank = Cell { ch: ' ', fg: DEFAULT_FG, bg: buf.pen.bg, flags: 0, width: 1 };
-        match mode {
-            0 => {
-                for c in col..buf.lines[row].cells.len() {
-                    buf.lines[row].cells[c] = blank;
-                }
-            }
-            1 => {
-                for c in 0..=col.min(buf.lines[row].cells.len().saturating_sub(1)) {
-                    buf.lines[row].cells[c] = blank;
-                }
-            }
-            2 => {
-                for cell in &mut buf.lines[row].cells {
-                    *cell = blank;
-                }
-            }
-            _ => {}
+        let cells = &mut buf.lines[row].cells;
+        let len = cells.len();
+        let (a, b) = match mode {
+            0 => (col.min(len), len),
+            1 => (0, (col + 1).min(len)),
+            2 => (0, len),
+            _ => return,
+        };
+        for cell in &mut cells[a..b] {
+            *cell = blank;
         }
+        repair_wide_boundaries(cells, a, b);
     }
 
     pub fn erase_chars(&mut self, n: u16) {
@@ -537,10 +575,14 @@ impl Grid {
         let col = buf.cursor_col as usize;
         let blank = Cell { ch: ' ', fg: DEFAULT_FG, bg: buf.pen.bg, flags: 0, width: 1 };
         if row < buf.lines.len() {
-            let end = (col + n as usize).min(buf.lines[row].cells.len());
-            for c in col..end {
-                buf.lines[row].cells[c] = blank;
+            let cells = &mut buf.lines[row].cells;
+            let len = cells.len();
+            let a = col.min(len);
+            let b = (col + n as usize).min(len);
+            for cell in &mut cells[a..b] {
+                *cell = blank;
             }
+            repair_wide_boundaries(cells, a, b);
         }
     }
 
@@ -549,18 +591,22 @@ impl Grid {
         let buf = self.active_mut();
         let row = buf.cursor_row as usize;
         let col = buf.cursor_col as usize;
-        if row >= buf.lines.len() {
+        if row >= buf.lines.len() || col >= cols {
             return;
         }
         let blank = Cell { ch: ' ', fg: DEFAULT_FG, bg: buf.pen.bg, flags: 0, width: 1 };
-        let n = (n as usize).min(cols.saturating_sub(col));
+        let n = (n as usize).min(cols - col);
         let line = &mut buf.lines[row].cells;
         for i in (col + n..cols).rev() {
             line[i] = line[i - n];
         }
-        for cell in &mut line[col..(col + n).min(cols)] {
+        for cell in &mut line[col..col + n] {
             *cell = blank;
         }
+        // The shift can split a wide pair at the insertion point, after the inserted
+        // blanks, and at the right edge where a left half may have lost its placeholder.
+        repair_wide_boundaries(line, col, col + n);
+        repair_wide_pair(line, cols - 1);
     }
 
     pub fn delete_chars(&mut self, n: u16) {
@@ -568,11 +614,11 @@ impl Grid {
         let buf = self.active_mut();
         let row = buf.cursor_row as usize;
         let col = buf.cursor_col as usize;
-        if row >= buf.lines.len() {
+        if row >= buf.lines.len() || col >= cols {
             return;
         }
         let blank = Cell { ch: ' ', fg: DEFAULT_FG, bg: buf.pen.bg, flags: 0, width: 1 };
-        let n = (n as usize).min(cols.saturating_sub(col));
+        let n = (n as usize).min(cols - col);
         let line = &mut buf.lines[row].cells;
         for i in col..(cols - n) {
             line[i] = line[i + n];
@@ -580,6 +626,11 @@ impl Grid {
         for cell in &mut line[(cols - n)..cols] {
             *cell = blank;
         }
+        // A placeholder may now sit at `col` without its left half, the cell before
+        // `col` may have lost its placeholder, and the last shifted-in cell may be a
+        // left half whose placeholder was blanked.
+        repair_wide_boundaries(line, col, col);
+        repair_wide_boundaries(line, cols - n, cols);
     }
 
     pub fn resize(&mut self, new_cols: u16, new_rows: u16) {
@@ -616,6 +667,7 @@ impl Grid {
                 if buf.max_scrollback > 0 {
                     for row in buf.lines.drain(0..cursor_overflow) {
                         buf.scrollback.push_back(row);
+                        buf.scrolled_out += 1;
                         if buf.scrollback.len() > buf.max_scrollback {
                             buf.scrollback.pop_front();
                         }
@@ -624,12 +676,17 @@ impl Grid {
                     buf.lines.drain(0..cursor_overflow);
                 }
                 buf.cursor_row -= cursor_overflow as u16;
+                // The saved cursor (DECSC / alt-screen entry) lived in the same
+                // coordinate space; shift it with the content it pointed at.
+                buf.saved_cursor_row = buf.saved_cursor_row.saturating_sub(cursor_overflow as u16);
             }
             buf.lines.truncate(new_rows as usize);
         }
 
         buf.cursor_col = buf.cursor_col.min(new_cols.saturating_sub(1));
         buf.cursor_row = buf.cursor_row.min(new_rows.saturating_sub(1));
+        buf.saved_cursor_col = buf.saved_cursor_col.min(new_cols.saturating_sub(1));
+        buf.saved_cursor_row = buf.saved_cursor_row.min(new_rows.saturating_sub(1));
         buf.scroll_top = 0;
         buf.scroll_bottom = new_rows.saturating_sub(1);
     }

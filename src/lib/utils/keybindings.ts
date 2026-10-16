@@ -12,6 +12,7 @@
  *
  * {@link initKeybindings} returns a cleanup function that removes the listener.
  */
+import { log } from "./log";
 import { ui } from "../stores/ui.svelte";
 import { workspaceManager } from "../stores/workspace.svelte";
 import { settings, debouncedSaveSettings } from "../stores/settings.svelte";
@@ -241,10 +242,14 @@ function handleChordSecondKey(e: KeyboardEvent): boolean {
   return true;
 }
 
+const MODIFIER_KEYS = new Set(["Shift", "Meta", "Control", "Alt", "CapsLock"]);
+
 export function initKeybindings(): () => void {
   const handler = (e: KeyboardEvent) => {
-    // Handle chord second key first
+    // Handle chord second key first. Pressing a modifier (Shift for ⌘K Shift+Enter)
+    // fires its own keydown; that must not cancel the chord.
     if (chordPending) {
+      if (MODIFIER_KEYS.has(e.key)) return;
       handleChordSecondKey(e);
       return;
     }
@@ -254,13 +259,14 @@ export function initKeybindings(): () => void {
     const inTerminal = isInsideTerminal(document.activeElement);
     const mod = inTerminal ? e.metaKey : (e.metaKey || e.ctrlKey);
 
-    // Block reload (Cmd+R, Cmd+Shift+R) and devtools (Cmd+Option+I, F12)
+    // Block reload (Cmd+R, Cmd+Shift+R) and devtools (Cmd+Option+I, F12).
+    // Option changes e.key on macOS (Option+i → "ˆ"), so Alt combos match on e.code.
     if (mod && (e.key === "r" || e.key === "R")) { e.preventDefault(); return; }
-    if (mod && e.altKey && (e.key === "i" || e.key === "I")) { e.preventDefault(); return; }
+    if (mod && e.altKey && e.code === "KeyI") { e.preventDefault(); return; }
     if (e.key === "F12") { e.preventDefault(); return; }
 
-    // Numpad 3 — take a screenshot and save to docs/screenshots/
-    if (e.code === "Numpad3" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    // Numpad 3 — take a screenshot and save to docs/screenshots/ (dev builds only)
+    if (import.meta.env.DEV && e.code === "Numpad3" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
       (async () => {
@@ -283,7 +289,7 @@ export function initKeybindings(): () => void {
           const blob = await res.blob();
           await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
         } catch (err) {
-          console.error("[screenshot] failed:", err);
+          log.error("[screenshot] failed:", err);
         }
       })();
       return;
@@ -326,15 +332,18 @@ export function initKeybindings(): () => void {
       }
     }
 
-    // Escape: Close overlays, exit zen mode, then unzoom
+    // Escape: Close overlays, exit zen mode, then unzoom. Inside a terminal or
+    // editor, Escape belongs to vim / readline / the autocomplete popup, so zen and
+    // zoom are left alone there (⌘⇧Enter and ⌘\ remain available).
     if (e.key === "Escape") {
+      const inEditorOrTerminal = inTerminal || isInsideCodeMirror(document.activeElement);
       if (ui.settingsDrawerOpen) {
         ui.settingsDrawerOpen = false;
       } else if (ui.commandPaletteOpen) {
         ui.commandPaletteOpen = false;
-      } else if (ui.zenMode) {
+      } else if (ui.zenMode && !inEditorOrTerminal) {
         exitZenMode();
-      } else if (ui.zoomedPaneId) {
+      } else if (ui.zoomedPaneId && !inEditorOrTerminal) {
         ui.zoomedPaneId = null;
       }
     }
@@ -422,8 +431,8 @@ export function initKeybindings(): () => void {
       workspaceManager.saveActiveFileAs();
     }
 
-    // Cmd/Ctrl + Alt + S: Save All
-    if (mod && e.altKey && !e.shiftKey && e.key === "s") {
+    // Cmd/Ctrl + Alt + S: Save All (e.code: Option+s is "ß" in e.key on macOS)
+    if (mod && e.altKey && !e.shiftKey && e.code === "KeyS") {
       e.preventDefault();
       workspaceManager.saveAllDirtyFiles();
     }
@@ -529,7 +538,7 @@ export function initKeybindings(): () => void {
     if (import.meta.env.DEV && e.metaKey && e.shiftKey && e.code === "KeyP") {
       e.preventDefault();
       ui.prMode = !ui.prMode;
-      console.log("[dev] PR mode:", ui.prMode);
+      log.debug("[dev] PR mode:", ui.prMode);
     }
 
   };

@@ -106,8 +106,11 @@ pub(crate) fn install_hook_entry(
     //
     // terminal_id is read from SPLICE_TERMINAL_ID (also injected by the PTY spawner).
     // claude_pid (os.getppid()) is sent for informational/session-persistence purposes only.
+    // Guarded so the hook is a silent no-op outside a Splice terminal and on a Mac
+    // whose /usr/bin/python3 is the Xcode stub (which would open an install dialog on
+    // every Claude event, everywhere).
     let command = format!(
-        "python3 -c \"import sys,json,urllib.request,os,os.path as op\n\
+        "if [ -n \"$SPLICE_TERMINAL_ID\" ] && command -v python3 >/dev/null 2>&1; then python3 -c \"import sys,json,urllib.request,os,os.path as op\n\
          d=json.load(sys.stdin)\n\
          d['terminal_id']=int(os.environ.get('SPLICE_TERMINAL_ID','0'))\n\
          d['claude_pid']=os.getppid()\n\
@@ -125,7 +128,7 @@ pub(crate) fn install_hook_entry(
          \t\ttry: urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:'+port+'/{url_path}',json.dumps(d).encode(),{{'Content-Type':'application/json','X-Splice-Token':t}}),timeout=0.5); break\n\
          \t\texcept:\n\
          \t\t\tif _r==0:\n\
-         \t\t\t\timport time; time.sleep(0.3)\" # {marker}"
+         \t\t\t\timport time; time.sleep(0.3)\"; fi # {marker}"
     );
     arr.push(serde_json::json!({
         "matcher": "",
@@ -190,7 +193,15 @@ fn write_hook_script(settings_path: &std::path::Path) -> Result<String, String> 
         .join("splice-hooks");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let script = dir.join("splice_hook.py");
-    std::fs::write(&script, SPLICE_HOOK_SCRIPT).map_err(|e| e.to_string())?;
+    // Claude's statusLine runs this script every few hundred ms. Only touch it when
+    // the content changed, and then swap it in atomically so a concurrent run never
+    // sees a truncated file.
+    let current = std::fs::read(&script).ok();
+    if current.as_deref() != Some(SPLICE_HOOK_SCRIPT.as_bytes()) {
+        let tmp = dir.join(format!("splice_hook.py.tmp-{}", std::process::id()));
+        std::fs::write(&tmp, SPLICE_HOOK_SCRIPT).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &script).map_err(|e| e.to_string())?;
+    }
     Ok(script.to_string_lossy().into_owned())
 }
 
@@ -214,43 +225,66 @@ pub(crate) fn install_statusline(root: &mut serde_json::Value, script_path: &str
         "statusLine".to_string(),
         serde_json::json!({
             "type": "command",
-            "command": format!("python3 \"{script_path}\" status"),
+            // Same guard as the hooks: outside Splice, print nothing and never touch
+            // a missing/stub python3.
+            "command": format!("if [ -n \"$SPLICE_TERMINAL_ID\" ] && command -v python3 >/dev/null 2>&1; then python3 \"{script_path}\" status; fi"),
             "padding": 0
         }),
     );
 }
 
 pub fn install_hook() -> Result<(), String> {
+    // A sandboxed instance (SPLICE_CONFIG_DIR set, e.g. the E2E harness) must never
+    // touch the user's ~/.claude/settings.json; its port file lives elsewhere anyway.
+    if crate::state::config_dir_is_sandboxed() {
+        tracing::info!("SPLICE_CONFIG_DIR is set; skipping Claude hook install");
+        return Ok(());
+    }
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
     let settings_path = home.join(".claude").join("settings.json");
-    install_hook_at(&settings_path)
+    install_hook_at(&settings_path).map(|_| ())
 }
 
 /// Install Splice hooks into the Claude settings file at `settings_path`.
 /// Extracted to allow testing with a temp-dir path without touching `~/.claude/settings.json`.
-pub fn install_hook_at(settings_path: &std::path::Path) -> Result<(), String> {
+/// Returns `Ok(true)` when the settings file was (re)written and `Ok(false)` when it
+/// already held the current Splice hooks, so launches do not churn the file.
+pub fn install_hook_at(settings_path: &std::path::Path) -> Result<bool, String> {
     // Create parent dir if needed
     if let Some(parent) = settings_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    // Read existing JSON or start with {}
-    let mut root: serde_json::Value = if settings_path.exists() {
+    // Read the existing JSON. An empty or missing file starts from `{}`. A file that
+    // exists but does not parse is the user's own config mid-edit (or damaged) and
+    // must never be replaced: bail out and leave it exactly as it is.
+    let original: Option<serde_json::Value> = if settings_path.exists() {
         let content = std::fs::read_to_string(settings_path).map_err(|e| e.to_string())?;
-        match serde_json::from_str(&content) {
-            Ok(v) => v,
-            Err(e) => {
-                warn!(
-                    path = %settings_path.display(),
-                    error = %e,
-                    "settings.json failed to parse; hooks will be reset to defaults"
-                );
-                serde_json::Value::Object(Default::default())
+        if content.trim().is_empty() {
+            None
+        } else {
+            match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    warn!(
+                        path = %settings_path.display(),
+                        error = %e,
+                        "settings.json failed to parse; leaving it untouched"
+                    );
+                    return Err(format!(
+                        "{} is not valid JSON ({}); Splice hooks were not installed and the file was left untouched",
+                        settings_path.display(),
+                        e
+                    ));
+                }
             }
         }
     } else {
-        serde_json::Value::Object(Default::default())
+        None
     };
+    let mut root = original
+        .clone()
+        .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
 
     if !root.is_object() {
         root = serde_json::json!({});
@@ -297,15 +331,24 @@ pub fn install_hook_at(settings_path: &std::path::Path) -> Result<(), String> {
     // POSTs the statusLine JSON to /status and prints a concise line for Claude's UI).
     let script_path = write_hook_script(settings_path)?;
     install_statusline(&mut root, &script_path);
-    info!("Splice hooks configured in ~/.claude/settings.json");
+
+    // Nothing changed: do not rewrite the file. Claude Code writes this file too, and
+    // every needless rewrite widens the lost-update window.
+    if original.as_ref() == Some(&root) {
+        info!("Splice hooks already current in ~/.claude/settings.json");
+        return Ok(false);
+    }
 
     let updated = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
-    // Atomic write: write to a temp file then rename to avoid racing with Claude itself
-    let tmp = settings_path.with_extension("json.tmp");
+    // Atomic write: temp file then rename, so a crash or a concurrent Claude write
+    // never leaves a half-written settings.json. The temp name carries our pid so
+    // two Splice builds launched together cannot trample each other's temp file.
+    let tmp = settings_path.with_extension(format!("json.tmp-{}", std::process::id()));
     std::fs::write(&tmp, updated).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, settings_path).map_err(|e| e.to_string())?;
+    info!("Splice hooks configured in ~/.claude/settings.json");
 
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -474,14 +517,35 @@ mod tests {
     }
 
     #[test]
-    fn hook_install_with_corrupted_json() {
+    fn hook_install_refuses_to_overwrite_corrupted_json() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         std::fs::write(&path, b"{{{{INVALID JSON").unwrap();
-        // Should not panic — recovers by starting fresh
-        install_hook_at(&path).unwrap();
+        let err = install_hook_at(&path).unwrap_err();
+        assert!(err.contains("left untouched"), "{err}");
+        // The user's file is byte-for-byte intact and no temp file was left behind.
+        assert_eq!(std::fs::read(&path).unwrap(), b"{{{{INVALID JSON");
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path()).unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[test]
+    fn hook_install_is_idempotent_and_skips_rewrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, br#"{"model":"opus","permissions":{"allow":["Bash"]}}"#).unwrap();
+        assert!(install_hook_at(&path).unwrap(), "first install must write");
+        let after_first = std::fs::read_to_string(&path).unwrap();
+        assert!(!install_hook_at(&path).unwrap(), "second install must be a no-op");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), after_first);
         let root = read_settings(dir.path());
+        assert_eq!(root["model"], "opus");
+        assert_eq!(root["permissions"]["allow"][0], "Bash");
         assert_eq!(count_hooks_with_marker(&root, "splice-session-hook-v4"), 1);
+        assert_eq!(count_hooks_with_marker(&root, "splice-attention-hook-v4"), 1);
     }
 
     #[test]

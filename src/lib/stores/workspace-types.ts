@@ -1,3 +1,4 @@
+import { log } from "../utils/log";
 import type { FileEntry, OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
 import { MAX_SPLIT_DEPTH } from "./layout.svelte";
@@ -26,6 +27,10 @@ export function isSafeKeyPath(p: string): boolean {
  * path, exec login shell).
  */
 export function buildSshExtraArgs(sshConfig: SshConfig): string[] {
+  // A host or user starting with "-" would be parsed as an ssh option.
+  if (!sshConfig.host || sshConfig.host.startsWith("-") || sshConfig.user.startsWith("-")) {
+    throw new Error(`Unsafe SSH host or user rejected: "${sshConfig.user}@${sshConfig.host}"`);
+  }
   const target = sshConfig.user ? `${sshConfig.user}@${sshConfig.host}` : sshConfig.host;
   const escapedPath = sshConfig.remotePath.replace(/'/g, "'\\''");
   const keyArgs: string[] = [];
@@ -40,6 +45,7 @@ export function buildSshExtraArgs(sshConfig: SshConfig): string[] {
     "-p", String(sshConfig.port),
     "-t",
     "-o", "StrictHostKeyChecking=accept-new",
+    "--", // end of options: the destination can never be read as a flag
     target,
     `cd '${escapedPath}' && exec $SHELL -l`,
   ];
@@ -83,6 +89,10 @@ export interface Workspace {
 
   // SSH remote workspace config (null = local workspace)
   sshConfig?: SshConfig | null;
+
+  // Optional Bootstrap-icon class (e.g. "bi-star-fill") shown next to the name in
+  // the workspaces bar so a workspace can be picked out at a glance. Persisted.
+  icon?: string | null;
 }
 
 export function generateId(): string {
@@ -109,9 +119,11 @@ export function remapLayout(node: unknown, idMap: Map<string, string>, depth = 0
   }
   const children = n.children as unknown[];
   if (!Array.isArray(children) || children.length < 2) {
-    console.warn("remapLayout: malformed split (expected 2 children), treating as leaf", n);
-    const firstId = idMap.size > 0 ? idMap.values().next().value! : "pane-fallback";
-    return { type: "leaf", paneId: firstId };
+    log.warn("remapLayout: malformed split (expected 2 children)", n);
+    // One child: keep it. None: a leaf with an id no pane owns, so the dangling-leaf
+    // sweep after restore removes it instead of a second leaf pointing at a live pane.
+    if (Array.isArray(children) && children.length === 1) return remapLayout(children[0], idMap, depth + 1);
+    return { type: "leaf", paneId: "pane-malformed" };
   }
   const direction = (n.direction as string).toLowerCase() as SplitDirection;
   return {
@@ -166,6 +178,22 @@ export function applyFileRename(ws: Workspace, file: OpenFile, oldPath: string, 
   }
 }
 
+/**
+ * Register a newly opened file in both `openFiles` and `openFileIndex`.
+ *
+ * `ws` is a Svelte 5 `$state` proxy. Pushing a raw object into the array and then
+ * assigning the same raw object into the index would create two *separate* proxies
+ * that do not share writes (a `dirty` flag set through the index is invisible
+ * through the list). Always index the instance read back from the array so both
+ * views are the same proxy.
+ */
+export function addOpenFile(ws: Workspace, file: OpenFile): OpenFile {
+  ws.openFiles.push(file);
+  const shared = ws.openFiles[ws.openFiles.length - 1];
+  ws.openFileIndex[file.path] = shared;
+  return shared;
+}
+
 /** Mark a file as cleanly saved (clear dirty flag and reset original content). */
 export function markFileSaved(file: OpenFile): void {
   file.dirty = false;
@@ -194,6 +222,6 @@ export async function loadFileTreeImpl(ws: Workspace): Promise<void> {
       ws.fileTree = await readDirTree(ws.rootPath);
     }
   } catch (e) {
-    console.error("Failed to load file tree:", e);
+    log.error("Failed to load file tree:", e);
   }
 }

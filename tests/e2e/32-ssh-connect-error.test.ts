@@ -54,7 +54,7 @@ describe("SSH connect — error handling", () => {
   });
 
   it("app remains functional after a failed SSH connect", async () => {
-    const root = await browser.$(".grid.h-screen, div.welcome-screen");
+    const root = await browser.$("#app-root, div.welcome-screen");
     await expect(root).toExist();
   });
 

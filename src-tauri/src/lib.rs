@@ -6,15 +6,18 @@
 //! - Starts the attention HTTP server (`attention::start_server`) and installs the Claude hook
 //! - Sets up the macOS dock right-click menu (`dock::setup`)
 //!
-//! Two invoke-handler lists exist behind a feature gate:
-//! - default: production handler set
-//! - `e2e`: adds `get_debug_stats` and enables `tauri_plugin_webdriver`
+//! The invoke-handler list is assembled from `splice_handlers!` plus extras:
+//! - debug builds add the `commands::dev` bridge and start the dev API server
+//!   (`dev_server.rs`), which the E2E suite and screenshot tooling drive over HTTP
+//! - the `e2e` feature adds `get_debug_stats` and enables `tauri_plugin_webdriver`
 //!
 //! The `new-window` menu event is handled here — not forwarded to the frontend — so exactly
 //! one window opens regardless of how many webviews are currently listening.
 
 mod attention;
 mod commands;
+#[cfg(debug_assertions)]
+mod dev_server;
 #[cfg(target_os = "macos")]
 mod dock;
 pub mod lsp;
@@ -28,6 +31,90 @@ use state::AppState;
 use std::sync::Mutex;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{Emitter, Manager};
+
+/// Every `#[tauri::command]` the frontend may invoke, in one place.
+///
+/// `generate_handler!` needs a literal list, and the `e2e` feature adds one extra
+/// command, so the shared list lives in this macro and each cfg branch passes only
+/// its extras. (It used to be three near-identical copies of the full list.)
+macro_rules! splice_handlers {
+    ($($extra:path),* $(,)?) => {
+        tauri::generate_handler![
+        commands::ssh::ssh_connect,
+        commands::ssh::ssh_disconnect,
+        commands::ssh::sftp_list_dir,
+        commands::ssh::sftp_read_file,
+        commands::ssh::sftp_write_file,
+        commands::ssh::ssh_ping,
+        commands::fs::read_dir_tree,
+        commands::fs::read_file,
+        commands::fs::write_file,
+        commands::fs::read_file_base64,
+        commands::fs::search_files,
+        commands::fs::get_git_branch,
+        commands::fs::get_recent_files,
+        commands::fs::add_recent_file,
+        commands::fs::get_recent_projects,
+        commands::fs::add_recent_project,
+        commands::fs::watch_path,
+        commands::fs::unwatch_path,
+        commands::fs::create_file_at,
+        commands::fs::create_directory_at,
+        commands::fs::rename_path,
+        commands::fs::delete_path,
+        commands::fs::duplicate_path,
+        commands::fs::copy_path,
+        commands::fs::reveal_in_file_manager,
+        commands::fs::save_temp_image,
+        commands::fs::save_screenshot,
+        commands::fs::write_to_clipboard,
+        commands::git::git_status,
+        commands::git::git_stage,
+        commands::git::git_unstage,
+        commands::git::git_commit,
+        commands::git::git_discard,
+        commands::git::git_diff_file,
+        commands::git::git_log,
+        commands::terminal::spawn_terminal,
+        commands::terminal::write_to_terminal,
+        commands::terminal::resize_terminal,
+        commands::terminal::refresh_terminal,
+        commands::terminal::scroll_terminal,
+        commands::terminal::set_terminal_scroll_offset,
+        commands::terminal::kill_terminal,
+        commands::terminal::search_terminal,
+        commands::terminal::get_terminal_cwd,
+        commands::terminal::get_terminal_text_range,
+        commands::terminal::install_claude_hook,
+        commands::workspace::get_workspaces,
+        commands::workspace::save_workspace,
+        commands::workspace::delete_workspace,
+        commands::workspace::close_workspace,
+        commands::workspace::set_active_workspace_id,
+        commands::workspace::reorder_workspaces,
+        commands::workspace::add_allowed_root,
+        commands::workspace::take_pending_open_paths,
+        commands::workspace::check_pid_alive,
+        commands::workspace::register_window,
+        commands::workspace::unregister_window,
+        commands::workspace::get_secondary_window_labels,
+        commands::workspace::get_all_workspace_labels,
+        commands::settings::get_settings,
+        commands::settings::update_settings,
+        commands::settings::read_project_settings,
+        commands::settings::write_project_settings,
+        commands::themes::import_theme,
+        commands::themes::list_custom_themes,
+        commands::themes::delete_custom_theme,
+        lsp::lsp_check,
+        lsp::lsp_install,
+        lsp::lsp_start,
+        lsp::lsp_notify,
+        lsp::lsp_request,
+        $($extra),*
+        ]
+    };
+}
 
 fn build_menu(app: &tauri::App) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
     // App (macOS) submenu
@@ -177,6 +264,15 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             dock::setup(app.handle());
 
+            // Dev API (debug builds only): local HTTP server that the E2E suite and
+            // screenshot tooling use to drive the UI. See dev_server.rs.
+            #[cfg(debug_assertions)]
+            {
+                let dev_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    dev_server::start_dev_server(dev_handle).await;
+                });
+            }
 
             let token = attention::load_or_create_token();
             let handle = app.handle().clone();
@@ -190,6 +286,7 @@ pub fn run() {
                     // Install/update Claude hooks now that the server is running.
                     // Do this here (not from the frontend) to avoid a race where
                     // installClaudeHook() fires before attention_port is set.
+                    // No-op when SPLICE_CONFIG_DIR sandboxes this instance (E2E harness).
                     if let Err(e) = attention::install_hook() {
                         tracing::warn!("Failed to install Claude hook: {}", e);
                     }
@@ -234,226 +331,31 @@ pub fn run() {
             }
         })
         .invoke_handler({
-            #[cfg(all(not(feature = "e2e"), not(debug_assertions)))]
-            { tauri::generate_handler![
-                commands::ssh::ssh_connect,
-                commands::ssh::ssh_disconnect,
-                commands::ssh::sftp_list_dir,
-                commands::ssh::sftp_read_file,
-                commands::ssh::sftp_write_file,
-                commands::ssh::ssh_ping,
-                commands::fs::read_dir_tree,
-                commands::fs::read_file,
-                commands::fs::write_file,
-                commands::fs::read_file_base64,
-                commands::fs::search_files,
-                commands::fs::get_git_branch,
-                commands::fs::get_recent_files,
-                commands::fs::add_recent_file,
-                commands::fs::get_recent_projects,
-                commands::fs::add_recent_project,
-                commands::fs::watch_path,
-                commands::fs::unwatch_path,
-                commands::fs::create_file_at,
-                commands::fs::create_directory_at,
-                commands::fs::rename_path,
-                commands::fs::delete_path,
-                commands::fs::duplicate_path,
-                commands::fs::copy_path,
-                commands::fs::reveal_in_file_manager,
-                commands::fs::save_temp_image,
-                commands::fs::save_screenshot,
-                commands::fs::write_to_clipboard,
-                commands::git::git_status,
-                commands::git::git_stage,
-                commands::git::git_unstage,
-                commands::git::git_commit,
-                commands::git::git_discard,
-                commands::git::git_diff_file,
-                commands::git::git_log,
-                commands::terminal::spawn_terminal,
-                commands::terminal::write_to_terminal,
-                commands::terminal::resize_terminal,
-                commands::terminal::scroll_terminal,
-                commands::terminal::set_terminal_scroll_offset,
-                commands::terminal::kill_terminal,
-                commands::terminal::search_terminal,
-                commands::terminal::get_terminal_cwd,
-                commands::terminal::get_terminal_text_range,
-                commands::terminal::install_claude_hook,
-                commands::workspace::get_workspaces,
-                commands::workspace::save_workspace,
-                commands::workspace::delete_workspace,
-                commands::workspace::close_workspace,
-                commands::workspace::set_active_workspace_id,
-                commands::workspace::reorder_workspaces,
-                commands::workspace::add_allowed_root,
-                commands::workspace::take_pending_open_paths,
-                commands::workspace::check_pid_alive,
-                commands::workspace::register_window,
-                commands::workspace::unregister_window,
-                commands::workspace::get_secondary_window_labels,
-                commands::workspace::get_all_workspace_labels,
-                commands::settings::get_settings,
-                commands::settings::update_settings,
-                commands::settings::read_project_settings,
-                commands::settings::write_project_settings,
-                commands::themes::import_theme,
-                commands::themes::list_custom_themes,
-                commands::themes::delete_custom_theme,
-                lsp::lsp_check,
-                lsp::lsp_install,
-                lsp::lsp_start,
-                lsp::lsp_notify,
-                lsp::lsp_request,
-            ] }
+            #[cfg(all(not(debug_assertions), not(feature = "e2e")))]
+            { splice_handlers![] }
+            #[cfg(all(not(debug_assertions), feature = "e2e"))]
+            { splice_handlers![commands::terminal::get_debug_stats] }
             #[cfg(all(debug_assertions, not(feature = "e2e")))]
-            { tauri::generate_handler![
-                commands::ssh::ssh_connect,
-                commands::ssh::ssh_disconnect,
-                commands::ssh::sftp_list_dir,
-                commands::ssh::sftp_read_file,
-                commands::ssh::sftp_write_file,
-                commands::ssh::ssh_ping,
-                commands::fs::read_dir_tree,
-                commands::fs::read_file,
-                commands::fs::write_file,
-                commands::fs::read_file_base64,
-                commands::fs::search_files,
-                commands::fs::get_git_branch,
-                commands::fs::get_recent_files,
-                commands::fs::add_recent_file,
-                commands::fs::get_recent_projects,
-                commands::fs::add_recent_project,
-                commands::fs::watch_path,
-                commands::fs::unwatch_path,
-                commands::fs::create_file_at,
-                commands::fs::create_directory_at,
-                commands::fs::rename_path,
-                commands::fs::delete_path,
-                commands::fs::duplicate_path,
-                commands::fs::copy_path,
-                commands::fs::reveal_in_file_manager,
-                commands::fs::save_temp_image,
-                commands::fs::save_screenshot,
-                commands::fs::write_to_clipboard,
-                commands::git::git_status,
-                commands::git::git_stage,
-                commands::git::git_unstage,
-                commands::git::git_commit,
-                commands::git::git_discard,
-                commands::git::git_diff_file,
-                commands::git::git_log,
-                commands::terminal::spawn_terminal,
-                commands::terminal::write_to_terminal,
-                commands::terminal::resize_terminal,
-                commands::terminal::scroll_terminal,
-                commands::terminal::set_terminal_scroll_offset,
-                commands::terminal::kill_terminal,
-                commands::terminal::search_terminal,
-                commands::terminal::get_terminal_cwd,
-                commands::terminal::get_terminal_text_range,
-                commands::terminal::install_claude_hook,
-                commands::workspace::get_workspaces,
-                commands::workspace::save_workspace,
-                commands::workspace::delete_workspace,
-                commands::workspace::close_workspace,
-                commands::workspace::set_active_workspace_id,
-                commands::workspace::reorder_workspaces,
-                commands::workspace::add_allowed_root,
-                commands::workspace::take_pending_open_paths,
-                commands::workspace::check_pid_alive,
-                commands::workspace::register_window,
-                commands::workspace::unregister_window,
-                commands::workspace::get_secondary_window_labels,
-                commands::workspace::get_all_workspace_labels,
-                commands::settings::get_settings,
-                commands::settings::update_settings,
-                commands::settings::read_project_settings,
-                commands::settings::write_project_settings,
-                commands::themes::import_theme,
-                commands::themes::list_custom_themes,
-                commands::themes::delete_custom_theme,
-                lsp::lsp_check,
-                lsp::lsp_install,
-                lsp::lsp_start,
-                lsp::lsp_notify,
-                lsp::lsp_request,
-            ] }
-            #[cfg(feature = "e2e")]
-            { tauri::generate_handler![
-                commands::ssh::ssh_connect,
-                commands::ssh::ssh_disconnect,
-                commands::ssh::sftp_list_dir,
-                commands::ssh::sftp_read_file,
-                commands::ssh::sftp_write_file,
-                commands::ssh::ssh_ping,
-                commands::fs::read_dir_tree,
-                commands::fs::read_file,
-                commands::fs::write_file,
-                commands::fs::read_file_base64,
-                commands::fs::search_files,
-                commands::fs::get_git_branch,
-                commands::fs::get_recent_files,
-                commands::fs::add_recent_file,
-                commands::fs::get_recent_projects,
-                commands::fs::add_recent_project,
-                commands::fs::watch_path,
-                commands::fs::unwatch_path,
-                commands::fs::create_file_at,
-                commands::fs::create_directory_at,
-                commands::fs::rename_path,
-                commands::fs::delete_path,
-                commands::fs::duplicate_path,
-                commands::fs::copy_path,
-                commands::fs::reveal_in_file_manager,
-                commands::fs::save_temp_image,
-                commands::fs::save_screenshot,
-                commands::fs::write_to_clipboard,
-                commands::git::git_status,
-                commands::git::git_stage,
-                commands::git::git_unstage,
-                commands::git::git_commit,
-                commands::git::git_discard,
-                commands::git::git_diff_file,
-                commands::git::git_log,
-                commands::terminal::spawn_terminal,
-                commands::terminal::write_to_terminal,
-                commands::terminal::resize_terminal,
-                commands::terminal::scroll_terminal,
-                commands::terminal::set_terminal_scroll_offset,
-                commands::terminal::kill_terminal,
-                commands::terminal::search_terminal,
-                commands::terminal::get_terminal_cwd,
-                commands::terminal::get_terminal_text_range,
-                commands::terminal::install_claude_hook,
-                commands::workspace::get_workspaces,
-                commands::workspace::save_workspace,
-                commands::workspace::delete_workspace,
-                commands::workspace::close_workspace,
-                commands::workspace::set_active_workspace_id,
-                commands::workspace::reorder_workspaces,
-                commands::workspace::add_allowed_root,
-                commands::workspace::take_pending_open_paths,
-                commands::workspace::check_pid_alive,
-                commands::workspace::register_window,
-                commands::workspace::unregister_window,
-                commands::workspace::get_secondary_window_labels,
-                commands::workspace::get_all_workspace_labels,
-                commands::settings::get_settings,
-                commands::settings::update_settings,
-                commands::settings::read_project_settings,
-                commands::settings::write_project_settings,
-                commands::themes::import_theme,
-                commands::themes::list_custom_themes,
-                commands::themes::delete_custom_theme,
-                lsp::lsp_check,
-                lsp::lsp_install,
-                lsp::lsp_start,
-                lsp::lsp_notify,
-                lsp::lsp_request,
-                commands::terminal::get_debug_stats,
-            ] }
+            {
+                splice_handlers![
+                    commands::dev::resolve_dev_dom,
+                    commands::dev::dev_log,
+                    commands::dev::save_screenshot_bytes,
+                    commands::dev::resolve_dev_state,
+                    commands::dev::get_terminal_last_lines,
+                ]
+            }
+            #[cfg(all(debug_assertions, feature = "e2e"))]
+            {
+                splice_handlers![
+                    commands::dev::resolve_dev_dom,
+                    commands::dev::dev_log,
+                    commands::dev::save_screenshot_bytes,
+                    commands::dev::resolve_dev_state,
+                    commands::dev::get_terminal_last_lines,
+                    commands::terminal::get_debug_stats,
+                ]
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

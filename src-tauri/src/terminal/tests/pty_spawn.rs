@@ -197,3 +197,79 @@ fn without_login_flag_profile_not_sourced() {
          shell={shell}\noutput={output:?}",
     );
 }
+
+// ─── terminate_child: closing a terminal must end and reap its shell ───────────
+
+#[cfg(unix)]
+fn pid_exists(pid: u32) -> bool {
+    // kill(pid, 0) succeeds for a live process *and* for an unreaped zombie, so a
+    // false here proves both termination and reaping.
+    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+}
+
+/// Spawn `script` under /bin/sh in a pty and block until it has printed READY, so
+/// the test signals a shell that has finished its setup (e.g. installed a trap).
+#[cfg(unix)]
+fn spawn_long_runner(script: &str) -> (Box<dyn portable_pty::Child + Send + Sync>, u32, Box<dyn Read + Send>) {
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+        .expect("openpty");
+    let mut cmd = CommandBuilder::new("/bin/sh");
+    cmd.args(["-c", &format!("{script}; echo READY; sleep 30")]);
+    let child = pair.slave.spawn_command(cmd).expect("spawn");
+    drop(pair.slave);
+    let pid = child.process_id().expect("pid");
+    // Mirror the live session: the reader thread holds a dup of the master, so the
+    // pty never hangs up on its own when the session's handles are dropped.
+    let mut reader = pair.master.try_clone_reader().expect("clone reader");
+    let mut seen = Vec::new();
+    let mut buf = [0u8; 256];
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !seen.windows(5).any(|w| w == b"READY") {
+        assert!(std::time::Instant::now() < deadline, "shell never printed READY");
+        let n = reader.read(&mut buf).expect("read pty");
+        seen.extend_from_slice(&buf[..n]);
+    }
+    (child, pid, reader)
+}
+
+#[cfg(unix)]
+fn wait_until_gone(pid: u32, timeout: Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if !pid_exists(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    !pid_exists(pid)
+}
+
+#[test]
+#[cfg(unix)]
+fn terminate_child_hangs_up_and_reaps_a_cooperative_shell() {
+    let (child, pid, _reader) = spawn_long_runner(":");
+    assert!(pid_exists(pid));
+
+    let started = std::time::Instant::now();
+    crate::terminal::pty::terminate_child(child);
+
+    assert!(wait_until_gone(pid, Duration::from_secs(3)), "shell {pid} still exists after SIGHUP");
+    assert!(started.elapsed() < Duration::from_secs(1), "a cooperative shell must not wait for the SIGKILL grace period");
+}
+
+#[test]
+#[cfg(unix)]
+fn terminate_child_kills_a_process_that_ignores_hangup() {
+    let (child, pid, _reader) = spawn_long_runner("trap '' HUP");
+    assert!(pid_exists(pid));
+
+    let started = std::time::Instant::now();
+    crate::terminal::pty::terminate_child(child);
+
+    // SIGHUP is ignored (and the ignore is inherited by `sleep`); the SIGKILL
+    // fallback fires after the 2 s grace period.
+    assert!(wait_until_gone(pid, Duration::from_secs(6)), "process {pid} survived SIGKILL fallback");
+    assert!(started.elapsed() >= Duration::from_secs(2), "SIGHUP alone should not have ended a shell that ignores it");
+}

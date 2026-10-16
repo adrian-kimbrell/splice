@@ -7,10 +7,7 @@ use super::MAX_RECENT_LIST_SIZE;
 
 #[tauri::command]
 pub fn get_recent_files() -> Result<Vec<String>, String> {
-    let path = dirs::config_dir()
-        .ok_or("No config dir")?
-        .join("Splice")
-        .join("recent_files.json");
+    let path = crate::state::splice_config_dir("Splice").join("recent_files.json");
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -33,9 +30,7 @@ pub fn add_recent_file(
     };
     validate_path(&path, &allowed_roots)?;
 
-    let config_dir = dirs::config_dir()
-        .ok_or("No config dir")?
-        .join("Splice");
+    let config_dir = crate::state::splice_config_dir("Splice");
     fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
     let file_path = config_dir.join("recent_files.json");
 
@@ -59,10 +54,7 @@ pub fn add_recent_file(
 
 #[tauri::command]
 pub fn get_recent_projects() -> Result<Vec<String>, String> {
-    let path = dirs::config_dir()
-        .ok_or("No config dir")?
-        .join("Splice")
-        .join("recent_projects.json");
+    let path = crate::state::splice_config_dir("Splice").join("recent_projects.json");
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -83,9 +75,7 @@ pub fn add_recent_project(path: String) -> Result<(), String> {
         .to_string_lossy()
         .to_string();
 
-    let config_dir = dirs::config_dir()
-        .ok_or("No config dir")?
-        .join("Splice");
+    let config_dir = crate::state::splice_config_dir("Splice");
     fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
     let file_path = config_dir.join("recent_projects.json");
 

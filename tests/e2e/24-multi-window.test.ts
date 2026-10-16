@@ -23,7 +23,7 @@ describe("Multi-window persistence", () => {
   });
 
   it("app loads successfully", async () => {
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 
@@ -45,7 +45,7 @@ describe("Multi-window persistence", () => {
     await browser.pause(800);
 
     // App should still be alive
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 

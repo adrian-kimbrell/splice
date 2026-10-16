@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { log } from "../../lib/utils/log";
   /**
    * TitleBar.svelte -- Top bar combining window drag region, attention notifications,
    * and quick-action buttons (open folder, new terminal, settings).
@@ -109,7 +110,7 @@
         ui.explorerVisible = true;
       }
     } catch (e) {
-      console.error('Failed to open folder:', e);
+      log.error('Failed to open folder:', e);
     }
   }
 </script>

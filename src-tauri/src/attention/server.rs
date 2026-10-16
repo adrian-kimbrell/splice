@@ -27,42 +27,74 @@ use crate::attention::handlers::{
 };
 use crate::attention::http::{find_header_end, parse_content_length};
 
-/// Simple per-IP rate limiter that allows up to `max_per_second` requests per
-/// one-second window. The window resets once a full second has elapsed since the
-/// first request in the current window.
+/// Per (IP, path) rate limiter: up to `max` requests per one-second window. The
+/// window resets once a full second has elapsed since its first request.
+///
+/// Buckets are per path because `/status` is driven by Claude's statusLine, which
+/// fires a few times a second *per Claude session*; one shared bucket let four
+/// busy sessions starve the attention notifications.
 struct RateLimiter {
-    requests: HashMap<IpAddr, (Instant, u32)>,
-    max_per_second: u32,
+    requests: HashMap<(IpAddr, String), (Instant, u32)>,
+}
+
+/// `/status` is high-frequency telemetry; everything else is user-visible events.
+fn rate_limit_for(path: &str) -> u32 {
+    if path == "/status" { 60 } else { 20 }
 }
 
 impl RateLimiter {
-    fn new(max_per_second: u32) -> Self {
-        Self {
-            requests: HashMap::new(),
-            max_per_second,
-        }
+    fn new() -> Self {
+        Self { requests: HashMap::new() }
     }
 
     /// Returns `true` if the request is allowed, `false` if rate-limited.
-    fn check(&mut self, addr: IpAddr) -> bool {
-        let now = Instant::now();
-        let entry = self.requests.entry(addr).or_insert((now, 0));
+    fn check(&mut self, addr: IpAddr, path: &str, max: u32) -> bool {
+        self.check_at(addr, path, max, Instant::now())
+    }
+
+    fn check_at(&mut self, addr: IpAddr, path: &str, max: u32, now: Instant) -> bool {
+        let entry = self
+            .requests
+            .entry((addr, path.to_string()))
+            .or_insert((now, 0));
         if now.duration_since(entry.0).as_secs() >= 1 {
             *entry = (now, 1);
             true
         } else {
             entry.1 += 1;
-            entry.1 <= self.max_per_second
+            entry.1 <= max
+        }
+    }
+}
+
+/// How long a client may take to send its request head. Without this a client
+/// that connects and sends nothing held a task and a socket forever.
+const HEADER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Read until the `\r\n\r\n` header boundary. Returns the buffer (which may already
+/// contain body bytes) and the offset of the boundary, or None on EOF/oversize.
+async fn read_request_head(stream: &mut TcpStream) -> Option<(Vec<u8>, usize)> {
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; 1024];
+    loop {
+        match stream.read(&mut tmp).await {
+            Ok(0) | Err(_) => return None,
+            Ok(n) => {
+                buf.extend_from_slice(&tmp[..n]);
+                if let Some(pos) = find_header_end(&buf) {
+                    return Some((buf, pos));
+                }
+                if buf.len() > 16384 {
+                    return None; // request too large
+                }
+            }
         }
     }
 }
 
 /// Write the bound port to a file next to the token so hooks know where to connect.
 fn write_port_file(port: u16) {
-    let port_path = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("Splice")
-        .join(".attention_port");
+    let port_path = crate::state::splice_config_dir("Splice").join(".attention_port");
     if let Some(parent) = port_path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
@@ -78,7 +110,7 @@ pub async fn start_server(app: AppHandle, token: String) -> u16 {
                 write_port_file(port);
                 let app_clone = app.clone();
                 let token_clone = Arc::clone(&token);
-                let rate_limiter = Arc::new(Mutex::new(RateLimiter::new(10)));
+                let rate_limiter = Arc::new(Mutex::new(RateLimiter::new()));
                 tokio::spawn(async move {
                     loop {
                         match listener.accept().await {
@@ -112,38 +144,10 @@ async fn handle_connection(
     token: Arc<String>,
     rate_limiter: Arc<Mutex<RateLimiter>>,
 ) {
-    // Check rate limit before doing any work
-    {
-        let mut rl = rate_limiter.lock().await;
-        if !rl.check(peer_ip) {
-            warn!("attention: rate-limited request from {}", peer_ip);
-            let _ = stream
-                .write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n")
-                .await;
-            return;
-        }
-    }
-
-    // Read until \r\n\r\n to get headers
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 1024];
-    let header_end;
-
-    loop {
-        match stream.read(&mut tmp).await {
-            Ok(0) | Err(_) => return,
-            Ok(n) => {
-                buf.extend_from_slice(&tmp[..n]);
-                if let Some(pos) = find_header_end(&buf) {
-                    header_end = pos;
-                    break;
-                }
-                if buf.len() > 16384 {
-                    return; // request too large
-                }
-            }
-        }
-    }
+    // Read until \r\n\r\n to get headers (bounded in size and time)
+    let Ok(Some((buf, header_end))) = tokio::time::timeout(HEADER_TIMEOUT, read_request_head(&mut stream)).await else {
+        return;
+    };
 
     // Parse header string
     let header_str = match std::str::from_utf8(&buf[..header_end]) {
@@ -177,6 +181,19 @@ async fn handle_connection(
             return;
         }
     };
+
+    // Rate limit per (peer, path) once we know the path, so statusLine telemetry
+    // cannot crowd out attention notifications.
+    {
+        let mut rl = rate_limiter.lock().await;
+        if !rl.check(peer_ip, &path, rate_limit_for(&path)) {
+            warn!("attention: rate-limited {} request from {}", path, peer_ip);
+            let _ = stream
+                .write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n")
+                .await;
+            return;
+        }
+    }
 
     let content_length = parse_content_length(header_str).unwrap_or(0);
     if content_length == 0 || content_length > 65536 {
@@ -222,6 +239,49 @@ async fn handle_connection(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn rate_limiter_buckets_per_path_so_status_cannot_starve_attention() {
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        let mut rl = RateLimiter::new();
+        let now = Instant::now();
+        // Saturate /status at its own limit…
+        for _ in 0..rate_limit_for("/status") {
+            assert!(rl.check_at(ip, "/status", rate_limit_for("/status"), now));
+        }
+        assert!(!rl.check_at(ip, "/status", rate_limit_for("/status"), now), "61st /status is limited");
+        // …and /attention is still accepted.
+        assert!(rl.check_at(ip, "/attention", rate_limit_for("/attention"), now));
+    }
+
+    #[test]
+    fn rate_limiter_window_resets_after_a_second() {
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        let mut rl = RateLimiter::new();
+        let t0 = Instant::now();
+        for _ in 0..20 {
+            assert!(rl.check_at(ip, "/attention", 20, t0));
+        }
+        assert!(!rl.check_at(ip, "/attention", 20, t0));
+        assert!(rl.check_at(ip, "/attention", 20, t0 + std::time::Duration::from_millis(1001)));
+    }
+
+    #[tokio::test]
+    async fn silent_client_is_dropped_after_header_timeout() {
+        // A connection that never sends a request head must not hold the task open.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut server_side, _) = listener.accept().await.unwrap();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            read_request_head(&mut server_side),
+        )
+        .await;
+        assert!(result.is_err(), "read must still be pending (production wraps it in HEADER_TIMEOUT)");
+    }
+
     // -----------------------------------------------------------------------
     // Group E: accept loop resilience
     // -----------------------------------------------------------------------

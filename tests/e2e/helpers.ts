@@ -7,10 +7,21 @@ export const DRIVER_URL = "tauri://localhost";
 /** Navigate to the app and wait for the root grid to be present. */
 export async function loadApp(browser: Browser): Promise<void> {
   await browser.url(DRIVER_URL);
-  await browser.$(".grid.h-screen, [data-pane-id], div.welcome-screen").waitForExist({
+  await browser.$("#app-root, [data-pane-id], div.welcome-screen").waitForExist({
     timeout: 10_000,
     timeoutMsg: "App root did not appear within 10s",
   });
+  // The dev API bridge and `window.__spliceTest` register from a dynamic import after
+  // mount. A /dev/* call emitted before the listeners exist is simply lost, so wait
+  // for the bridge to announce itself after every (re)load.
+  await browser.waitUntil(
+    async () =>
+      (await browser.execute(() => {
+        const w = window as unknown as Record<string, unknown>;
+        return w.__spliceDevReady === true && typeof w.__spliceTest === "object";
+      })) === true,
+    { timeout: 10_000, interval: 100, timeoutMsg: "Dev API bridge did not register within 10s" },
+  );
 }
 
 /**

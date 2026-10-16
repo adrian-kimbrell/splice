@@ -83,7 +83,7 @@ describe("LSP Completions", () => {
     await sleep(200);
 
     // Verify app is still alive
-    const root = await browser.$(".grid.h-screen");
+    const root = await browser.$("#app-root");
     await expect(root).toExist();
   });
 });

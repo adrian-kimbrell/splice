@@ -153,10 +153,15 @@ describe("Command palette execution", () => {
     await sleep(100);
 
     await browser.keys(["Escape"]);
-    await sleep(300);
 
+    // The palette is removed once its outro transition finishes, so wait rather
+    // than sampling the DOM after a fixed delay.
     const palettAfter = await browser.$('input[placeholder="Type a command…"]');
-    const exists = await palettAfter.isExisting();
-    expect(exists).toBe(false);
+    await palettAfter.waitForExist({ reverse: true, timeout: 2_000 }).catch(async (e) => {
+      const state = await browser.execute(() =>
+        (window as unknown as { __spliceTest: { getUiState: () => unknown } }).__spliceTest.getUiState());
+      throw new Error(`Palette still open after Escape; ui state: ${JSON.stringify(state)} (${String(e)})`);
+    });
+    expect(await palettAfter.isExisting()).toBe(false);
   });
 });

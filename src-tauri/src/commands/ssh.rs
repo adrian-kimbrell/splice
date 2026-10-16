@@ -46,6 +46,21 @@ fn expand_tilde(path: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(path)
 }
 
+/// Upper bound for a single remote command (listing, cat, write, ping). The UI
+/// awaits these; without a bound a stalled connection hung it indefinitely.
+const REMOTE_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+async fn bounded<T, E: std::fmt::Display>(
+    what: &str,
+    fut: impl std::future::Future<Output = Result<T, E>>,
+) -> Result<T, String> {
+    match tokio::time::timeout(REMOTE_CMD_TIMEOUT, fut).await {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(e)) => Err(format!("{} failed: {}", what, e)),
+        Err(_) => Err(format!("{} timed out after {}s", what, REMOTE_CMD_TIMEOUT.as_secs())),
+    }
+}
+
 /// Establish an SSH ControlMaster session and store it keyed by workspace_id.
 /// Fields in `config` that are empty/default are omitted so `~/.ssh/config` takes precedence.
 #[tauri::command]
@@ -54,6 +69,13 @@ pub async fn ssh_connect(
     workspace_id: String,
     config: SshConfig,
 ) -> Result<(), String> {
+    // A host or user beginning with "-" would be parsed by ssh as an option
+    // (-oProxyCommand=… runs a local command). Only reachable from the user's own
+    // form or workspace file, but refuse it anyway.
+    if config.host.starts_with('-') || config.user.starts_with('-') || config.host.is_empty() {
+        return Err("Invalid SSH host or user".to_string());
+    }
+
     let mut builder = SessionBuilder::default();
 
     // Only override user/port/keyfile if explicitly provided — otherwise let ~/.ssh/config handle them.
@@ -69,6 +91,9 @@ pub async fn ssh_connect(
 
     builder.known_hosts_check(KnownHosts::Accept);
     builder.connect_timeout(std::time::Duration::from_secs(20));
+    // Detect a dead network path: without keepalives a dropped connection left the
+    // ControlMaster "alive" and every remote command blocked until TCP gave up.
+    builder.server_alive_interval(std::time::Duration::from_secs(15));
 
     let session = Arc::new(
         builder
@@ -118,12 +143,7 @@ pub async fn sftp_list_dir(
 
     // Expand ~ via remote shell
     let expanded = if path.starts_with('~') {
-        let out = session
-            .command("sh")
-            .args(["-c", "echo $HOME"])
-            .output()
-            .await
-            .map_err(|e| e.to_string())?;
+        let out = bounded("sftp_list_dir home lookup", session.command("sh").args(["-c", "echo $HOME"]).output()).await?;
         let home = String::from_utf8_lossy(&out.stdout).trim().to_string();
         path.replacen('~', &home, 1)
     } else {
@@ -131,39 +151,34 @@ pub async fn sftp_list_dir(
     };
 
     // Get all entries (one per line)
-    let all_out = session
-        .command("find")
-        .args([expanded.as_str(), "-maxdepth", "1", "-mindepth", "1"])
-        .output()
-        .await
-        .map_err(|e| format!("sftp_list_dir find failed: {}", e))?;
+    let all_out = bounded(
+        "sftp_list_dir find",
+        session.command("find").args([expanded.as_str(), "-maxdepth", "1", "-mindepth", "1"]).output(),
+    )
+    .await?;
 
     // Get only directories to classify entries
-    let dir_out = session
-        .command("find")
-        .args([
-            expanded.as_str(),
-            "-maxdepth",
-            "1",
-            "-mindepth",
-            "1",
-            "-type",
-            "d",
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("sftp_list_dir find -type d failed: {}", e))?;
+    let dir_out = bounded(
+        "sftp_list_dir find -type d",
+        session
+            .command("find")
+            .args([expanded.as_str(), "-maxdepth", "1", "-mindepth", "1", "-type", "d"])
+            .output(),
+    )
+    .await?;
 
+    // `lines()` already strips the newline; trimming further would mangle names
+    // with leading/trailing whitespace and misclassify them.
     let dirs: std::collections::HashSet<String> = String::from_utf8_lossy(&dir_out.stdout)
         .lines()
-        .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
+        .map(str::to_string)
         .collect();
 
     let mut entries: Vec<FileEntry> = String::from_utf8_lossy(&all_out.stdout)
         .lines()
-        .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
+        .map(str::to_string)
         .map(|entry_path| {
             let name = Path::new(&entry_path)
                 .file_name()
@@ -199,12 +214,7 @@ pub async fn sftp_read_file(
 ) -> Result<String, String> {
     let session = get_session(&state, &workspace_id)?;
 
-    let out = session
-        .command("cat")
-        .arg(path.as_str())
-        .output()
-        .await
-        .map_err(|e| format!("sftp_read_file failed: {}", e))?;
+    let out = bounded("sftp_read_file", session.command("cat").arg("--").arg(path.as_str()).output()).await?;
 
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
@@ -215,8 +225,11 @@ pub async fn sftp_read_file(
         .map_err(|_| "Remote file is not valid UTF-8".to_string())
 }
 
-/// Write content to a remote file via base64-encoded echo + decode pipeline.
-/// Works for files up to ~1 MB; suitable for source code files.
+/// Write content to a remote file by streaming it over the command's stdin.
+///
+/// The previous approach embedded the whole file as a base64 literal in the
+/// command line; sshd runs that as a single `sh -c` argument, which Linux caps at
+/// 128 KiB, so saves above ~96 KB of text failed on every Linux host.
 #[tauri::command]
 pub async fn sftp_write_file(
     state: State<'_, Mutex<AppState>>,
@@ -226,22 +239,25 @@ pub async fn sftp_write_file(
 ) -> Result<(), String> {
     let session = get_session(&state, &workspace_id)?;
 
-    use base64::Engine;
-    let encoded = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
-
     // Shell-quote the path (single-quote escaping)
     let quoted_path = format!("'{}'", path.replace('\'', "'\\''"));
+    let cmd = format!("cat > {}", quoted_path);
 
-    // Use printf + base64 --decode to write the file; avoids stdin lifecycle complexity
-    let cmd = format!("printf '%s' '{}' | base64 --decode > {}", encoded, quoted_path);
+    let mut child = bounded(
+        "sftp_write_file spawn",
+        session.command("sh").args(["-c", cmd.as_str()]).stdin(openssh::Stdio::piped()).spawn(),
+    )
+    .await?;
 
-    let status = session
-        .command("sh")
-        .args(["-c", cmd.as_str()])
-        .status()
-        .await
-        .map_err(|e| format!("sftp_write_file spawn failed: {}", e))?;
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut stdin = child.stdin().take().ok_or("sftp_write_file: no stdin pipe")?;
+        bounded("sftp_write_file write", stdin.write_all(content.as_bytes())).await?;
+        bounded("sftp_write_file flush", stdin.shutdown()).await?;
+        // Dropping stdin sends EOF so `cat` finishes.
+    }
 
+    let status = bounded("sftp_write_file", child.wait()).await?;
     if !status.success() {
         return Err("Remote write failed (non-zero exit from sh)".to_string());
     }
@@ -256,7 +272,7 @@ pub async fn ssh_ping(
     workspace_id: String,
 ) -> Result<bool, String> {
     let session = get_session(&state, &workspace_id)?;
-    match session.command("true").status().await {
+    match bounded("ssh_ping", session.command("true").status()).await {
         Ok(s) => Ok(s.success()),
         Err(_) => Ok(false),
     }
