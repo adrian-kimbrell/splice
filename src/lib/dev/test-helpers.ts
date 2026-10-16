@@ -5,6 +5,7 @@
  */
 
 import type { workspaceManager as _wm } from "../stores/workspace.svelte";
+import { isImagePath } from "../utils/open-paths";
 import type { ui as _ui } from "../stores/ui.svelte";
 import type { settings as _settings } from "../stores/settings.svelte";
 
@@ -45,7 +46,8 @@ export function registerTestHelpers(deps: TestHelperDeps): void {
     openFilePinned: async (filePath: string) => {
       const name = filePath.split("/").pop() ?? filePath;
       const existing = workspaceManager.activeWorkspace?.openFileIndex[filePath];
-      const content = existing ? existing.content : await readFileForWs(filePath);
+      // Same rule as the explorer click path: images are not read as text.
+      const content = existing ? existing.content : isImagePath(filePath) ? "" : await readFileForWs(filePath);
       workspaceManager.openFileInWorkspace({ name, path: filePath, content, preview: false });
     },
     /** Directly mark the active file in the active pane as dirty (for E2E tests). */

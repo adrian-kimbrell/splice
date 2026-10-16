@@ -424,9 +424,10 @@
 
   async function refreshTree() {
     const wsId = workspaceManager.activeWorkspaceId;
+    // loadFileTree assigns a fresh `entries` array, and the effect above bumps
+    // refreshGeneration for it; bumping here as well made every expanded folder
+    // re-read its children twice per operation.
     if (wsId) await workspaceManager.loadFileTree(wsId);
-    // Bump refresh generation so expanded FileTreeItems reload their children
-    refreshGeneration++;
   }
 
   async function doCreateFile(dir: string, name: string) {
