@@ -119,9 +119,14 @@
   // Selection state
   let isSelecting = false;
   let dragScrollInterval: ReturnType<typeof setInterval> | null = null;
-  // Set to true when the window regains focus, consumed by the next mousedown so that
-  // clicking to re-focus the app doesn't inadvertently open a URL or start a selection.
+  // Clicking an inactive Splice window to bring it back (after a link opened the
+  // browser, say) must not act on the terminal: it would re-open the still-hovered
+  // URL. Two signals cover both event orders WebKit produces: `focusClickPending`
+  // is set by the window `focus` event and consumed by the next mousedown, and
+  // `windowFocused` is false from `blur` until `focus`, for the case where the
+  // activating mousedown is delivered before the focus event.
   let focusClickPending = false;
+  let windowFocused = document.hasFocus();
 
   // Frame metadata (updated each time a frame arrives)
   let frameFirstDisplayHistoryRow = 0;
@@ -369,9 +374,21 @@
     // a stale URL open (hoveredUrl may still point at the link from before blur).
     const onWindowFocus = () => {
       if (renderer) renderer.rerender();
+      windowFocused = true;
       focusClickPending = true;
+      // A refocus by keyboard (⌘Tab) has no click to consume; don't swallow a
+      // later, deliberate click.
+      setTimeout(() => { focusClickPending = false; }, 500);
     };
-    const onWindowBlur = () => { focusClickPending = false; };
+    const onWindowBlur = () => {
+      windowFocused = false;
+      focusClickPending = false;
+      // The pointer may still sit on the link when the browser comes to the front.
+      if (renderer?.hoveredUrl) {
+        renderer.hoveredUrl = null;
+        renderer.rerender();
+      }
+    };
     window.addEventListener('focus', onWindowFocus);
     window.addEventListener('blur', onWindowBlur);
     cleanupFns.push(() => window.removeEventListener('focus', onWindowFocus));
@@ -534,8 +551,9 @@
 
       // Consume the focus-regain click: when the user clicks to bring this window
       // back to the front the click-through would otherwise open a stale hoveredUrl.
-      if (focusClickPending) {
+      if (focusClickPending || !windowFocused) {
         focusClickPending = false;
+        windowFocused = true;
         return;
       }
 

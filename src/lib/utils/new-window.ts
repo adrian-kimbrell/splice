@@ -16,7 +16,8 @@ export async function openNewWindow(): Promise<void> {
     const label = `main-${Math.random().toString(16).slice(2, 8)}`;
     await registerWindow(label);
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    const { LogicalPosition } = await import("@tauri-apps/api/dpi");
+    // No trafficLightPosition: wry's own inset logic fights the NSThemeFrame
+    // swizzle (window_swizzle.rs), which positions every overlay window.
     new WebviewWindow(label, {
       url: "/",
       title: "Splice",
@@ -27,7 +28,6 @@ export async function openNewWindow(): Promise<void> {
       decorations: true,
       titleBarStyle: "overlay",
       hiddenTitle: true,
-      trafficLightPosition: new LogicalPosition(14, 21),
       resizable: true,
       backgroundColor: { red: 30, green: 30, blue: 30, alpha: 255 },
     });
