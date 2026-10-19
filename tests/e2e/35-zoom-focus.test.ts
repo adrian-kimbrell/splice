@@ -55,9 +55,10 @@ describe("Zoomed pane focus", () => {
   it("renders the zoomed pane twice, with only the overlay copy visible", async () => {
     await api.setUi({ zoomedPaneId: paneId });
     await sleep(400);
+    // The grid copy is hidden with `visibility: hidden`, which offsetParent does not see.
     const copies = await browser.execute((id: string) =>
       Array.from(document.querySelectorAll<HTMLElement>(`[data-pane-id="${id}"]`))
-        .map((el) => el.offsetParent !== null), paneId);
+        .map((el) => el.offsetParent !== null && getComputedStyle(el).visibility !== "hidden"), paneId);
     expect(copies.length).toBe(2);
     expect(copies.filter(Boolean).length).toBe(1);
   });
@@ -73,7 +74,7 @@ describe("Zoomed pane focus", () => {
       return {
         tag: el?.tagName ?? "",
         isEditor: !!el?.classList.contains("cm-content"),
-        visible: !!el && el.offsetParent !== null,
+        visible: !!el && el.offsetParent !== null && getComputedStyle(el).visibility !== "hidden",
         paneId: el?.closest<HTMLElement>("[data-pane-id]")?.dataset.paneId ?? null,
       };
     });

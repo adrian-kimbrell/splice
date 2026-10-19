@@ -26,10 +26,10 @@
     { name: "Save All", shortcut: "⌥⌘S", action() { runAction("save-all"); } },
     { name: "Toggle Word Wrap", shortcut: "", action() { runAction("toggle-word-wrap"); } },
     { name: "Toggle Zen Mode", shortcut: "⇧⌘↩", action() { runAction("zen-mode"); } },
-    // UI scale is the whole window; ⌘= / ⌘- / ⌘0 change the focused pane's font instead.
-    { name: "UI Scale: Increase", shortcut: "", action() { settings.appearance.ui_scale = Math.min(200, settings.appearance.ui_scale + 10); debouncedSaveSettings(); } },
-    { name: "UI Scale: Decrease", shortcut: "", action() { settings.appearance.ui_scale = Math.max(50, settings.appearance.ui_scale - 10); debouncedSaveSettings(); } },
-    { name: "UI Scale: Reset", shortcut: "", action() { settings.appearance.ui_scale = 100; debouncedSaveSettings(); } },
+    // Whole-window UI scale. No shortcut shown: ⌘= / ⌘- / ⌘0 change the focused pane's font instead.
+    { name: "Zoom In", shortcut: "", action() { settings.appearance.ui_scale = Math.min(200, settings.appearance.ui_scale + 10); debouncedSaveSettings(); } },
+    { name: "Zoom Out", shortcut: "", action() { settings.appearance.ui_scale = Math.max(50, settings.appearance.ui_scale - 10); debouncedSaveSettings(); } },
+    { name: "Reset Zoom", shortcut: "", action() { settings.appearance.ui_scale = 100; debouncedSaveSettings(); } },
   ];
 
   let filter = $state("");

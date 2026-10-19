@@ -10,10 +10,19 @@
 /** The focusable element inside a pane: terminal canvas, editor, or anything with a tabindex. */
 const CONTENT_SELECTOR = "canvas[tabindex], .cm-content, [tabindex]";
 
+/**
+ * Rendered and not hidden. `offsetParent` is null under `display: none` (the
+ * inactive workspaces) but not under `visibility: hidden` (the grid copy of a
+ * zoomed pane), so both are checked.
+ */
+export function isDisplayed(el: HTMLElement): boolean {
+  return el.offsetParent !== null && getComputedStyle(el).visibility !== "hidden";
+}
+
 /** The displayed element for `paneId`, or null when none is visible. */
 export function findVisiblePaneEl(paneId: string): HTMLElement | null {
   const candidates = document.querySelectorAll<HTMLElement>(`[data-pane-id="${paneId}"]`);
-  return Array.from(candidates).find((el) => el.offsetParent !== null) ?? null;
+  return Array.from(candidates).find(isDisplayed) ?? null;
 }
 
 /**

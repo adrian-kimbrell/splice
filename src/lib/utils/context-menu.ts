@@ -274,8 +274,16 @@ export function positionFixedMenu(menu: HTMLElement, x: number, y: number): void
   });
 }
 
+/** Tears down the open top-level menu, listeners included. Replacing only the element leaked them. */
+let removeActiveMenu: (() => void) | null = null;
+
+/** Close the open context menu, if any. */
+export function closeContextMenu(): void {
+  removeActiveMenu?.();
+}
+
 export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y: number): void {
-  document.querySelector(".splice-ctx-menu")?.remove();
+  closeContextMenu();
   removeSubmenu();
 
   const menu = buildMenu(items, remove);
@@ -284,6 +292,7 @@ export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y
   positionFixedMenu(menu, x, y);
 
   function remove() {
+    if (removeActiveMenu === remove) removeActiveMenu = null;
     removeSubmenu();
     menu.remove();
     document.removeEventListener("mousedown",   outside, true);
@@ -305,4 +314,5 @@ export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y
   document.addEventListener("click",       outside, true);
   document.addEventListener("keydown",     onKey,   true);
   document.addEventListener("contextmenu", outside, true);
+  removeActiveMenu = remove;
 }
