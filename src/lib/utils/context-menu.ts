@@ -10,6 +10,8 @@
 
 export interface ContextMenuItem {
   label: string;
+  /** Bootstrap-icon class (e.g. "bi-terminal") shown before the label. */
+  icon?: string;
   shortcut?: string;
   disabled?: boolean;
   action?: () => void;
@@ -143,6 +145,12 @@ function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void, dep
     btn.disabled = (!hasSubmenu && !item.action) || (item.disabled ?? false);
     btn.tabIndex = -1;
 
+    if (item.icon) {
+      const icon = document.createElement("i");
+      icon.className = `bi ${item.icon}`;
+      btn.appendChild(icon);
+    }
+
     const labelSpan = document.createElement("span");
     labelSpan.textContent = item.label;
     btn.appendChild(labelSpan);
@@ -209,7 +217,13 @@ function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void, dep
         });
       }
 
+      // mousedown only keeps focus where it was (an editor or terminal must not
+      // blur); the action runs on click so a programmatic `.click()` works too.
       btn.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      btn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         removeSubmenu();

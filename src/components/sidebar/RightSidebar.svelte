@@ -5,7 +5,7 @@
   import { requestCloseWorkspace } from "../../lib/utils/close-workspace";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
-  import { positionFixedMenu } from "../../lib/utils/context-menu";
+  import { showContextMenu } from "../../lib/utils/context-menu";
   import { openFilePath } from "../../lib/utils/open-paths";
 
   let {
@@ -123,39 +123,11 @@
   let iconPicker = $state<{ wsId: string; x: number; y: number } | null>(null);
 
   // --- Context menu ---
-  import { onDestroy } from "svelte";
-
-  let ctxMenuEl: HTMLDivElement | null = null;
-
-  function removeCtxMenu() {
-    if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; }
-  }
 
   function showCtxMenu(e: MouseEvent, items: { icon: string; label: string; action: string }[], targetWsId?: string) {
     e.preventDefault();
     e.stopPropagation();
-    removeCtxMenu();
-    ctxMenuEl = document.createElement("div");
-    ctxMenuEl.className = "split-dropdown ctx-menu-container";
-    ctxMenuEl.style.position = "fixed";
-    // Position menu away from the sidebar edge
-    ctxMenuEl.style.transform = side === "right" ? "translateX(-100%)" : "translateX(0)";
-    for (const item of items) {
-      const btn = document.createElement("button");
-      btn.className = "split-dropdown-item";
-      btn.dataset.action = item.action;
-      const icon = document.createElement("i");
-      icon.className = `bi ${item.icon}`;
-      const span = document.createElement("span");
-      span.textContent = item.label;
-      btn.appendChild(icon);
-      btn.appendChild(span);
-      ctxMenuEl.appendChild(btn);
-    }
-    ctxMenuEl.addEventListener("click", (ev) => {
-      const btn = (ev.target as HTMLElement).closest<HTMLElement>("[data-action]");
-      if (!btn) return;
-      const action = btn.dataset.action;
+    const run = (action: string) => {
       // Switch to target workspace before executing workspace-scoped actions
       if (targetWsId) workspaceManager.switchWorkspace(targetWsId);
       if (action === "new-workspace") handleCreateWorkspace();
@@ -164,11 +136,12 @@
       else if (action === "open-file") handleOpenFile();
       else if (action === "toggle-view-mode" && targetWsId) workspaceManager.toggleViewMode(targetWsId);
       else if (action === "set-icon" && targetWsId) iconPicker = { wsId: targetWsId, x: e.clientX, y: e.clientY };
-      removeCtxMenu();
-    });
-    document.body.appendChild(ctxMenuEl);
-    // Position + clamp with zoom (ui_scale) correction. See [[zoom-coords]].
-    positionFixedMenu(ctxMenuEl, e.clientX, e.clientY);
+    };
+    showContextMenu(
+      items.map((it) => ({ label: it.label, icon: it.icon, action: () => run(it.action) })),
+      e.clientX,
+      e.clientY,
+    );
   }
 
   function handleContextMenu(e: MouseEvent) {
@@ -204,16 +177,8 @@
     }
   }
 
-  function closeCtxMenu(e: MouseEvent) {
-    if (ctxMenuEl && !(e.target as HTMLElement).closest(".ctx-menu-container")) {
-      removeCtxMenu();
-    }
-  }
-
-  onDestroy(() => removeCtxMenu());
 </script>
 
-<svelte:document onclick={closeCtxMenu} />
 
 <div
   class="bg-sidebar flex flex-col overflow-hidden"
