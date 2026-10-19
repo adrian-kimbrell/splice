@@ -26,7 +26,7 @@ vi.mock("./settings.svelte", () => {
     appearance: {},
     editor: {},
   };
-  return { settings: fakeSettings, effectiveSettings: fakeSettings };
+  return { settings: fakeSettings, effectiveSettings: fakeSettings, defaultViewMode: () => "split" as const };
 });
 
 import { workspaceManager } from "./workspace.svelte";

@@ -2,9 +2,9 @@ import { log } from "../utils/log";
 import type { Workspace } from "./workspace-types";
 import type { RustWorkspace } from "../ipc/commands";
 import { validateLayout } from "./workspace-tab-ops";
-import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs, addOpenFile } from "./workspace-types";
+import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs, addOpenFile, newWorkspace } from "./workspace-types";
 import { collectLeafIds, removeNodeFromTree } from "./layout.svelte";
-import { effectiveSettings } from "./settings.svelte";
+import { effectiveSettings, defaultViewMode } from "./settings.svelte";
 
 interface PendingResume {
   timers: ReturnType<typeof setTimeout>[];
@@ -271,19 +271,10 @@ export async function restoreWorkspaceImpl(
   // Each claude resume injection is staggered so they don't all hit the shell at once.
   let localClaudeResumeIndex = 0;
 
-  const ws: Workspace = register({
+  const ws: Workspace = register(newWorkspace({
     id: rws.id,
     name: rws.name,
     rootPath: rws.root_path,
-    fileTree: [],
-    openFiles: [],
-    openFileIndex: {},
-    terminalIds: [],
-    activeTerminalId: null,
-    layout: null,
-    panes: {},
-    activePaneId: null,
-    gitBranch: "",
     explorerVisible: rws.explorer_visible ?? true,
     explorerWidth: Math.max(150, rws.explorer_width ?? 240),
     expandedPaths: new Set(rws.expanded_paths ?? []),
@@ -297,8 +288,8 @@ export async function restoreWorkspaceImpl(
         }
       : null,
     icon: rws.icon ?? null,
-    viewMode: rws.view_mode ?? (effectiveSettings.general.default_single_view ? "single" : "split"),
-  });
+    viewMode: rws.view_mode ?? defaultViewMode(),
+  }));
 
   for (const paneInfo of rws.panes) {
     // SSH workspaces previously skipped pane restoration entirely, silently

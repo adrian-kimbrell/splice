@@ -176,6 +176,11 @@ class EffectiveSettings {
 }
 export const effectiveSettings = new EffectiveSettings();
 
+/** View mode for a workspace that has no persisted preference of its own. */
+export function defaultViewMode(): "split" | "single" {
+  return effectiveSettings.general.default_single_view ? "single" : "split";
+}
+
 /**
  * Ensure `<workspaceRoot>/.splice/settings.json` exists (creating it with
  * `{}` if absent), then return its absolute path so a caller can open it

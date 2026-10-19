@@ -18,17 +18,18 @@
 import { log } from "../utils/log";
 import type { OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
-import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, swapLeavesInTree, findSiblingLeaf, findShallowestLeaf, treeDepth, MAX_SPLIT_DEPTH } from "./layout.svelte";
+import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, swapLeavesInTree, findShallowestLeaf, treeDepth, MAX_SPLIT_DEPTH } from "./layout.svelte";
 import { ui } from "./ui.svelte";
 import { isCornerDragActive } from "./corner-drag.svelte";
 import { isDragging as isTabDragging } from "./drag.svelte";
-import { effectiveSettings } from "./settings.svelte";
+import { effectiveSettings, defaultViewMode } from "./settings.svelte";
 import type { RustWorkspace } from "../ipc/commands";
 import { addRecentProject } from "./recent-projects.svelte";
 import { attentionStore } from "./attention.svelte";
 import type { Workspace } from "./workspace-types";
 import {
   generateId,
+  newWorkspace,
   findFirstLeaf,
   nextUntitledPath,
   fetchGitBranchImpl,
@@ -46,6 +47,7 @@ import {
   getFilesToCloseLeft,
   getFilesToCloseRight,
   getFilesToCloseClean,
+  removePaneFromLayout,
 } from "./workspace-tab-ops";
 import {
   persistWorkspaceImpl,
@@ -194,6 +196,27 @@ class WorkspaceManager {
     }
   }
 
+  /**
+   * Grant Rust access to `rootPath`, watch it, then load the tree, branch and git
+   * status. Access must be granted first: for a root outside HOME both the watch
+   * and the tree read are refused otherwise, and nothing retries the watch, so the
+   * explorer never follows external changes. Callers do not wait for the tree.
+   */
+  private async attachRoot(wsId: string, rootPath: string): Promise<void> {
+    try {
+      const { addAllowedRoot, watchPath } = await import("../ipc/commands");
+      await addAllowedRoot(rootPath);
+      await watchPath(rootPath);
+    } catch (e) {
+      log.warn("Failed to attach workspace root:", rootPath, e);
+    }
+    if (!this.workspaces[wsId]) return; // closed while we waited
+    this.loadFileTree(wsId);
+    this.fetchGitBranch(wsId);
+    const { refreshGitStatus } = await import("./git.svelte");
+    refreshGitStatus(wsId, rootPath);
+  }
+
   /** Kill a PTY that was spawned but never placed in a pane (the workspace vanished or a drag interrupted). */
   private discardSpawnedTerminal(terminalId: number): void {
     import("../ipc/commands")
@@ -205,24 +228,14 @@ class WorkspaceManager {
 
   createEmptyWorkspace(name?: string): Workspace {
     const id = generateId();
-    const ws: Workspace = {
+    const ws = newWorkspace({
       id,
       name: name ?? "Untitled",
       rootPath: "",
-      fileTree: [],
-      openFiles: [],
-      openFileIndex: {},
-      terminalIds: [],
-      activeTerminalId: null,
-      layout: null,
-      panes: {},
-      activePaneId: null,
-      viewMode: effectiveSettings.general.default_single_view ? "single" : "split",
-      gitBranch: "",
-      explorerVisible: false,
+      viewMode: defaultViewMode(),
+      explorerVisible: false, // nothing to explore yet
       explorerWidth: ui.explorerWidth,
-      expandedPaths: new Set(),
-    };
+    });
 
     this.workspaces[id] = ws;
     this.activeWorkspaceId = id;
@@ -252,19 +265,18 @@ class WorkspaceManager {
     if (!ws.nameManuallySet) {
       ws.name = rootPath.split("/").filter(Boolean).pop() || "Untitled";
     }
+    // Re-pointing a workspace releases the old root's watcher (refcounted on
+    // the Rust side); close only ever unwatched the final root.
+    const previousRoot = ws.rootPath;
+    if (previousRoot && previousRoot !== rootPath && !ws.sshConfig) {
+      import("../ipc/commands")
+        .then(({ unwatchPath }) => unwatchPath(previousRoot))
+        .catch(e => log.warn("Failed to unwatch previous root:", previousRoot, e));
+    }
     ws.rootPath = rootPath;
     addRecentProject(rootPath);
 
-    // Grant Rust access to this directory, start watching it, then load the tree
-    import("../ipc/commands").then(async ({ addAllowedRoot, watchPath }) => {
-      await addAllowedRoot(rootPath);
-      watchPath(rootPath).catch(e => log.warn("Failed to watch path:", rootPath, e));
-    }).finally(async () => {
-      this.loadFileTree(wsId);
-      this.fetchGitBranch(wsId);
-      const { refreshGitStatus } = await import("./git.svelte");
-      refreshGitStatus(wsId, rootPath);
-    });
+    void this.attachRoot(wsId, rootPath);
 
     // Persist so a force-reload keeps the updated root path
     this.debouncedPersistWorkspace(wsId);
@@ -297,13 +309,11 @@ class WorkspaceManager {
       return null;
     }
 
-    const ws: Workspace = {
+    const ws = newWorkspace({
       id,
       name: dirName,
       rootPath,
-      fileTree: [],
-      openFiles: [],
-      openFileIndex: {},
+      viewMode: defaultViewMode(),
       terminalIds: [terminalId],
       activeTerminalId: terminalId,
       layout: { type: "leaf", paneId },
@@ -311,30 +321,16 @@ class WorkspaceManager {
         [paneId]: { id: paneId, kind: "terminal", title: `Terminal ${this.nextTerminalNumber()}`, terminalId },
       },
       activePaneId: paneId,
-      viewMode: effectiveSettings.general.default_single_view ? "single" : "split",
-      gitBranch: "",
-      explorerVisible: true,
       explorerWidth: ui.explorerWidth,
-      expandedPaths: new Set(),
       icon: saved?.icon ?? null,
-    };
+    });
 
     this.workspaces[id] = ws;
     this.activeWorkspaceId = id;
     ui.explorerVisible = ws.explorerVisible;
     ui.explorerWidth = ws.explorerWidth;
     addRecentProject(rootPath);
-
-    // Grant Rust access to this directory, start watching it, then load file tree and git branch
-    import("../ipc/commands").then(async ({ addAllowedRoot, watchPath }) => {
-      await addAllowedRoot(rootPath);
-      watchPath(rootPath).catch(e => log.warn("Failed to watch path:", rootPath, e));
-    }).finally(async () => {
-      this.loadFileTree(id);
-      this.fetchGitBranch(id);
-      const { refreshGitStatus } = await import("./git.svelte");
-      refreshGitStatus(id, rootPath);
-    });
+    void this.attachRoot(id, rootPath);
 
     // Persist immediately so a force-reload doesn't lose the workspace
     this.debouncedPersistWorkspace(id);
@@ -896,48 +892,12 @@ class WorkspaceManager {
       if (ws.activeTerminalId === termId) {
         ws.activeTerminalId = ws.terminalIds.length > 0 ? ws.terminalIds[0] : null;
       }
-      delete ws.panes[paneId];
-    } else if (config?.kind === "editor") {
-      // Only remove files from ws.openFiles that aren't referenced by other editor panes.
-      // Build the referenced-paths set once (O(N)) then check membership in O(1) per file.
-      const closingPaths = config.filePaths ?? [];
-      delete ws.panes[paneId];
-
-      const referencedPaths = new Set<string>();
-      for (const pane of Object.values(ws.panes)) {
-        if (pane.kind === "editor" && pane.filePaths) {
-          for (const p of pane.filePaths) referencedPaths.add(p);
-        }
-      }
-      for (const path of closingPaths) {
-        if (!referencedPaths.has(path)) releaseOpenFile(ws, path);
-      }
-    } else {
-      delete ws.panes[paneId];
     }
 
-    // Compute sibling BEFORE removing from tree
-    const siblingLeafId = ws.layout ? findSiblingLeaf(ws.layout, paneId) : null;
-
-    if (ws.layout) {
-      const removeResult = removeNodeFromTree(ws.layout, paneId);
-      if (!removeResult.found) log.warn(`removeNodeFromTree: target "${paneId}" not found in layout`);
-      ws.layout = removeResult.tree;
-    }
-
-    // Update activePaneId: if we just closed the active pane, pick the spatial neighbor
-    const remainingPaneIds = Object.keys(ws.panes);
-    if (remainingPaneIds.length === 0) {
-      ws.layout = null;
-      ws.activePaneId = null;
-    } else if (ws.activePaneId === paneId || !ws.panes[ws.activePaneId!]) {
-      // Prefer sibling leaf (spatial neighbor), fall back to first leaf
-      if (siblingLeafId && ws.panes[siblingLeafId]) {
-        ws.activePaneId = siblingLeafId;
-      } else {
-        ws.activePaneId = findFirstLeaf(ws.layout);
-      }
-    }
+    // Files only this pane showed are released (and unwatched) once it is gone.
+    const closingPaths = config?.kind === "editor" ? [...(config.filePaths ?? [])] : [];
+    removePaneFromLayout(ws, paneId);
+    for (const path of closingPaths) releaseOpenFile(ws, path);
 
     validateLayout(ws);
     this.debouncedPersistWorkspace(wsId);
@@ -1105,22 +1065,7 @@ class WorkspaceManager {
         }
       });
     } else if (ws.rootPath) {
-      const rootPath = ws.rootPath;
-      // Roots loaded from disk are not registered on the Rust side until something
-      // saves the workspace again. Grant access first: otherwise, for a root outside
-      // HOME, both the watch and the tree read are refused, and nothing ever retried
-      // the watch, so the explorer never followed external changes.
-      import("../ipc/commands")
-        .then(async ({ addAllowedRoot, watchPath }) => {
-          await addAllowedRoot(rootPath);
-          await watchPath(rootPath);
-        })
-        .catch(e => log.warn("Failed to watch restored path:", rootPath, e))
-        .finally(() => {
-          this.loadFileTree(ws.id);
-          this.fetchGitBranch(ws.id);
-          import("./git.svelte").then(({ refreshGitStatus }) => refreshGitStatus(ws.id, rootPath));
-        });
+      void this.attachRoot(ws.id, ws.rootPath);
     }
     return result.resumeCount;
   }

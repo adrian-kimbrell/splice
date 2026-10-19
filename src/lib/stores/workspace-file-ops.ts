@@ -1,9 +1,9 @@
 import { log } from "../utils/log";
 import type { OpenFile } from "./files.svelte";
 import type { Workspace } from "./workspace-types";
-import { generateId, findFirstLeaf, applyFileRename, markFileSaved, addOpenFile } from "./workspace-types";
-import { isFileReferencedInAnyPane, validateLayout } from "./workspace-tab-ops";
-import { cloneLayout, findSiblingLeaf, removeNodeFromTree, treeDepth, findShallowestLeaf, splitNodeInTree, MAX_SPLIT_DEPTH } from "./layout.svelte";
+import { generateId, applyFileRename, markFileSaved, addOpenFile } from "./workspace-types";
+import { isFileReferencedInAnyPane, validateLayout, removePaneFromLayout } from "./workspace-tab-ops";
+import { cloneLayout, treeDepth, findShallowestLeaf, splitNodeInTree, MAX_SPLIT_DEPTH } from "./layout.svelte";
 import { markSelfWrite } from "./self-writes";
 // Static on purpose: watch/unwatch must be counted reliably (the Rust watcher is
 // reference counted) and `commands.ts` has no import-time side effects.
@@ -161,26 +161,7 @@ export function closeFileInWorkspace(ws: Workspace, path: string, paneId?: strin
     }
 
     // If pane is now empty, close it (editor panes need no async terminal cleanup)
-    if (pane.filePaths.length === 0) {
-      const siblingLeafId = ws.layout ? findSiblingLeaf(ws.layout, targetPaneId!) : null;
-      delete ws.panes[targetPaneId!];
-
-      if (ws.layout) {
-        const removeResult = removeNodeFromTree(ws.layout, targetPaneId!);
-        if (!removeResult.found) log.warn(`closeFileInWorkspace: pane "${targetPaneId}" not found in layout`);
-        ws.layout = removeResult.tree;
-      }
-
-      const remainingPaneIds = Object.keys(ws.panes);
-      if (remainingPaneIds.length === 0) {
-        ws.layout = null;
-        ws.activePaneId = null;
-      } else if (ws.activePaneId === targetPaneId || !ws.panes[ws.activePaneId!]) {
-        ws.activePaneId = (siblingLeafId && ws.panes[siblingLeafId])
-          ? siblingLeafId
-          : findFirstLeaf(ws.layout);
-      }
-    }
+    if (pane.filePaths.length === 0) removePaneFromLayout(ws, targetPaneId!);
   }
 
   releaseOpenFile(ws, path);

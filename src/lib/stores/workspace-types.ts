@@ -225,3 +225,30 @@ export async function loadFileTreeImpl(ws: Workspace): Promise<void> {
     log.error("Failed to load file tree:", e);
   }
 }
+
+/**
+ * A workspace with every field defaulted. The three creation paths (empty,
+ * from a directory, restored from disk) override only what they know, so a
+ * new field is added here once instead of in three literals.
+ */
+export function newWorkspace(
+  init: Pick<Workspace, "id" | "name" | "rootPath" | "viewMode"> & Partial<Workspace>,
+): Workspace {
+  return {
+    fileTree: [],
+    openFiles: [],
+    openFileIndex: {},
+    terminalIds: [],
+    activeTerminalId: null,
+    layout: null,
+    panes: {},
+    activePaneId: null,
+    gitBranch: "",
+    explorerVisible: true,
+    explorerWidth: 240,
+    expandedPaths: new Set(),
+    sshConfig: null,
+    icon: null,
+    ...init,
+  };
+}
