@@ -14,6 +14,7 @@
   } from "../../lib/stores/drag.svelte";
   import { isCornerDragActive } from "../../lib/stores/corner-drag.svelte";
   import { clientToLayoutOffset } from "../../lib/utils/zoom";
+  import { focusPaneContent } from "../../lib/utils/pane-focus";
   import CornerDragOverlay from "./CornerDragOverlay.svelte";
   import PaneGrid from "./PaneGrid.svelte";
 
@@ -129,9 +130,7 @@
       role="group"
       onclick={() => {
         onPaneClick?.(node.paneId);
-        // Focus the inner content element (terminal canvas or CodeMirror editor)
-        const target = leafEl?.querySelector<HTMLElement>('canvas[tabindex], .cm-content');
-        if (target) target.focus();
+        focusPaneContent(node.paneId);
       }}
       onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") onPaneClick?.(node.paneId); }}
     >

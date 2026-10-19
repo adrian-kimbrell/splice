@@ -43,6 +43,8 @@
   import AddPromptModal from "./overlays/AddPromptModal.svelte";
   import TitleBar from "./topbar/TitleBar.svelte";
   import { showContextMenu } from "../lib/utils/context-menu";
+  import { registerActions, runAction } from "../lib/actions";
+  import { focusPaneContent } from "../lib/utils/pane-focus";
   import { openNewWindow } from "../lib/utils/new-window";
   import { isImagePath, toastFileReadError, readFileForWs, openDroppedFiles, drainOpenPaths, pickAndOpenFolder, pickAndOpenFile } from "../lib/utils/open-paths";
   import WelcomeScreen from "./WelcomeScreen.svelte";
@@ -81,21 +83,7 @@
   }
 
   function handlePaneAction(action: string) {
-    switch (action) {
-      case "new-file":
-        workspaceManager.newUntitledFile();
-        break;
-      case "open-file":
-        handleOpenFile();
-        break;
-      case "search-project":
-        ui.sidebarMode = "search";
-        ui.explorerVisible = true;
-        break;
-      case "new-terminal":
-        workspaceManager.spawnTerminalInWorkspace();
-        break;
-    }
+    runAction(action);
   }
 
   // confirmUnsaved lives in lib/utils/close-workspace.ts so the workspaces bar can
@@ -201,10 +189,7 @@
         (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
       if (inTextField && !active.closest("[data-pane-id]")) return;
       const paneId = ui.zoomedPaneId ?? workspaceManager.activeWorkspace?.activePaneId;
-      if (!paneId) return;
-      const paneEl = document.querySelector(`[data-pane-id="${paneId}"]`);
-      const target = paneEl?.querySelector<HTMLElement>('canvas[tabindex], .cm-content');
-      target?.focus();
+      if (paneId) focusPaneContent(paneId);
     }, 0);
   }
 
@@ -407,6 +392,11 @@
 
   const handleOpenFolder = pickAndOpenFolder;
 
+  function showProjectSearch() {
+    ui.sidebarMode = "search";
+    ui.explorerVisible = true;
+  }
+
   function handleNewFile() {
     workspaceManager.newUntitledFile();
   }
@@ -461,12 +451,8 @@
     if (!paneId) return;
     requestAnimationFrame(() => {
       if (workspaceManager.activeWorkspaceId !== wsId) return;
-      // Pick the visible match (pane ids live in every workspace's DOM; only the
-      // active workspace is displayed) and don't steal focus already inside it.
-      const candidates = document.querySelectorAll<HTMLElement>(`[data-pane-id="${paneId}"]`);
-      const paneEl = Array.from(candidates).find((el) => el.offsetParent !== null);
-      if (!paneEl || paneEl.contains(document.activeElement)) return;
-      paneEl.querySelector<HTMLElement>('canvas[tabindex], .cm-content')?.focus();
+      // Don't steal focus that is already inside the pane.
+      focusPaneContent(paneId, { unlessInside: true });
     });
   });
 
@@ -567,83 +553,8 @@
           if (updated.terminal) Object.assign(settings.terminal, updated.terminal);
         }).then((fn) => { unlistenSettings = fn; });
 
-        listen<string>("menu-event", (event) => {
-          switch (event.payload) {
-            case "new-file":
-              handleNewFile();
-              break;
-            case "open-file":
-              handleOpenFile();
-              break;
-            case "open-folder":
-              handleOpenFolder();
-              break;
-            case "save":
-              workspaceManager.saveActiveFile();
-              break;
-            case "save-as":
-              workspaceManager.saveActiveFileAs();
-              break;
-            case "save-all":
-              workspaceManager.saveAllDirtyFiles();
-              break;
-            case "close-tab":
-              handleCloseActiveTab();
-              break;
-            case "close-all-tabs":
-              handleCloseAllTabs();
-              break;
-            case "close-workspace":
-              handleCloseWorkspace();
-              break;
-            case "settings":
-              ui.settingsDrawerOpen = true;
-              break;
-            case "find":
-              dispatchEditorAction("find");
-              break;
-            case "find-in-files":
-              ui.sidebarMode = "search";
-              ui.explorerVisible = true;
-              break;
-            case "replace":
-              dispatchEditorAction("replace");
-              break;
-            case "goto-line":
-              dispatchEditorAction("goto-line");
-              break;
-            case "format-document":
-              dispatchEditorAction("format-document");
-              break;
-            case "command-palette":
-              ui.commandPaletteOpen = !ui.commandPaletteOpen;
-              break;
-            case "toggle-sidebar":
-              ui.explorerVisible = !ui.explorerVisible;
-              break;
-            case "toggle-word-wrap":
-              dispatchEditorAction("toggle-word-wrap");
-              break;
-            case "zoom-in":
-              bumpFocusedPaneFont(1);
-              break;
-            case "zoom-out":
-              bumpFocusedPaneFont(-1);
-              break;
-            case "zoom-reset":
-              resetFocusedPaneFont();
-              break;
-            case "new-terminal":
-              workspaceManager.spawnTerminalInWorkspace();
-              break;
-            case "new-window":
-              openNewWindow();
-              break;
-            case "zen-mode":
-              if (ui.zenMode) exitZenMode(); else enterZenMode();
-              break;
-          }
-        }).then((fn) => { unlistenMenu = fn; });
+        listen<string>("menu-event", (event) => { runAction(event.payload); })
+          .then((fn) => { unlistenMenu = fn; });
 
         listen("open-path", () => { drainOpenPaths(); })
           .then((fn) => { unlistenOpenPath = fn; });
@@ -833,13 +744,42 @@
       });
     }
 
-    // Listen for close-active-tab from keybindings
-    const closeTabHandler = () => handleCloseActiveTab();
-    document.addEventListener("splice:close-active-tab", closeTabHandler);
-
-    // Listen for open-file from command palette
-    const openFileHandler = () => handleOpenFile();
-    document.addEventListener("splice:open-file", openFileHandler);
+    // Every command the menu, shortcuts, palette and pane menu can invoke.
+    const unregisterActions = registerActions({
+      "new-file": handleNewFile,
+      "open-file": handleOpenFile,
+      "open-folder": handleOpenFolder,
+      "new-window": () => { openNewWindow(); },
+      "save": () => workspaceManager.saveActiveFile(),
+      "save-as": () => workspaceManager.saveActiveFileAs(),
+      "save-all": () => workspaceManager.saveAllDirtyFiles(),
+      "close-tab": handleCloseActiveTab,
+      "close-all-tabs": handleCloseAllTabs,
+      "close-workspace": handleCloseWorkspace,
+      "settings": () => { ui.settingsDrawerOpen = !ui.settingsDrawerOpen; },
+      "find": () => dispatchEditorAction("find"),
+      "find-in-files": showProjectSearch,
+      "search-project": showProjectSearch,
+      "find-replace": () => {
+        showProjectSearch();
+        document.dispatchEvent(new CustomEvent("splice:open-replace"));
+      },
+      "problems-panel": () => {
+        ui.sidebarMode = ui.sidebarMode === "problems" ? "files" : "problems";
+        ui.explorerVisible = true;
+      },
+      "replace": () => dispatchEditorAction("replace"),
+      "goto-line": () => dispatchEditorAction("goto-line"),
+      "format-document": () => dispatchEditorAction("format-document"),
+      "command-palette": () => { ui.commandPaletteOpen = !ui.commandPaletteOpen; },
+      "toggle-sidebar": () => { ui.explorerVisible = !ui.explorerVisible; },
+      "toggle-word-wrap": () => dispatchEditorAction("toggle-word-wrap"),
+      "zoom-in": () => bumpFocusedPaneFont(1),
+      "zoom-out": () => bumpFocusedPaneFont(-1),
+      "zoom-reset": () => resetFocusedPaneFont(),
+      "new-terminal": () => { workspaceManager.spawnTerminalInWorkspace(); },
+      "zen-mode": () => { if (ui.zenMode) exitZenMode(); else enterZenMode(); },
+    });
 
     setDropCallback((data: TabDragData, targetPaneId: string, zone: DropZone) => {
       if (!zone || !targetPaneId) return;
@@ -898,8 +838,7 @@
       stopKeybindings();
       setDropCallback(null);
       stopGitPolling();
-      document.removeEventListener("splice:close-active-tab", closeTabHandler);
-      document.removeEventListener("splice:open-file", openFileHandler);
+      unregisterActions();
       unlistenSettings?.();
       unlistenAttention?.();
       unlistenMenu?.();
