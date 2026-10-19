@@ -329,7 +329,7 @@
   .ssh-form {
     position: relative;
     z-index: 1;
-    background: var(--bg-2);
+    background: var(--bg-palette);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 24px;
@@ -348,7 +348,7 @@
   .ssh-title {
     font-size: var(--ui-body);
     font-weight: 600;
-    color: var(--txt-bright);
+    color: var(--text-bright);
   }
   .ssh-fields {
     display: flex;
@@ -366,15 +366,15 @@
   }
   .ssh-label {
     font-size: var(--ui-xs);
-    color: var(--txt-dim);
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
   .ssh-input {
-    background: var(--bg-1);
+    background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: 4px;
-    color: var(--txt-bright);
+    color: var(--text-bright);
     font-size: var(--ui-body);
     padding: 6px 10px;
     outline: none;
@@ -386,17 +386,17 @@
   }
   .ssh-btn-browse {
     padding: 6px 10px;
-    background: var(--bg-1);
+    background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: 4px;
-    color: var(--txt-dim);
+    color: var(--text-dim);
     cursor: pointer;
     display: flex;
     align-items: center;
     flex-shrink: 0;
   }
   .ssh-btn-browse:hover:not(:disabled) {
-    color: var(--txt-bright);
+    color: var(--text-bright);
     border-color: var(--accent);
   }
   .ssh-btn-browse:disabled {
@@ -407,7 +407,7 @@
   .browse-panel {
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: var(--bg-1);
+    background: var(--bg-input);
     overflow: hidden;
     margin-top: 2px;
   }
@@ -417,12 +417,12 @@
     gap: 6px;
     padding: 6px 8px;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-2);
+    background: var(--bg-palette);
   }
   .browse-up {
     background: none;
     border: none;
-    color: var(--txt-dim);
+    color: var(--text-dim);
     cursor: pointer;
     padding: 2px 4px;
     border-radius: 3px;
@@ -430,12 +430,12 @@
     align-items: center;
     flex-shrink: 0;
   }
-  .browse-up:hover:not(:disabled) { color: var(--txt-bright); background: var(--bg-3, var(--border)); }
+  .browse-up:hover:not(:disabled) { color: var(--text-bright); background: var(--bg-hover); }
   .browse-up:disabled { opacity: 0.35; cursor: default; }
   .browse-current {
     flex: 1;
     font-size: var(--ui-xs);
-    color: var(--txt-bright);
+    color: var(--text-bright);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -466,14 +466,14 @@
     gap: 6px;
     padding: 4px 10px;
     font-size: var(--ui-body);
-    color: var(--txt-bright);
+    color: var(--text-bright);
     cursor: pointer;
   }
-  .browse-item:hover { background: var(--bg-3, rgba(255,255,255,0.05)); }
+  .browse-item:hover { background: var(--bg-hover); }
   .browse-status {
     padding: 10px;
     font-size: var(--ui-xs);
-    color: var(--txt-dim);
+    color: var(--text-dim);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -509,10 +509,10 @@
   }
   .ssh-btn-cancel {
     background: transparent;
-    color: var(--txt-dim);
+    color: var(--text-dim);
   }
   .ssh-btn-cancel:hover:not(:disabled) {
-    color: var(--txt-bright);
+    color: var(--text-bright);
   }
   .ssh-btn-connect {
     background: var(--accent);

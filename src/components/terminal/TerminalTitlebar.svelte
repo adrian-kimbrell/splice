@@ -149,10 +149,10 @@
   // Color the context-window readout as it fills toward compaction.
   const ctxColor = $derived.by(() => {
     const pct = claudeStatus?.contextPct;
-    if (pct == null) return "var(--txt-dim)";
+    if (pct == null) return "var(--text-dim)";
     if (pct >= 85) return "var(--ansi-red)";
     if (pct >= 70) return "var(--ansi-yellow)";
-    return "var(--txt-dim)";
+    return "var(--text-dim)";
   });
 </script>
 

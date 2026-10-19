@@ -122,7 +122,6 @@
 
   // Frame metadata (updated each time a frame arrives)
   let frameFirstDisplayHistoryRow = 0;
-  let frameScrollbackLen = 0;
   let frameRows = 0;
   let frameCols = 0;
 
@@ -186,7 +185,7 @@
   // Force-reset currentCols/currentRows so the PTY always gets a fresh SIGWINCH
   // even when the computed cols happen to equal the pre-zoom value.
   $effect(() => {
-    const _scale = effectiveSettings.appearance.ui_scale; // subscribe
+    void effectiveSettings.appearance.ui_scale; // subscribe
     if (!renderer || !containerEl) return;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       currentCols = 0;
@@ -201,7 +200,7 @@
   // is destroyed, but the original instance (hidden in the PaneGrid via visibility:hidden)
   // never saw its container resize — so ResizeObserver won't fire. Force a remeasure here.
   $effect(() => {
-    const _zoomed = ui.zoomedPaneId; // subscribe
+    void ui.zoomedPaneId; // subscribe
     if (!renderer || !containerEl) return;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       currentCols = 0;
@@ -397,7 +396,6 @@
           frameRows = hv.getUint16(2, true);
           modeFlags = data[10];
           frameFirstDisplayHistoryRow = hv.getInt32(12, true);
-          frameScrollbackLen = hv.getUint32(16, true);
         }
         // Update renderer metadata immediately (before RAF) so that rerender()
         // called from mouse events uses the correct history coordinates in isSelected().
@@ -583,6 +581,11 @@
     cleanupFns.push(() => document.removeEventListener("paste", onPaste, { capture: true }));
 
     // Mouse selection and protocol forwarding
+    // True between a mouse-protocol press on this canvas and its release. Move and
+    // release listeners live on `window` (so a drag that leaves the canvas still
+    // ends), so without this every terminal in mouse mode received every release.
+    let protocolPressActive = false;
+
     const onMouseDown = (e: MouseEvent) => {
       if (!renderer) return;
       // Explicitly focus the canvas so Cmd+C keydown fires here (WKWebView doesn't
@@ -610,6 +613,7 @@
         const cell = eventToCell(e);
         const cx = Math.min(Math.max(1, cell.col + 1), 223); // 1-based, clamped for X10
         const cy = Math.min(Math.max(1, cell.row + 1), 223);
+        protocolPressActive = true;
         sendMouseEvent(btn, cx, cy, true);
         return;
       }
@@ -708,11 +712,12 @@
     const onMouseMove = (e: MouseEvent) => {
       const mouseMode = (modeFlags >> 3) & 0x3;
 
-      // Mouse protocol motion events
+      // Mouse protocol motion events. Button-drag motion (mode 2) is forwarded
+      // only for a press that started on this canvas; any-motion (mode 3) only
+      // while the pointer is over it (see onCanvasMouseMove).
       if (mouseMode > 0) {
         if (!renderer) return;
-        const isButtonHeld = e.buttons !== 0;
-        if (mouseMode === 3 || (mouseMode === 2 && isButtonHeld)) {
+        if (mouseMode === 2 && protocolPressActive && e.buttons !== 0) {
           const cell = eventToCell(e);
           const cx = Math.min(Math.max(1, cell.col + 1), 223);
           const cy = Math.min(Math.max(1, cell.row + 1), 223);
@@ -744,9 +749,11 @@
     const onMouseUp = async (e: MouseEvent) => {
       const mouseMode = (modeFlags >> 3) & 0x3;
 
-      // Mouse protocol: forward button release (except right-click, see mousedown)
+      // Mouse protocol: forward the release of a press that started here (right-click
+      // never sends a press, see mousedown; a release elsewhere is not ours).
       if (mouseMode > 0 && e.button !== 2) {
-        if (!renderer) return;
+        if (!renderer || !protocolPressActive) return;
+        protocolPressActive = false;
         let btn = e.button === 0 ? 0 : e.button === 1 ? 1 : 2;
         if (e.shiftKey) btn |= 4;
         if (e.altKey) btn |= 8;
@@ -788,9 +795,20 @@
     cleanupFns.push(() => window.removeEventListener("mousemove", onMouseMove));
     cleanupFns.push(() => window.removeEventListener("mouseup", onMouseUp));
 
-    // Canvas-level hover: URL detection (only fires when pointer is over the canvas)
+    // Canvas-level hover: URL detection, and any-motion (mode 3) mouse reporting,
+    // both of which only make sense while the pointer is over this canvas.
     const onCanvasMouseMove = (e: MouseEvent) => {
-      if (!renderer || isSelecting || ((modeFlags >> 3) & 0x3) !== 0) return;
+      if (!renderer || isSelecting) return;
+      const mouseMode = (modeFlags >> 3) & 0x3;
+      if (mouseMode !== 0) {
+        if (mouseMode === 3 && !protocolPressActive) {
+          const cell = eventToCell(e);
+          const cx = Math.min(Math.max(1, cell.col + 1), 223);
+          const cy = Math.min(Math.max(1, cell.row + 1), 223);
+          sendMouseEvent(32 + 3, cx, cy, true); // button 3 = no button held
+        }
+        return;
+      }
       const cell = eventToCell(e);
       const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
       const url = renderer.detectedUrls.find(u =>

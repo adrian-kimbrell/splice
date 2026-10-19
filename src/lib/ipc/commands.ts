@@ -153,6 +153,8 @@ export interface RustWorkspace {
   ssh_config?: RustSshConfig | null;
   /** Bootstrap-icon class shown next to the name in the workspaces bar. */
   icon?: string | null;
+  /** "split" or "single"; absent/null means the `default_single_view` setting decides. */
+  view_mode?: "split" | "single" | null;
 }
 
 export interface WorkspacesResponse {

@@ -181,7 +181,9 @@
   function setValue(key: string, value: any): void {
     const [cat, field] = key.split(".");
     (settings as any)[cat][field] = value;
-    emitSettingsChanged();
+    // Rust re-broadcasts `settings-changed` to the other windows after the save
+    // (and deliberately not to this one), so no frontend emit is needed.
+    debouncedSaveSettings();
   }
 
   /** Numeric inputs: ignore an empty field (Number("") is 0) and clamp to the control's range. */
@@ -190,22 +192,6 @@
     const n = Number(raw);
     if (!Number.isFinite(n)) return;
     setValue(def.key, Math.min(def.control.max, Math.max(def.control.min, n)));
-  }
-
-  // Auto-save settings on any change
-  $effect(() => {
-    JSON.stringify(settings);
-    debouncedSaveSettings();
-  });
-
-  // --- Cross-window settings sync ---
-  async function emitSettingsChanged(): Promise<void> {
-    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    if (!isTauri) return;
-    try {
-      const { emit } = await import("@tauri-apps/api/event");
-      await emit("settings-changed", $state.snapshot(settings));
-    } catch (_) {}
   }
 
   // --- Theme import/delete handlers ---

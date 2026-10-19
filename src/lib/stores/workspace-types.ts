@@ -202,7 +202,7 @@ export function markFileSaved(file: OpenFile): void {
 }
 
 export async function fetchGitBranchImpl(ws: Workspace): Promise<void> {
-  if (!ws.rootPath) return;
+  if (!ws.rootPath || ws.sshConfig) return; // remote root: no local git repo
   try {
     const { getGitBranch } = await import("../ipc/commands");
     ws.gitBranch = await getGitBranch(ws.rootPath);

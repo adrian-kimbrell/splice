@@ -239,16 +239,28 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
           }
         : null,
       icon: ws.icon ?? null,
+      view_mode: ws.viewMode ?? null,
     } as RustWorkspace);
   } catch (e) {
     log.error("Failed to persist workspace:", e);
   }
 }
 
+/**
+ * Rebuild a workspace from its persisted record.
+ *
+ * `register` is called with the bare skeleton before any file or pane is added
+ * and must return the instance to populate. The manager uses it to insert the
+ * skeleton into its `$state` map and hand back the live proxy: files added to a
+ * plain object that is proxied afterwards end up as two independent proxies in
+ * `openFiles` and `openFileIndex` (see `addOpenFile`), and a dirty flag set
+ * through one was invisible through the other.
+ */
 export async function restoreWorkspaceImpl(
   rws: RustWorkspace,
   resumeStartIndex: number,
   allocateTermNum: () => number,
+  register: (skeleton: Workspace) => Workspace = (w) => w,
 ): Promise<{ ws: Workspace; resumeCount: number }> {
   // Hoist all IPC imports once to avoid repeated dynamic import overhead in loops.
   const { spawnTerminal, readFile, checkPidAlive, writeToTerminal, killTerminal } =
@@ -259,7 +271,7 @@ export async function restoreWorkspaceImpl(
   // Each claude resume injection is staggered so they don't all hit the shell at once.
   let localClaudeResumeIndex = 0;
 
-  const ws: Workspace = {
+  const ws: Workspace = register({
     id: rws.id,
     name: rws.name,
     rootPath: rws.root_path,
@@ -285,7 +297,8 @@ export async function restoreWorkspaceImpl(
         }
       : null,
     icon: rws.icon ?? null,
-  };
+    viewMode: rws.view_mode ?? (effectiveSettings.general.default_single_view ? "single" : "split"),
+  });
 
   for (const paneInfo of rws.panes) {
     // SSH workspaces previously skipped pane restoration entirely, silently

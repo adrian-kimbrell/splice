@@ -59,6 +59,7 @@ import {
   closeFileInWorkspace,
   setActiveFileInWorkspace,
   updateFileContent,
+  releaseOpenFile,
   saveActiveFile,
   saveActiveFileAs,
   saveFile,
@@ -909,14 +910,7 @@ class WorkspaceManager {
         }
       }
       for (const path of closingPaths) {
-        if (!referencedPaths.has(path)) {
-          const fileIdx = ws.openFiles.findIndex((f) => f.path === path);
-          if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
-          delete ws.openFileIndex[path];
-          if (!path.startsWith("untitled-") && !ws.sshConfig) {
-            import("../ipc/commands").then(({ unwatchPath }) => unwatchPath(path)).catch(() => {});
-          }
-        }
+        if (!referencedPaths.has(path)) releaseOpenFile(ws, path);
       }
     } else {
       delete ws.panes[paneId];
@@ -1089,8 +1083,12 @@ class WorkspaceManager {
   }
 
   async restoreWorkspace(rws: RustWorkspace, resumeStartIndex = 0): Promise<number> {
-    const result = await restoreWorkspaceImpl(rws, resumeStartIndex, () => this.nextTerminalNumber());
-    this.workspaces[result.ws.id] = result.ws;
+    // Insert the skeleton first and populate the live proxy, so restored files
+    // share one proxy between openFiles and openFileIndex like live opens do.
+    const result = await restoreWorkspaceImpl(rws, resumeStartIndex, () => this.nextTerminalNumber(), (skeleton) => {
+      this.workspaces[skeleton.id] = skeleton;
+      return this.workspaces[skeleton.id];
+    });
     const ws = result.ws;
 
     if (ws.sshConfig) {
@@ -1137,14 +1135,12 @@ class WorkspaceManager {
     const interval = setInterval(async () => {
       if (document.hidden) return;
       const wsId = this.activeWorkspaceId;
-      if (wsId) {
-        this.fetchGitBranch(wsId);
-        const ws = this.workspaces[wsId];
-        if (ws?.rootPath) {
-          const { refreshGitStatus } = await import("./git.svelte");
-          refreshGitStatus(wsId, ws.rootPath);
-        }
-      }
+      const ws = wsId ? this.workspaces[wsId] : null;
+      // rootPath of an SSH workspace is the remote path; git runs locally.
+      if (!wsId || !ws?.rootPath || ws.sshConfig) return;
+      this.fetchGitBranch(wsId);
+      const { refreshGitStatus } = await import("./git.svelte");
+      refreshGitStatus(wsId, ws.rootPath);
     }, 10000);
     return () => clearInterval(interval);
   }

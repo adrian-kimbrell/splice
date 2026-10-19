@@ -61,8 +61,8 @@
   import { applyTheme } from "../lib/theme/themes";
   import { loadCustomThemes } from "../lib/theme/custom-themes.svelte";
   import { dispatchEditorAction } from "../lib/stores/editor-actions.svelte";
-  import { recentFiles, loadRecentFiles, addRecentFile } from "../lib/stores/recent-files.svelte";
-  import { recentProjects, loadRecentProjects } from "../lib/stores/recent-projects.svelte";
+  import { loadRecentFiles, addRecentFile } from "../lib/stores/recent-files.svelte";
+  import { loadRecentProjects } from "../lib/stores/recent-projects.svelte";
   import { pushToast } from "../lib/stores/toasts.svelte";
   import { isUnderRoot } from "../lib/utils/path-utils";
   import { cancelPendingResume } from "../lib/stores/workspace-session";
@@ -265,12 +265,8 @@
     else ui.explorerVisible = !ui.explorerVisible;
   }
 
-  // Sidebar resize drag state
-  let draggingSidebar: "left" | "right" | null = $state(null);
-
   function handleSidebarResizeDown(side: "left" | "right", e: MouseEvent) {
     e.preventDefault();
-    draggingSidebar = side;
     ui.sidebarResizing = true;
     const startX = e.clientX;
     const startWidth = side === "left" ? leftWidth : rightWidth;
@@ -295,7 +291,6 @@
     }
 
     function onUp() {
-      draggingSidebar = null;
       ui.sidebarResizing = false;
       // Explorer width is per-workspace: store it on the active workspace and persist.
       const activeWs = workspaceManager.activeWorkspace;
@@ -323,14 +318,6 @@
   });
 
   const fileTree = $derived(ws?.fileTree ?? []);
-
-  const activePane = $derived(ws?.activePaneId ? ws.panes[ws.activePaneId] ?? null : null);
-  const activeFileName = $derived(
-    activePane?.kind === "editor" && activePane.activeFilePath
-      ? activePane.activeFilePath.split("/").pop() ?? null
-      : null,
-  );
-
 
   async function handleFileClick(entry: FileEntry) {
     selectedFilePath = entry.path;
@@ -1097,7 +1084,9 @@
               />
             </div>
             {#if isActive && ui.zoomedPaneId && workspace.panes[ui.zoomedPaneId]}
-              <div class="absolute inset-0 flex overflow-hidden">
+              <!-- data-pane-id: focus helpers look the active pane up by id and pick the
+                   visible match; without it they land on the hidden grid copy. -->
+              <div class="absolute inset-0 flex overflow-hidden" data-pane-id={ui.zoomedPaneId}>
                 <!-- Key by paneId so zooming a different terminal mounts a fresh
                      CanvasTerminal instead of reusing one bound to the prior terminalId. -->
                 {#key ui.zoomedPaneId}

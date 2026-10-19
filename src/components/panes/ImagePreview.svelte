@@ -246,7 +246,7 @@
     image-rendering: pixelated;
   }
   .image-toolbar {
-    border-top: 1px solid var(--border-soft, rgba(128, 128, 128, 0.2));
+    border-top: 1px solid var(--border);
   }
   .zoom-btn {
     font: inherit;
@@ -269,7 +269,7 @@
   }
   .zoom-btn.is-active {
     color: var(--text-bright);
-    border-color: var(--border-soft, rgba(128, 128, 128, 0.3));
+    border-color: var(--border);
   }
   .zoom-pct {
     min-width: 48px;

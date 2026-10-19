@@ -98,7 +98,9 @@
   });
 
   function handleKeyDown(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+    // ⌘F only. Ctrl+F belongs to the shell (readline forward-char, less/vim page
+    // down); the canvas encodes it as 0x06 and stops propagation before this runs.
+    if (e.metaKey && !e.ctrlKey && e.key === "f") {
       e.preventDefault();
       searchVisible = !searchVisible;
     }

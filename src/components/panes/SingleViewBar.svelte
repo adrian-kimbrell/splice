@@ -93,7 +93,7 @@
 <style>
   .single-view-bar {
     height: 34px;
-    background: var(--bg-secondary, transparent);
+    background: var(--bg-tab);
     border-bottom: 1px solid color-mix(in srgb, var(--text-dim) 18%, transparent);
   }
 

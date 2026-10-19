@@ -39,6 +39,9 @@
 
   let containerEl = $state<HTMLDivElement>();
   let mergeView: MergeView | null = null;
+  // Rebuilds await the language loader; a rebuild that was superseded while
+  // waiting must not construct a second MergeView into the same container.
+  let buildGen = 0;
   let acting = $state(false);
 
   const fileName = $derived(filePath.split("/").pop() ?? filePath);
@@ -101,11 +104,13 @@
 
   async function buildMergeView() {
     if (!containerEl) return;
+    const gen = ++buildGen;
 
     mergeView?.destroy();
     mergeView = null;
 
     const langExt = await getLanguageExtension(filePath).catch(() => null);
+    if (gen !== buildGen || !containerEl) return;
 
     // MergeView scrolls as one unit via .cm-mergeView (overflow-y: auto).
     // Override editorTheme's height:100% back to auto so editors size to content.
@@ -131,9 +136,7 @@
   // Recreate MergeView whenever content or file changes (e.g. preview pane replacement)
   $effect(() => {
     // Track reactive dependencies
-    const _fp = filePath;
-    const _old = oldContent;
-    const _new = newContent;
+    void filePath; void oldContent; void newContent;
     if (containerEl) buildMergeView();
   });
 
@@ -230,7 +233,7 @@
   }
   .diff-action-btn.discard:hover {
     color: var(--ansi-red);
-    border-color: rgba(var(--ansi-red-rgb, 224,108,117), 0.4);
+    border-color: color-mix(in srgb, var(--ansi-red) 40%, transparent);
     background: var(--git-deleted-bg);
   }
   .diff-action-btn:disabled {

@@ -6,6 +6,7 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { positionFixedMenu } from "../../lib/utils/context-menu";
+  import { openFilePath } from "../../lib/utils/open-paths";
 
   let {
     side = "right",
@@ -55,7 +56,7 @@
     }
   }
 
-  function handleDragUp(e: MouseEvent) {
+  function handleDragUp() {
     window.removeEventListener("mousemove", handleDragMove);
     window.removeEventListener("mouseup", handleDragUp);
     if (isDraggingActive && dragId !== null && dragOverIndex !== null) {
@@ -195,15 +196,9 @@
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const selected = await open({ directory: false, multiple: false });
-      if (selected) {
-        // Ensure there's an active workspace
-        if (!workspaceManager.activeWorkspace) {
-          workspaceManager.createEmptyWorkspace();
-        }
-        const filePath = selected as string;
-        const name = filePath.split("/").pop() ?? filePath;
-        workspaceManager.openFileInWorkspace({ name, path: filePath, content: "" });
-      }
+      // openFilePath reads the file first. Opening the real path with empty
+      // content and saving would have written an empty file over the original.
+      if (selected) await openFilePath(selected);
     } catch (e) {
       log.error("Failed to open file:", e);
     }

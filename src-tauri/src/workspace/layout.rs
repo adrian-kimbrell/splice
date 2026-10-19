@@ -51,6 +51,10 @@ pub struct Workspace {
     /// name in the workspaces bar. None = default icon.
     #[serde(default)]
     pub icon: Option<String>,
+    /// "split" (pane grid) or "single" (one pane at a time). None = the
+    /// `default_single_view` setting decides on restore.
+    #[serde(default)]
+    pub view_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
