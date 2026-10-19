@@ -27,6 +27,7 @@
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import { registerPaneContent, unregisterPaneContent } from "../../lib/stores/drag.svelte";
   import { isImagePath } from "../../lib/utils/open-paths";
+  import type { PaneHeaderAction, TabContextAction } from "../../lib/actions";
 
   let {
     tabs,
@@ -64,8 +65,8 @@
     onContentChange?: (content: string) => void;
     onSave?: () => void;
     onAutoSave?: () => void;
-    onAction?: (action: string) => void;
-    onTabContextAction?: (action: string, path: string) => void;
+    onAction?: (action: PaneHeaderAction) => void;
+    onTabContextAction?: (action: TabContextAction, path: string) => void;
   } = $props();
 
   let previewMode = $state<"editor" | "preview">("editor");

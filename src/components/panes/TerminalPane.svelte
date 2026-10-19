@@ -1,5 +1,6 @@
 <script lang="ts">
   import { log } from "../../lib/utils/log";
+  import type { PaneHeaderAction } from "../../lib/actions";
   /**
    * TerminalPane.svelte -- Wraps a CanvasTerminal with its titlebar and search overlay.
    *
@@ -48,7 +49,7 @@
     active?: boolean;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
-    onAction?: (action: string) => void;
+    onAction?: (action: PaneHeaderAction) => void;
     onRename?: (title: string) => void;
   } = $props();
 

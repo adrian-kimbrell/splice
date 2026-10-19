@@ -6,6 +6,7 @@
    */
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import DropdownMenu, { type DropdownItem } from "./DropdownMenu.svelte";
+  import type { PaneHeaderAction } from "../../lib/actions";
 
   let {
     onSplit,
@@ -14,7 +15,7 @@
   }: {
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
-    onAction?: (action: string) => void;
+    onAction?: (action: PaneHeaderAction) => void;
   } = $props();
 
   let splitMenuOpen = $state(false);
@@ -79,7 +80,7 @@
   bind:open={plusMenuOpen}
   triggerEl={plusBtnEl}
   items={plusItems}
-  onSelect={(action) => onAction?.(action)}
+  onSelect={(action) => onAction?.(action as PaneHeaderAction)}
   containerClass="plus-menu-container"
 />
 

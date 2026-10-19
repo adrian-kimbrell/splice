@@ -5,6 +5,7 @@
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import PaneHeaderActions from "../shared/PaneHeaderActions.svelte";
+  import type { PaneHeaderAction, TabContextAction } from "../../lib/actions";
   import { formatRelativeTime, tickingNow } from "../../lib/utils/relative-time.svelte";
   import { showContextMenu, type ContextMenuItem } from "../../lib/utils/context-menu";
   import { clientToRectSpace } from "../../lib/utils/zoom";
@@ -80,8 +81,8 @@
     onTabDoubleClick?: (path: string) => void;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
-    onAction?: (action: string) => void;
-    onTabContextAction?: (action: string, path: string) => void;
+    onAction?: (action: PaneHeaderAction) => void;
+    onTabContextAction?: (action: TabContextAction, path: string) => void;
     showPreviewToggle?: boolean;
     previewMode?: "editor" | "preview";
     onTogglePreview?: () => void;
@@ -101,7 +102,7 @@
     const tabData = tabs.find((t) => t.path === tabPath);
     const isReadOnly = tabData?.readOnly ?? false;
     const isPinned = tabData?.pinned ?? false;
-    const item = (label: string, action: string, shortcut?: string): ContextMenuItem =>
+    const item = (label: string, action: TabContextAction, shortcut?: string): ContextMenuItem =>
       ({ label, shortcut, action: () => onTabContextAction?.(action, tabPath) });
     showContextMenu([
       item("Close", "close"),
@@ -124,7 +125,6 @@
 
 
 <div class="flex bg-tab border-b border-border h-8 shrink-0 overflow-hidden min-w-0">
-  <div class="shrink-0 transition-all duration-150" style="width: var(--header-traffic-offset, 0px);"></div>
   <div
     bind:this={tabBarEl}
     class="flex flex-1 overflow-x-auto min-w-0 relative tab-scroll"

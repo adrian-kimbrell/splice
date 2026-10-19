@@ -84,3 +84,17 @@ export async function startMenuEvents(): Promise<() => void> {
   const { listen } = await import("@tauri-apps/api/event");
   return listen<string>("menu-event", (event) => { runAction(event.payload); });
 }
+
+/** The subset of actions the pane header "+" menu offers. */
+export type PaneHeaderAction = Extract<AppActionId, "new-file" | "open-file" | "search-project" | "new-terminal">;
+
+/** Items of an editor tab's right-click menu. */
+export type TabContextAction =
+  | "close"
+  | "close-others"
+  | "close-left"
+  | "close-right"
+  | "close-clean"
+  | "close-all"
+  | "toggle-readonly"
+  | "toggle-pin";

@@ -3,6 +3,7 @@
   import { effectiveSettings } from "../../lib/stores/settings.svelte";
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import PaneHeaderActions from "../shared/PaneHeaderActions.svelte";
+  import type { PaneHeaderAction } from "../../lib/actions";
   import type { AttentionNotification } from "../../lib/stores/attention.svelte";
   import { beginDrag, getDragActive, isDragging } from "../../lib/stores/drag.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
@@ -27,7 +28,7 @@
     notification?: AttentionNotification | null;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
-    onAction?: (action: string) => void;
+    onAction?: (action: PaneHeaderAction) => void;
     onRename?: (title: string) => void;
   } = $props();
 
@@ -108,7 +109,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="flex items-center px-2.5 bg-tab-active border-b border-border text-xs shrink-0 select-none overflow-hidden min-w-0 transition-opacity duration-100"
-  style="height: var(--titlebar-height); min-height: var(--titlebar-height); padding-left: calc(0.625rem + var(--header-traffic-offset, 0px)); transition: padding-left 150ms ease;{isBeingDragged ? ' opacity: 0.35;' : ''}"
+  style="height: var(--titlebar-height); min-height: var(--titlebar-height);{isBeingDragged ? ' opacity: 0.35;' : ''}"
   onmousedown={handleMouseDown}
 >
   {#if editing}

@@ -43,7 +43,7 @@
   import AddPromptModal from "./overlays/AddPromptModal.svelte";
   import TitleBar from "./topbar/TitleBar.svelte";
   import { showContextMenu } from "../lib/utils/context-menu";
-  import { registerActions, runAction, startMenuEvents } from "../lib/actions";
+  import { registerActions, runAction, startMenuEvents, type PaneHeaderAction, type TabContextAction } from "../lib/actions";
   import { startClaudeWiring } from "../lib/startup/claude-wiring";
   import { startFileWatchListeners } from "../lib/startup/file-watch";
   import { startWindowCloseHandler } from "../lib/startup/window-close";
@@ -74,7 +74,7 @@
     workspaceManager.splitPane(paneId, direction, side);
   }
 
-  function handlePaneAction(action: string) {
+  function handlePaneAction(action: PaneHeaderAction) {
     runAction(action);
   }
 
@@ -319,7 +319,7 @@
     workspaceManager.promotePreviewTab(path);
   }
 
-  function handleTabContextAction(action: string, path: string, paneId: string) {
+  function handleTabContextAction(action: TabContextAction, path: string, paneId: string) {
     switch (action) {
       case "close":
         handleTabClose(path, paneId);
