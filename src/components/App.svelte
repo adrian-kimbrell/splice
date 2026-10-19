@@ -44,7 +44,7 @@
   import TitleBar from "./topbar/TitleBar.svelte";
   import { showContextMenu } from "../lib/utils/context-menu";
   import { openNewWindow } from "../lib/utils/new-window";
-  import { isImagePath, toastFileReadError, readFileForWs, openDroppedFiles, openFolderPath, openFilePath, drainOpenPaths } from "../lib/utils/open-paths";
+  import { isImagePath, toastFileReadError, readFileForWs, openDroppedFiles, drainOpenPaths, pickAndOpenFolder, pickAndOpenFile } from "../lib/utils/open-paths";
   import WelcomeScreen from "./WelcomeScreen.svelte";
   import { confirmUnsaved, requestCloseWorkspace } from "../lib/utils/close-workspace";
   import { wasRecentlyWrittenBySplice } from "../lib/stores/self-writes";
@@ -89,10 +89,8 @@
         handleOpenFile();
         break;
       case "search-project":
-        // TODO: project search
-        break;
-      case "search-symbols":
-        // TODO: symbol search
+        ui.sidebarMode = "search";
+        ui.explorerVisible = true;
         break;
       case "new-terminal":
         workspaceManager.spawnTerminalInWorkspace();
@@ -407,32 +405,14 @@
   );
 
 
-  async function handleOpenFolder() {
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({ directory: true, multiple: false });
-      if (selected) await openFolderPath(selected as string);
-    } catch (e) {
-      log.error("Failed to open folder:", e);
-    }
-  }
+  const handleOpenFolder = pickAndOpenFolder;
 
   function handleNewFile() {
     workspaceManager.newUntitledFile();
   }
 
 
-  async function handleOpenFile() {
-    if (!isTauri) return;
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({ directory: false, multiple: false });
-      if (selected) await openFilePath(selected as string);
-    } catch (e) {
-      if (e && typeof e === "object" && "message" in e && String((e as {message:unknown}).message).includes("cancelled")) return;
-      toastFileReadError("", e);
-    }
-  }
+  const handleOpenFile = pickAndOpenFile;
 
 
   // Hide sidebars on welcome screen, but user can toggle them back via drawers

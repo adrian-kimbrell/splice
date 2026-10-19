@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { log } from "../../lib/utils/log";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
-  import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
+  import { openFileAtLine, relativeToRoot, toastFileReadError } from "../../lib/utils/open-paths";
   import type { SearchMatch } from "../../lib/ipc/commands";
   import { onMount } from "svelte";
 
@@ -110,24 +109,13 @@
 
   async function handleResultClick(match: SearchMatch) {
     try {
-      const { readFile } = await import("../../lib/ipc/commands");
-      const content = await readFile(match.path);
-      const name = match.path.split("/").pop() ?? "untitled";
-      workspaceManager.openFileInWorkspace({ name, path: match.path, content });
-      // Jump to the matching line
-      dispatchEditorAction("goto-line-number", match.line_number);
+      await openFileAtLine(match.path, match.line_number);
     } catch (e) {
-      log.error("Failed to open search result:", e);
+      toastFileReadError(match.path, e);
     }
   }
 
-  function shortPath(fullPath: string): string {
-    const ws = workspaceManager.activeWorkspace;
-    if (ws?.rootPath && fullPath.startsWith(ws.rootPath)) {
-      return fullPath.slice(ws.rootPath.length + 1);
-    }
-    return fullPath;
-  }
+  const shortPath = relativeToRoot;
 
   $effect(() => {
     // Re-trigger search when query or caseSensitive changes

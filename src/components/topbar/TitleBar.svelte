@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { log } from "../../lib/utils/log";
+  import { pickAndOpenFolder } from "../../lib/utils/open-paths";
   /**
    * TitleBar.svelte -- Top bar combining window drag region, attention notifications,
    * and quick-action buttons (open folder, new terminal, settings).
@@ -100,19 +100,7 @@
     }
   }
 
-  async function handleOpenFolder() {
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog');
-      const selected = await open({ directory: true, multiple: false });
-      if (selected) {
-        if (!workspaceManager.activeWorkspace) workspaceManager.createEmptyWorkspace();
-        await workspaceManager.openFolderInWorkspace(selected as string);
-        ui.explorerVisible = true;
-      }
-    } catch (e) {
-      log.error('Failed to open folder:', e);
-    }
-  }
+  const handleOpenFolder = pickAndOpenFolder;
 </script>
 
 <div class="titlebar-shell">

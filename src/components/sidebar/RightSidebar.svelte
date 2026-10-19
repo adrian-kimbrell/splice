@@ -1,12 +1,11 @@
 <script lang="ts">
-  import { log } from "../../lib/utils/log";
   import WorkspaceListItem from "./WorkspaceListItem.svelte";
   import WorkspaceIconPicker from "./WorkspaceIconPicker.svelte";
   import { requestCloseWorkspace } from "../../lib/utils/close-workspace";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
   import { showContextMenu } from "../../lib/utils/context-menu";
-  import { openFilePath } from "../../lib/utils/open-paths";
+  import { pickAndOpenFile } from "../../lib/utils/open-paths";
 
   let {
     side = "right",
@@ -163,19 +162,7 @@
     ], wsId);
   }
 
-  async function handleOpenFile() {
-    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    if (!isTauri) return;
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({ directory: false, multiple: false });
-      // openFilePath reads the file first. Opening the real path with empty
-      // content and saving would have written an empty file over the original.
-      if (selected) await openFilePath(selected);
-    } catch (e) {
-      log.error("Failed to open file:", e);
-    }
-  }
+  const handleOpenFile = pickAndOpenFile;
 
 </script>
 

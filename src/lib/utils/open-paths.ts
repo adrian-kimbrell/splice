@@ -9,6 +9,7 @@ import { workspaceManager } from "../stores/workspace.svelte";
 import { ui } from "../stores/ui.svelte";
 import { pushToast } from "../stores/toasts.svelte";
 import { addRecentFile } from "../stores/recent-files.svelte";
+import { dispatchEditorAction } from "../stores/editor-actions.svelte";
 import { log } from "./log";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -66,11 +67,57 @@ export async function openFilePath(filePath: string): Promise<void> {
   addRecentFile(filePath);
 }
 
+/**
+ * Open a file and jump to a 1-based line (diagnostics, search results,
+ * go-to-definition). The jump is dispatched after a short delay: when the file
+ * was not already open, the editor that will consume the action mounts on the
+ * next tick, and the previous file's editor must not swallow it first.
+ */
+export async function openFileAtLine(filePath: string, line: number): Promise<void> {
+  await openFilePath(filePath);
+  setTimeout(() => dispatchEditorAction("goto-line-number", line), 50);
+}
+
 /** Point the active workspace at a folder (creating a workspace if needed). */
 export async function openFolderPath(path: string): Promise<void> {
   ensureWorkspace();
   await workspaceManager.openFolderInWorkspace(path);
   ui.explorerVisible = true;
+}
+
+/** `path` relative to the active workspace root, or unchanged when outside it. */
+export function relativeToRoot(path: string): string {
+  const root = workspaceManager.activeWorkspace?.rootPath;
+  return root && path.startsWith(root + "/") ? path.slice(root.length + 1) : path;
+}
+
+/** True for the "user cancelled" rejection some dialog paths throw. */
+function isCancelled(e: unknown): boolean {
+  return !!e && typeof e === "object" && "message" in e && String((e as { message: unknown }).message).includes("cancelled");
+}
+
+/** Show the folder picker and open the choice as the workspace root. */
+export async function pickAndOpenFolder(): Promise<void> {
+  if (!isTauri) return;
+  try {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({ directory: true, multiple: false });
+    if (selected) await openFolderPath(selected);
+  } catch (e) {
+    if (!isCancelled(e)) log.error("Failed to open folder:", e);
+  }
+}
+
+/** Show the file picker and open the choice as a tab. */
+export async function pickAndOpenFile(): Promise<void> {
+  if (!isTauri) return;
+  try {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({ directory: false, multiple: false });
+    if (selected) await openFilePath(selected);
+  } catch (e) {
+    if (!isCancelled(e)) toastFileReadError("", e);
+  }
 }
 
 /** Open files dropped onto the window. Directories (trailing slash) are skipped. */

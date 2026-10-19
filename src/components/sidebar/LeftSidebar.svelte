@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { log } from "../../lib/utils/log";
   import FileTree from "./FileTree.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import GitPanel from "./GitPanel.svelte";
@@ -9,7 +8,7 @@
   import { diagnosticsStore, getDiagnosticCounts, type LspDiagnostic } from "../../lib/stores/diagnostics.svelte";
   import { getTotalChangedCount } from "../../lib/stores/git.svelte";
   import { lspClient } from "../../lib/lsp/client";
-  import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
+  import { openFileAtLine, pickAndOpenFolder, relativeToRoot, toastFileReadError } from "../../lib/utils/open-paths";
 
   let {
     entries,
@@ -51,23 +50,13 @@
     return map;
   });
 
-  function shortPath(fullPath: string): string {
-    const ws = workspaceManager.activeWorkspace;
-    if (ws?.rootPath && fullPath.startsWith(ws.rootPath)) {
-      return fullPath.slice(ws.rootPath.length + 1);
-    }
-    return fullPath;
-  }
+  const shortPath = relativeToRoot;
 
   async function handleDiagnosticClick(filePath: string, line: number) {
     try {
-      const { readFile } = await import("../../lib/ipc/commands");
-      const content = await readFile(filePath);
-      const name = filePath.split("/").pop() ?? "untitled";
-      workspaceManager.openFileInWorkspace({ name, path: filePath, content });
-      setTimeout(() => dispatchEditorAction("goto-line-number", line + 1), 50);
+      await openFileAtLine(filePath, line + 1);
     } catch (e) {
-      log.error("Failed to navigate to diagnostic:", e);
+      toastFileReadError(filePath, e);
     }
   }
 
@@ -80,21 +69,7 @@
     }
   }
 
-  async function handleOpenFolder() {
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({ directory: true, multiple: false });
-      if (selected) {
-        if (!workspaceManager.activeWorkspace) {
-          workspaceManager.createEmptyWorkspace();
-        }
-        await workspaceManager.openFolderInWorkspace(selected as string);
-        ui.explorerVisible = true;
-      }
-    } catch (e) {
-      log.error("Failed to open folder:", e);
-    }
-  }
+  const handleOpenFolder = pickAndOpenFolder;
 </script>
 
 <style>

@@ -13,13 +13,13 @@
   import { editorTheme, editorHighlighting } from "../../lib/theme/editor-theme";
   import { conflictExtension, conflictTheme } from "../../lib/editor/conflict-extension";
   import { settings, effectiveSettings } from "../../lib/stores/settings.svelte";
-  import { editorActions, dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
+  import { editorActions } from "../../lib/stores/editor-actions.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { showContextMenu } from "../../lib/utils/context-menu";
   import { clientToRectSpace } from "../../lib/utils/zoom";
   import { lspClient } from "../../lib/lsp/client";
   import { applyTextEdits } from "../../lib/lsp/text-edits";
-  import { toastFileReadError } from "../../lib/utils/open-paths";
+  import { toastFileReadError, openFileAtLine } from "../../lib/utils/open-paths";
   import type { LspLocation, LspPos, WorkspaceEdit, CodeAction } from "../../lib/lsp/client";
   import { getDiagnosticsForUri } from "../../lib/stores/diagnostics.svelte";
   import { pushToast } from "../../lib/stores/toasts.svelte";
@@ -146,23 +146,13 @@
       jumpTo(loc.range.start.line, loc.range.start.character);
       return;
     }
-    // Cross-file: reuse the open buffer if there is one, else read from disk. A
-    // failed read must not open an empty buffer under the real path (saving that
-    // would wipe the file); surface the error instead.
-    const ws = workspaceManager.activeWorkspace;
-    let content = ws?.openFileIndex[path]?.content;
-    if (content === undefined) {
-      try {
-        const { readFile } = await import("../../lib/ipc/commands");
-        content = await readFile(path);
-      } catch (e) {
-        toastFileReadError(path, e);
-        return;
-      }
+    // Cross-file: openFileAtLine reads first; a failed read must not open an
+    // empty buffer under the real path (saving that would wipe the file).
+    try {
+      await openFileAtLine(path, targetLine);
+    } catch (e) {
+      toastFileReadError(path, e);
     }
-    const name = path.split("/").pop() ?? path;
-    workspaceManager.openFileInWorkspace({ name, path, content });
-    setTimeout(() => dispatchEditorAction("goto-line-number", targetLine), 50);
   }
 
   async function navigateOrShowPicker(locs: LspLocation[]): Promise<void> {
