@@ -27,7 +27,7 @@
    * Scroll: Wheel events accumulate fractional deltas and flush whole-line scrolls per RAF.
    * In mouse-protocol mode, wheel events become button 64/65 sequences.
    */
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, untrack } from "svelte";
   import { TerminalRenderer } from "../../lib/terminal/renderer";
   import { decodeHeader, mouseModeOf, MODE_APP_CURSOR_KEYS, MODE_BRACKETED_PASTE, MODE_MOUSE_SGR, MODE_FOCUS_EVENTS } from "../../lib/terminal/protocol";
   import { encodeMouseButton, heldButton, cellToReport, encodeMouseEvent, MOUSE_MOTION, MOUSE_NO_BUTTON, MOUSE_WHEEL_UP, MOUSE_WHEEL_DOWN } from "../../lib/terminal/mouse";
@@ -71,7 +71,6 @@
   let renderer = $state<TerminalRenderer | null>(null);
   let resizeObserver: ResizeObserver | null = null;
   let unlistenGrid: (() => void) | null = null;
-  let unlistenExit: (() => void) | null = null;
   let unlistenClipboard: (() => void) | null = null;
   // Set true in onDestroy. Async listener registrations check this after their
   // await resolves; if destroyed before resolution, they immediately unlisten the
@@ -170,42 +169,38 @@
     }
   });
 
-  // Update terminal font when settings change
+  // Update terminal font when settings change. Only the two font settings are
+  // dependencies: handleResize reads ui.sidebarResizing, and tracking that here
+  // re-ran the font update on every sidebar drag.
   $effect(() => {
     if (!renderer) return;
     const fs = effectiveSettings.terminal.font_size;
     const ff = `${effectiveSettings.terminal.font_family}, Consolas, 'Courier New', monospace`;
-    renderer.updateFont(fs, ff);
-    handleResize();
-    renderer.rerender();
-  });
-
-  // Re-fit terminal when UI zoom changes.
-  // ResizeObserver uses CSS content-box coordinates which don't change when only
-  // document.documentElement.style.zoom changes, so it won't fire on zoom.
-  // We have to re-measure explicitly.
-  // Double-RAF: WebKit needs two frames to fully apply the CSS zoom and update
-  // layout metrics. Single-RAF can fire before offsetWidth reflects the new zoom.
-  // Force-reset currentCols/currentRows so the PTY always gets a fresh SIGWINCH
-  // even when the computed cols happen to equal the pre-zoom value.
-  $effect(() => {
-    void effectiveSettings.appearance.ui_scale; // subscribe
-    if (!renderer || !containerEl) return;
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      currentCols = 0;
-      currentRows = 0;
+    untrack(() => {
+      renderer!.updateFont(fs, ff);
       handleResize();
-    }));
+      renderer!.rerender();
+    });
   });
 
-  // Re-fit when pane zoom is toggled.
-  // When a pane is zoomed, a second CanvasTerminal instance is mounted in the overlay
-  // at full-screen size and resizes the PTY to match. When zoom is dismissed that instance
-  // is destroyed, but the original instance (hidden in the PaneGrid via visibility:hidden)
-  // never saw its container resize — so ResizeObserver won't fire. Force a remeasure here.
+  // Re-fit after layout changes the ResizeObserver cannot see:
+  // - UI zoom: ResizeObserver reports CSS content-box sizes, which do not change
+  //   when only document.documentElement.style.zoom changes.
+  // - Pane zoom: the overlay mounts a second instance that resizes the PTY; when
+  //   zoom is dismissed the original (hidden via visibility:hidden) never saw its
+  //   container change.
+  // Double-RAF: WebKit needs two frames before offsetWidth reflects the new zoom.
+  // currentCols/currentRows are reset so the PTY gets a SIGWINCH even when the
+  // computed size happens to match. The first run only records the state: the
+  // mount-time handleResize has already fitted the PTY.
+  let refitKey: string | null = null;
   $effect(() => {
-    void ui.zoomedPaneId; // subscribe
+    const key = `${effectiveSettings.appearance.ui_scale}|${ui.zoomedPaneId ?? ""}`;
     if (!renderer || !containerEl) return;
+    if (refitKey === key) return;
+    const first = refitKey === null;
+    refitKey = key;
+    if (first) return;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       currentCols = 0;
       currentRows = 0;
@@ -315,7 +310,7 @@
     const { writeToTerminal, scrollTerminal, resizeTerminal, refreshTerminal, saveTempImage, writeToClipboard } = await import(
       "../../lib/ipc/commands"
     );
-    const { onTerminalGrid, onTerminalExit, onTerminalClipboard } = await import(
+    const { onTerminalGrid, onTerminalClipboard } = await import(
       "../../lib/ipc/events"
     );
 
@@ -416,12 +411,6 @@
     unlistenGrid = gridUnlisten;
     // Listener is live on both sides now — ask for the frame we may have missed.
     requestFrameUntilReceived();
-
-    const exitUnlisten = await onTerminalExit(terminalId, (_code: number) => {
-      // Could show exit message
-    });
-    if (destroyed) { exitUnlisten(); return; }
-    unlistenExit = exitUnlisten;
 
     // OSC 52: remote clipboard writes (e.g. from tmux, vim over SSH)
     const clipUnlisten = await onTerminalClipboard(terminalId, (text: string) => {
@@ -884,7 +873,6 @@
     }
     cleanupFns = [];
     unlistenGrid?.();
-    unlistenExit?.();
     unlistenClipboard?.();
     resizeObserver?.disconnect();
     if (blinkInterval) clearInterval(blinkInterval);

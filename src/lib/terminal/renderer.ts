@@ -626,7 +626,9 @@ export class TerminalRenderer {
       this.urlsNeedUpdate = false;
     }
 
-    // Save frame for dirty-region comparison on next render
-    this.previousFrame = new Uint8Array(data);
+    // Keep the frame for the dirty-region comparison on the next render. No copy:
+    // every frame is a fresh buffer from events.ts that nothing mutates, and
+    // rerender() (same buffer again) forces a full redraw before comparing.
+    this.previousFrame = data;
   }
 }
