@@ -19,8 +19,8 @@
  * `forceFullRedraw` is set on font or size change; otherwise only dirty cells are repainted.
  */
 
-export const HEADER_SIZE = 20;
-export const CELL_SIZE = 12;
+import { HEADER_SIZE, CELL_SIZE, decodeHeader } from "./protocol";
+export { HEADER_SIZE, CELL_SIZE } from "./protocol";
 
 // Cell flag constants (must match Rust grid::flags)
 const FLAG_BOLD = 0x01;
@@ -278,12 +278,12 @@ export class TerminalRenderer {
    *  Call this when frame data arrives so rerender() from mouse events always
    *  uses up-to-date history coordinates in isSelected(). */
   setLatestFrame(data: Uint8Array) {
-    if (data.length < HEADER_SIZE) return;
+    const header = decodeHeader(data);
+    if (!header) return;
     this.lastFrame = data;
-    const view = new DataView(data.buffer, data.byteOffset);
-    this._currentFirstDisplayHistoryRow = view.getInt32(12, true);
-    this._currentRows = view.getUint16(2, true);
-    this._currentScrollbackLen = view.getUint32(16, true);
+    this._currentFirstDisplayHistoryRow = header.firstDisplayHistoryRow;
+    this._currentRows = header.rows;
+    this._currentScrollbackLen = header.scrollbackLen;
     this.urlsNeedUpdate = true;
   }
 
@@ -381,22 +381,12 @@ export class TerminalRenderer {
   }
 
   render(data: Uint8Array) {
-    if (data.length < HEADER_SIZE) return;
+    const header = decodeHeader(data);
+    if (!header) return;
     this.lastFrame = data;
 
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-    const cols = view.getUint16(0, true);
-    const rows = view.getUint16(2, true);
-    const cursorCol = view.getUint16(4, true);
-    const cursorRow = view.getUint16(6, true);
-    const cursorVisible = view.getUint8(8) !== 0;
-    const cursorStyle = view.getUint8(9);
-    // byte 10: modeFlags (read by CanvasTerminal)
-    const isScrolled = view.getUint8(11) !== 0;
-    // bytes 12-15: first_display_history_row
-    const firstDisplayHistoryRow = view.getInt32(12, true);
-    // bytes 16-19: scrollback_len
-    const scrollbackLen = view.getUint32(16, true);
+    const { cols, rows, cursorCol, cursorRow, cursorVisible, cursorStyle, isScrolled, firstDisplayHistoryRow, scrollbackLen } = header;
     this._currentFirstDisplayHistoryRow = firstDisplayHistoryRow;
     this._currentRows = rows;
     this._currentScrollbackLen = scrollbackLen;
