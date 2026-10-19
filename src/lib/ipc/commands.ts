@@ -478,6 +478,3 @@ export async function sftpWriteFile(workspaceId: string, path: string, content: 
   return invoke("sftp_write_file", { workspaceId, path, content });
 }
 
-export async function sshPing(workspaceId: string): Promise<boolean> {
-  return invoke("ssh_ping", { workspaceId });
-}

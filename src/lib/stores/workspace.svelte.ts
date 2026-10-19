@@ -17,7 +17,7 @@
  */
 import { log } from "../utils/log";
 import type { OpenFile } from "./files.svelte";
-import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
+import type { PaneConfig, SplitDirection } from "./layout.svelte";
 import { splitNodeInTree, splitNodeInTreeWithSide, removeNodeFromTree, swapLeavesInTree, findShallowestLeaf, treeDepth, MAX_SPLIT_DEPTH } from "./layout.svelte";
 import { ui } from "./ui.svelte";
 import { isCornerDragActive } from "./corner-drag.svelte";
@@ -745,28 +745,6 @@ class WorkspaceManager {
 
   // --- Terminal actions on active workspace ---
 
-  addTerminalToWorkspace(terminalId: number): void {
-    const ws = this.activeWorkspace;
-    if (!ws) return;
-    if (!ws.terminalIds.includes(terminalId)) {
-      ws.terminalIds.push(terminalId);
-    }
-    ws.activeTerminalId = terminalId;
-  }
-
-  removeTerminalFromWorkspace(terminalId: number): void {
-    const ws = this.activeWorkspace;
-    if (!ws) return;
-    const idx = ws.terminalIds.indexOf(terminalId);
-    if (idx !== -1) {
-      ws.terminalIds.splice(idx, 1);
-      if (ws.activeTerminalId === terminalId) {
-        ws.activeTerminalId =
-          ws.terminalIds.length > 0 ? ws.terminalIds[0] : null;
-      }
-    }
-  }
-
   // --- Pane splitting / closing ---
 
   async splitPane(paneId: string, direction: SplitDirection, side: "before" | "after" = "after", workspaceId?: string): Promise<void> {
@@ -922,24 +900,6 @@ class WorkspaceManager {
 
   // --- Layout actions on active workspace ---
 
-  setLayout(layout: LayoutNode): void {
-    const ws = this.activeWorkspace;
-    if (!ws) return;
-    ws.layout = layout;
-  }
-
-  setPane(id: string, config: PaneConfig): void {
-    const ws = this.activeWorkspace;
-    if (!ws) return;
-    ws.panes[id] = config;
-  }
-
-  removePane(id: string): void {
-    const ws = this.activeWorkspace;
-    if (!ws) return;
-    delete ws.panes[id];
-  }
-
   // --- Persistence ---
 
   async persistWorkspace(wsId: string): Promise<void> {
@@ -1079,6 +1039,3 @@ class WorkspaceManager {
 
 export const workspaceManager = new WorkspaceManager();
 
-export function getActiveWorkspace(): Workspace | null {
-  return workspaceManager.activeWorkspace;
-}

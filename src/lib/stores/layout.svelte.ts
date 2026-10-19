@@ -54,6 +54,9 @@ export interface PaneConfig {
   lastTouchedAt?: number;
 }
 
+/** Smallest a pane may be dragged, in layout px (both axes). */
+export const PANE_MIN_PX = 80;
+
 export const MAX_SPLIT_DEPTH = 10;
 
 export function treeDepth(node: LayoutNode): number {
@@ -81,9 +84,6 @@ export function collectLeafIds(node: LayoutNode): Set<string> {
 }
 
 // Default layout: single terminal pane
-export function defaultLayout(): LayoutNode {
-  return { type: "leaf", paneId: "term-1" };
-}
 
 /** Deep-clone a layout tree into fresh plain objects.
  *  Use before reparenting subtrees (Svelte 5 $state proxies break when moved between
