@@ -2,7 +2,7 @@
   import { log } from "../../lib/utils/log";
   import { ui } from "../../lib/stores/ui.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
-  import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
+  import { runAction } from "../../lib/actions";
   import { settings, debouncedSaveSettings } from "../../lib/stores/settings.svelte";
   import { recentFiles } from "../../lib/stores/recent-files.svelte";
   import { fade, fly } from "svelte/transition";
@@ -15,18 +15,21 @@
   }
 
   const COMMANDS: Command[] = [
-    { name: "Open File…", shortcut: "⌘O", action() { document.dispatchEvent(new CustomEvent("splice:open-file")); } },
-    { name: "Toggle Sidebar", shortcut: "⌘B", action() { ui.explorerVisible = !ui.explorerVisible; } },
-    { name: "New Terminal", shortcut: "", action() { workspaceManager.spawnTerminalInWorkspace(); } },
-    { name: "Find in Files", shortcut: "⇧⌘F", action() { ui.sidebarMode = "search"; ui.explorerVisible = true; } },
-    { name: "Go to Line…", shortcut: "⌘G", action() { dispatchEditorAction("goto-line"); } },
-    { name: "Preferences: Open Settings", shortcut: "⌘,", action() { ui.settingsDrawerOpen = true; } },
-    { name: "Format Document", shortcut: "⇧⌥F", action() { dispatchEditorAction("format-document"); } },
-    { name: "Save All", shortcut: "⌥⌘S", action() { workspaceManager.saveAllDirtyFiles(); } },
-    { name: "Toggle Word Wrap", shortcut: "", action() { dispatchEditorAction("toggle-word-wrap"); } },
-    { name: "Zoom In", shortcut: "⌘=", action() { settings.appearance.ui_scale = Math.min(200, settings.appearance.ui_scale + 10); debouncedSaveSettings(); } },
-    { name: "Zoom Out", shortcut: "⌘-", action() { settings.appearance.ui_scale = Math.max(50, settings.appearance.ui_scale - 10); debouncedSaveSettings(); } },
-    { name: "Reset Zoom", shortcut: "⌘0", action() { settings.appearance.ui_scale = 100; debouncedSaveSettings(); } },
+    { name: "Open File…", shortcut: "⌘O", action() { runAction("open-file"); } },
+    { name: "Open Folder…", shortcut: "⇧⌘O", action() { runAction("open-folder"); } },
+    { name: "Toggle Sidebar", shortcut: "⌘B", action() { runAction("toggle-sidebar"); } },
+    { name: "New Terminal", shortcut: "", action() { runAction("new-terminal"); } },
+    { name: "Find in Files", shortcut: "⇧⌘F", action() { runAction("find-in-files"); } },
+    { name: "Go to Line…", shortcut: "⌘G", action() { runAction("goto-line"); } },
+    { name: "Preferences: Open Settings", shortcut: "⌘,", action() { runAction("settings"); } },
+    { name: "Format Document", shortcut: "⇧⌥F", action() { runAction("format-document"); } },
+    { name: "Save All", shortcut: "⌥⌘S", action() { runAction("save-all"); } },
+    { name: "Toggle Word Wrap", shortcut: "", action() { runAction("toggle-word-wrap"); } },
+    { name: "Toggle Zen Mode", shortcut: "⇧⌘↩", action() { runAction("zen-mode"); } },
+    // Whole-window UI scale. No shortcut shown: ⌘= / ⌘- / ⌘0 change the focused pane's font instead.
+    { name: "Zoom In", shortcut: "", action() { settings.appearance.ui_scale = Math.min(200, settings.appearance.ui_scale + 10); debouncedSaveSettings(); } },
+    { name: "Zoom Out", shortcut: "", action() { settings.appearance.ui_scale = Math.max(50, settings.appearance.ui_scale - 10); debouncedSaveSettings(); } },
+    { name: "Reset Zoom", shortcut: "", action() { settings.appearance.ui_scale = 100; debouncedSaveSettings(); } },
   ];
 
   let filter = $state("");

@@ -34,3 +34,6 @@ import "./29-copy-on-select.test.js";
 import "./30-find-replace.test.js";
 import "./31-lsp-didchange.test.js";
 import "./32-ssh-connect-error.test.js";
+import "./33-image-zoom.test.js";
+import "./34-explorer-refresh-loop.test.js";
+import "./35-zoom-focus.test.js";

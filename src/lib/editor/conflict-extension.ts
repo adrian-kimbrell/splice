@@ -193,13 +193,13 @@ export const conflictExtension = ViewPlugin.fromClass(
 
 export const conflictTheme = EditorView.baseTheme({
   ".conflict-ours": {
-    backgroundColor: "rgba(0, 255, 136, 0.08)",
+    backgroundColor: "color-mix(in srgb, var(--accent) 8%, transparent)",
   },
   ".conflict-theirs": {
-    backgroundColor: "rgba(97, 175, 239, 0.08)",
+    backgroundColor: "color-mix(in srgb, var(--syn-fn) 8%, transparent)",
   },
   ".conflict-marker": {
-    backgroundColor: "rgba(255, 255, 255, 0.04)",
+    backgroundColor: "color-mix(in srgb, var(--text) 4%, transparent)",
     color: "var(--text-dim) !important",
   },
 });

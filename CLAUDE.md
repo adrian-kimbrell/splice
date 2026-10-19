@@ -91,6 +91,15 @@ Splice starts → attention::start_server (HTTP on port 19876-19878)
 → Claude Code triggers hook → Python urllib POST to localhost with X-Splice-Token header
 → server.rs parses request → emits "terminal:attention-notify" event
 → attention.svelte.ts store → TitleBar shows notification badge
+
+Codex (attention/codex.rs): the same server, fed by Codex's `notify` program
+(`~/.codex/config.toml`, runs after every turn, no trust step: done-badge + session id
+for `codex resume` on restore) and by hooks in `~/.codex/hooks.json`
+(SessionStart / PermissionRequest / Stop: permission badge + model name; Codex runs
+them only after the user trusts them once via `/hooks`). Both call
+`~/.codex/splice-hooks/splice_codex_hook.py`, which POSTs with `agent: "codex"`;
+`/session` carries `agent` through to the pane (`agentKind`) so restore injects
+`codex resume <id>` instead of `claude --resume <id>`.
 ```
 
 ### Drag-and-Drop (Tabs/Panes)
@@ -132,13 +141,22 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 - **IPC naming**: Frontend uses camelCase (`readFile`), Rust uses snake_case (`read_file`). The `lib/ipc/commands.ts` file is the single source of truth for all command signatures.
 - **Adding a Tauri command**: add the `#[tauri::command]` fn, list it once in the `splice_handlers!` macro in `lib.rs` (the e2e build appends its extras there), and add the typed wrapper in `lib/ipc/commands.ts`.
 - **Logging**: use `log.debug/warn/error` from `lib/utils/log.ts`, never bare `console.*`. `debug` is silent in release builds; `window.__spliceLog.setLevel("debug")` turns it on at runtime.
+- **Commands go through `lib/actions.ts`**: every user-facing command has one id and one handler, registered by App.svelte on mount. The native menu (`menu-event`), shortcuts (`utils/keybindings.ts`), the command palette and the pane "+" menu all call `runAction(id)`. A new menu item in `lib.rs` needs its id in `MENU_ACTION_IDS` (a unit test checks the two lists) and a handler in App's `registerActions` map.
+- **Startup wiring lives in `lib/startup/`** (claude-wiring, file-watch, window-close) and beside what it serves (`startMenuEvents`, `startSettingsSync`, `startNativeDrop`, `startOpenPathListener`). Each returns a disposer; App.svelte's onMount only sequences them.
+- **Focusing a pane**: use `focusPaneContent(paneId)` from `lib/utils/pane-focus.ts`. A pane id appears more than once in the DOM (every workspace stays mounted; a zoomed pane is rendered twice) and only the visible copy can take focus.
+- **Context menus**: `showContextMenu(items, x, y)` from `lib/utils/context-menu.ts` for every right-click menu; never build a `.split-dropdown` by hand. Items run on click; the menu closes on outside mousedown/click and Escape.
+- **Terminal frame layout** is defined once in `lib/terminal/protocol.ts` (`decodeHeader`, `codepointAt`, `MODE_*` bits); mouse reports in `mouse.ts`, selection helpers in `selection.ts`, paste in `paste.ts`. These are pure and unit tested; keep DOM/IPC out of them.
 - **Closing workspaces**: always go through `requestCloseWorkspace` (`lib/utils/close-workspace.ts`), which confirms before terminals are killed.
 - **Entry vs. content paths (Rust)**: commands that act on a directory *entry* (delete, rename, duplicate, copy destination, create) use `validate_entry_path` (canonical parent + verbatim leaf, so a symlink is handled as the link); commands that read or write *content* use `validate_path` (resolves the target).
 - **Config files**: parse leniently (`#[serde(default)]` on every settings/workspace field; `Workspace.layout` is `Option`, `None` = no panes) and never overwrite a file that failed to parse; back it up as `<name>.corrupt-<ts>` first. Same rule for `~/.claude/settings.json`, which is left untouched on a parse error.
+- **git subprocesses** run with `GIT_OPTIONAL_LOCKS=0` (set once in `run_git_timeout`). A plain `git status` takes `.git/index.lock` and rewrites `.git/index`, the recursive workspace watcher sees that, refreshes, runs `git status` again, and the explorer loops forever. Keep the env var on every git call.
 - **git status**: `git_status` returns `{ repo_root, files }`; `files[].path` is relative to `repo_root`, which can lie above the workspace root. All pathspec commands run from the repo root and read status with `-z`.
-- **File watchers**: `watch_path` / `unwatch_path` are reference counted per canonical path. Always pair them; never assume a path has exactly one watcher.
+- **File watchers**: `watch_path` / `unwatch_path` are reference counted per canonical path. Always pair them; never assume a path has exactly one watcher. Recursive (directory) watchers drop events whose paths all sit inside dot-entries relative to the watched root (`touches_visible_path`): the explorer never shows them, and `.git/` churn would otherwise refresh the tree. Rescan markers always pass.
 - **Self-writes**: call `markSelfWrite(path)` (`lib/stores/self-writes.ts`) before writing a file the watcher may report, so the `file:changed` handler can tell our own saves from external edits.
-- **openFiles / openFileIndex**: insert through `addOpenFile` so both hold the same `$state` proxy; pushing a raw object into both creates two proxies that do not share writes.
+- **openFiles / openFileIndex**: insert through `addOpenFile` so both hold the same `$state` proxy; pushing a raw object into both creates two proxies that do not share writes. The same split happens when a plain object is populated first and assigned into `workspaceManager.workspaces` afterwards (Svelte proxies lazily per property path), so restore inserts the bare skeleton into the map and populates the live proxy (`restoreWorkspaceImpl`'s `register` callback). Release files only through `releaseOpenFile` (one unwatch per index entry).
+- **Static IPC imports where calls must be counted**: `workspace-file-ops.ts` imports `watchPath`/`unwatchPath` statically. Under vitest, repeated dynamic `import("../ipc/commands")` of a `vi.mock`ed module can resolve to the real module after the first call, so tests cannot count dynamic-import IPC. `commands.ts` has no import-time side effects; prefer static imports in stores.
+- **Unused code**: `noUnusedLocals`/`noUnusedParameters` are on. To keep a reactive dependency without a binding, write `void expr;` inside the `$effect`.
+- **CSS tokens**: every `var(--x)` in `src/` must be defined by a theme (`ThemeColors`), `app.css`, or a `setProperty`; `css-tokens.test.ts` fails otherwise.
 - **Svelte 5 runes**: All reactive state uses `$state()`, `$derived()`, `$effect()`. No legacy `$:` or writable stores.
 - **Store pattern**: Stores export a single `$state` object (e.g., `export const ui = $state({...})`). Complex stores like workspace use a class with methods.
 - **Path security**: All file operations go through `state.rs::validate_path()` which canonicalizes and checks against `allowed_roots`.

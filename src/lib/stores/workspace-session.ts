@@ -1,10 +1,12 @@
 import { log } from "../utils/log";
 import type { Workspace } from "./workspace-types";
-import type { RustWorkspace } from "../ipc/commands";
+import { type RustWorkspace, type RustPaneInfo, checkPidAlive, getTerminalCwd, gitDiffFile, killTerminal, readFile, saveWorkspace, spawnTerminal, writeToTerminal } from "../ipc/commands";
 import { validateLayout } from "./workspace-tab-ops";
-import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs, addOpenFile } from "./workspace-types";
-import { collectLeafIds, removeNodeFromTree } from "./layout.svelte";
-import { effectiveSettings } from "./settings.svelte";
+import { onTerminalGrid } from "../ipc/events";
+import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs, addOpenFile, newWorkspace } from "./workspace-types";
+import { collectLeafIds, removeNodeFromTree, resumeCommand, type AgentKind } from "./layout.svelte";
+import { effectiveSettings, defaultViewMode } from "./settings.svelte";
+import { SIDEBAR_MIN_WIDTH, SIDEBAR_DEFAULT_WIDTH } from "./ui.svelte";
 
 interface PendingResume {
   timers: ReturnType<typeof setTimeout>[];
@@ -110,7 +112,8 @@ export async function waitForShellReady(
 }
 
 /**
- * Schedule `claude --resume {sessionId}` injection into a terminal.
+ * Schedule the agent's resume command (`claude --resume {sessionId}` or
+ * `codex resume {sessionId}`) for injection into a terminal.
  * Waits for shell-ready detection (cursor stability after `staggerMs`), then
  * retries 3 times at +0ms, +5000ms, +13000ms.
  * Cancels all retries if `savedPid` is still alive (Claude didn't exit).
@@ -125,6 +128,7 @@ export function scheduleClaudeResume(
     writeToTerminal: (id: number, data: Uint8Array) => Promise<void>;
     subscribeToFrames: (id: number, cb: (data: Uint8Array) => void) => Promise<() => void>;
   },
+  agent: AgentKind = "claude",
 ): void {
   (async () => {
     const abort = new AbortController();
@@ -153,8 +157,8 @@ export function scheduleClaudeResume(
           } catch { /* ignore — if check fails, proceed with resume */ }
         }
         try {
-          await deps.writeToTerminal(terminalId, new TextEncoder().encode(`claude --resume ${sessionId}\n`));
-        } catch (e) { log.warn("claude --resume injection failed:", e); }
+          await deps.writeToTerminal(terminalId, new TextEncoder().encode(resumeCommand(agent, sessionId) + "\n"));
+        } catch (e) { log.warn("resume injection failed:", e); }
       }, extra);
       pending.timers.push(t);
     }
@@ -176,7 +180,6 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
   const layoutLeafIds = layoutSnapshot ? collectLeafIds(layoutSnapshot) : new Set<string>();
 
   try {
-    const { saveWorkspace, getTerminalCwd } = await import("../ipc/commands");
 
     // Gather actual terminal CWDs in parallel before building the panes array.
     const terminalCwdMap = new Map<string, string>();
@@ -198,6 +201,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
       .map((pane) => {
         const claudeSessionId = pane.kind === "terminal" ? (pane.claudeSessionId ?? null) : null;
         const claudePid = pane.kind === "terminal" ? (pane.claudePid ?? null) : null;
+        const agent = pane.kind === "terminal" ? (pane.agentKind ?? null) : null;
         const terminalId = pane.kind === "terminal" ? (pane.terminalId ?? null) : null;
         const isDiff = pane.kind === "diff";
         return {
@@ -212,6 +216,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
           active_file_path: isDiff ? null : (pane.activeFilePath ?? null),
           claude_session_id: claudeSessionId,
           claude_pid: claudePid,
+          agent,
           terminal_id: terminalId,
         };
       });
@@ -239,41 +244,40 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
           }
         : null,
       icon: ws.icon ?? null,
+      view_mode: ws.viewMode ?? null,
     } as RustWorkspace);
   } catch (e) {
     log.error("Failed to persist workspace:", e);
   }
 }
 
+/**
+ * Rebuild a workspace from its persisted record.
+ *
+ * `register` is called with the bare skeleton before any file or pane is added
+ * and must return the instance to populate. The manager uses it to insert the
+ * skeleton into its `$state` map and hand back the live proxy: files added to a
+ * plain object that is proxied afterwards end up as two independent proxies in
+ * `openFiles` and `openFileIndex` (see `addOpenFile`), and a dirty flag set
+ * through one was invisible through the other.
+ */
 export async function restoreWorkspaceImpl(
   rws: RustWorkspace,
   resumeStartIndex: number,
   allocateTermNum: () => number,
+  register: (skeleton: Workspace) => Workspace = (w) => w,
 ): Promise<{ ws: Workspace; resumeCount: number }> {
-  // Hoist all IPC imports once to avoid repeated dynamic import overhead in loops.
-  const { spawnTerminal, readFile, checkPidAlive, writeToTerminal, killTerminal } =
-    await import("../ipc/commands");
-  const { onTerminalGrid } = await import("../ipc/events");
 
   const idMap = new Map<string, string>();
-  // Each claude resume injection is staggered so they don't all hit the shell at once.
-  let localClaudeResumeIndex = 0;
+  // Each Claude resume injection is staggered so they don't all hit the shell at once.
+  const resume = { count: 0, startIndex: resumeStartIndex };
 
-  const ws: Workspace = {
+  const ws: Workspace = register(newWorkspace({
     id: rws.id,
     name: rws.name,
     rootPath: rws.root_path,
-    fileTree: [],
-    openFiles: [],
-    openFileIndex: {},
-    terminalIds: [],
-    activeTerminalId: null,
-    layout: null,
-    panes: {},
-    activePaneId: null,
-    gitBranch: "",
     explorerVisible: rws.explorer_visible ?? true,
-    explorerWidth: Math.max(150, rws.explorer_width ?? 240),
+    explorerWidth: Math.max(SIDEBAR_MIN_WIDTH.explorer, rws.explorer_width ?? SIDEBAR_DEFAULT_WIDTH.explorer),
     expandedPaths: new Set(rws.expanded_paths ?? []),
     sshConfig: rws.ssh_config
       ? {
@@ -285,255 +289,223 @@ export async function restoreWorkspaceImpl(
         }
       : null,
     icon: rws.icon ?? null,
-  };
+    viewMode: rws.view_mode ?? defaultViewMode(),
+  }));
 
   for (const paneInfo of rws.panes) {
-    // SSH workspaces previously skipped pane restoration entirely, silently
-    // losing all sessions. Now SSH panes restore through the same path as
-    // local panes — spawnTerminal handles SSH via its existing args.
-
-    const paneType = paneInfo.pane_type as Record<string, unknown> | null;
-    const isTerminal = paneType != null && "Terminal" in paneType;
-
-    if (isTerminal) {
-      try {
-        const savedCwd = (() => {
-          const pt = paneInfo.pane_type as Record<string, unknown> | null;
-          if (pt && "Terminal" in pt) {
-            const t = pt.Terminal as { cwd?: string };
-            return t.cwd && t.cwd !== "" ? t.cwd : null;
-          }
-          return null;
-        })();
-
-        // Spawn helper with single retry-on-failure (250ms delay).
-        // Passes through saved terminal_id when present so the Rust side can
-        // preserve the original numeric ID across restore.
-        // SSH workspaces spawn `/usr/bin/ssh` with the SshConfig-derived extra
-        // args (matching the live-spawn path in workspace.svelte.ts); local
-        // workspaces use the default shell.
-        const isSsh = ws.sshConfig != null;
-        const shell = isSsh ? "/usr/bin/ssh" : effectiveSettings.terminal.default_shell;
-        const cwd = isSsh ? "/" : (savedCwd || rws.root_path || "/");
-        const extraArgs = isSsh ? buildSshExtraArgs(ws.sshConfig!) : undefined;
-        const savedTerminalId = paneInfo.terminal_id ?? undefined;
-
-        let terminalId: number;
-        try {
-          terminalId = await spawnTerminal(
-            shell,
-            cwd,
-            80,
-            24,
-            extraArgs,
-            savedTerminalId,
-          );
-        } catch (firstErr) {
-          log.warn(
-            `Terminal spawn failed for pane ${paneInfo.id} in workspace "${rws.name}" (cwd=${cwd}), retrying once in 250ms:`,
-            firstErr,
-          );
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          terminalId = await spawnTerminal(
-            shell,
-            cwd,
-            80,
-            24,
-            extraArgs,
-            savedTerminalId,
-          );
-        }
-        const paneId = `term-${terminalId}`;
-        idMap.set(paneInfo.id, paneId);
-
-        ws.terminalIds.push(terminalId);
-        ws.activeTerminalId = terminalId;
-        ws.panes[paneId] = {
-          id: paneId,
-          kind: "terminal",
-          title: paneInfo.title,
-          terminalId,
-        };
-        allocateTermNum(); // advance the counter for each restored terminal
-
-        // Resume Claude session after terminal is ready.
-        // Base delay of 2000ms lets the shell finish sourcing RC files (PATH setup).
-        // Each additional Claude pane is staggered by 300ms to avoid concurrent
-        // shell initialization + command injection.
-        if (paneInfo.claude_session_id) {
-          const sessionId = paneInfo.claude_session_id;
-
-          // Validate session ID *before* scheduling resume. If it fails validation,
-          // we still want a usable terminal — just skip the --resume injection so
-          // the user gets a fresh shell instead of nothing.
-          let shouldResume = true;
-          if (!isValidSessionId(sessionId)) {
-            log.warn(
-              `Refusing to inject suspicious session ID for pane ${paneInfo.id} in workspace "${rws.name}": ${sessionId}. Spawning fresh terminal instead.`,
-            );
-            shouldResume = false;
-          }
-
-          if (shouldResume) {
-            // Stagger resume injections to avoid flooding the shell scheduler.
-            // First 8 sessions: 600ms apart. Beyond that: batch into waves of 8,
-            // each wave offset by 8000ms, so slot within wave stays tight but
-            // total time never runs away. This also keeps baseDelay well below
-            // the hardTimeout (staggerMs + 6000ms) for any realistic session count.
-            const idx = resumeStartIndex + localClaudeResumeIndex;
-            const wave = Math.floor(idx / 8);
-            const slot = idx % 8;
-            const baseDelay = 500 + wave * 8_000 + slot * 600;
-            localClaudeResumeIndex++;
-            // Pass null for savedPid: on restore we always spawn a fresh PTY, so
-            // the old Claude is guaranteed dead regardless of what the saved PID
-            // value is. Passing savedPid here risks PID reuse (the OS recycled
-            // that PID for an unrelated process) causing the resume to be wrongly
-            // cancelled.
-            scheduleClaudeResume(terminalId, sessionId, null, baseDelay, {
-              checkPidAlive,
-              writeToTerminal,
-              subscribeToFrames: onTerminalGrid,
-            });
-          }
-        }
-      } catch (e) {
-        // Both spawn attempts failed. Pane is dropped from idMap (never added),
-        // so layout remapping will treat the leaf as missing and prune it.
-        log.error(
-          `Failed to spawn terminal during restore (after retry) for pane ${paneInfo.id} in workspace "${rws.name}" (title="${paneInfo.title}"):`,
-          e,
-        );
-      }
-    } else if (
-      paneInfo.file_paths.length === 3 &&
-      paneInfo.file_paths[0] === "diff-pane-v1"
-    ) {
-      // Diff pane: re-fetch from git and restore
-      const staged = paneInfo.file_paths[1] === "staged";
-      const filePath = paneInfo.file_paths[2];
-      const paneId = `diff-${crypto.randomUUID().slice(0, 8)}`;
-      idMap.set(paneInfo.id, paneId);
-      try {
-        const { gitDiffFile } = await import("../ipc/commands");
-        const diff = await gitDiffFile(rws.root_path, filePath, staged);
-        ws.panes[paneId] = {
-          id: paneId,
-          kind: "diff",
-          title: filePath.split("/").pop() ?? filePath,
-          diffFilePath: filePath,
-          diffOldContent: diff.old_content,
-          diffNewContent: diff.new_content,
-          diffStaged: staged,
-          diffPreview: false,
-        };
-      } catch (e) {
-        // File may have been committed/discarded — drop this pane from the layout
-        log.warn(`Failed to restore diff pane for "${filePath}":`, e);
-        idMap.delete(paneInfo.id);
-      }
-    } else {
-      // Editor pane: restore open files
-      const paneId = `editor-${crypto.randomUUID().slice(0, 8)}`;
-      idMap.set(paneInfo.id, paneId);
-
-      const filePaths: string[] = [];
-      for (const path of paneInfo.file_paths) {
-        if (path.startsWith("untitled-")) {
-          if (!ws.openFileIndex[path]) {
-            addOpenFile(ws, { name: path, path, content: "" });
-          }
-          filePaths.push(path);
-        } else {
-          try {
-            const content = await readFile(path);
-            const name = path.split("/").pop() ?? path;
-            if (!ws.openFileIndex[path]) {
-              addOpenFile(ws, { name, path, content });
-            }
-            filePaths.push(path);
-          } catch (e) {
-            // File may no longer exist — skip it but trace for diagnosability.
-            // (Legitimately gone files are not surfaced to the user, but we want
-            // a breadcrumb so workspace-restore weirdness is debuggable.)
-            log.debug(
-              `Skipping missing/unreadable file during restore: "${path}" (workspace "${rws.name}", pane ${paneInfo.id}):`,
-              e,
-            );
-          }
-        }
-      }
-
-      // Skip blank editor panes — these are artifacts from diff panes that were
-      // erroneously persisted as empty Editor entries before the diff-pane filter
-      // was added. A real editor pane always has at least one file.
-      if (filePaths.length === 0) {
-        idMap.delete(paneInfo.id); // remove from map so layout remapping treats it as missing
-        continue;
-      }
-
-      const activeFilePath =
-        paneInfo.active_file_path && filePaths.includes(paneInfo.active_file_path)
-          ? paneInfo.active_file_path
-          : (filePaths[0] ?? null);
-
-      ws.panes[paneId] = {
-        id: paneId,
-        kind: "editor",
-        title: paneInfo.title,
-        filePaths,
-        activeFilePath,
-      };
-    }
+    // SSH workspaces restore through the same path as local ones (spawnTerminal
+    // handles SSH via its extra args); they used to skip pane restoration entirely.
+    const paneId = isTerminalPane(paneInfo)
+      ? await restoreTerminalPane(ws, rws, paneInfo, allocateTermNum, resume)
+      : isDiffPane(paneInfo)
+        ? await restoreDiffPane(ws, rws, paneInfo)
+        : await restoreEditorPane(ws, rws, paneInfo);
+    // A pane that could not be restored is left out of idMap, so the layout
+    // remap below treats its leaf as missing and prunes it.
+    if (paneId) idMap.set(paneInfo.id, paneId);
   }
 
-  // Remap the saved layout using the new terminal IDs. SSH workspaces now go
-  // through the same restore path as local workspaces, so the SSH guard that
-  // used to gate this branch has been removed.
+  restoreLayout(ws, rws, idMap);
+  killOrphanedTerminals(ws);
+  validateLayout(ws);
+
+  return { ws, resumeCount: resume.count };
+}
+
+function isTerminalPane(paneInfo: RustPaneInfo): boolean {
+  const pt = paneInfo.pane_type as Record<string, unknown> | null;
+  return pt != null && "Terminal" in pt;
+}
+
+/** Diff panes are persisted as Editor panes with a marker triple in file_paths. */
+function isDiffPane(paneInfo: RustPaneInfo): boolean {
+  return paneInfo.file_paths.length === 3 && paneInfo.file_paths[0] === "diff-pane-v1";
+}
+
+interface ResumeCounter {
+  /** Number of Claude resumes scheduled so far in this workspace. */
+  count: number;
+  /** Resumes already scheduled by earlier workspaces in the same launch. */
+  startIndex: number;
+}
+
+/**
+ * Respawn a terminal pane's PTY (one retry) and schedule its Claude session
+ * resume. Returns the new pane id, or null when both spawn attempts failed.
+ */
+async function restoreTerminalPane(
+  ws: Workspace,
+  rws: RustWorkspace,
+  paneInfo: RustPaneInfo,
+  allocateTermNum: () => number,
+  resume: ResumeCounter,
+): Promise<string | null> {
+  const pt = paneInfo.pane_type as { Terminal?: { cwd?: string } };
+  const savedCwd = pt.Terminal?.cwd ? pt.Terminal.cwd : null;
+
+  // SSH workspaces spawn `/usr/bin/ssh` with the SshConfig-derived extra args
+  // (matching the live-spawn path); local workspaces use the default shell.
+  // The saved terminal_id is passed through so the Rust side keeps the id.
+  const isSsh = ws.sshConfig != null;
+  const shell = isSsh ? "/usr/bin/ssh" : effectiveSettings.terminal.default_shell;
+  const cwd = isSsh ? "/" : (savedCwd || rws.root_path || "/");
+  const extraArgs = isSsh ? buildSshExtraArgs(ws.sshConfig!) : undefined;
+  const savedTerminalId = paneInfo.terminal_id ?? undefined;
+
+  let terminalId: number;
+  try {
+    try {
+      terminalId = await spawnTerminal(shell, cwd, 80, 24, extraArgs, savedTerminalId);
+    } catch (firstErr) {
+      log.warn(
+        `Terminal spawn failed for pane ${paneInfo.id} in workspace "${rws.name}" (cwd=${cwd}), retrying once in 250ms:`,
+        firstErr,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      terminalId = await spawnTerminal(shell, cwd, 80, 24, extraArgs, savedTerminalId);
+    }
+  } catch (e) {
+    log.error(
+      `Failed to spawn terminal during restore (after retry) for pane ${paneInfo.id} in workspace "${rws.name}" (title="${paneInfo.title}"):`,
+      e,
+    );
+    return null;
+  }
+
+  const paneId = `term-${terminalId}`;
+  ws.terminalIds.push(terminalId);
+  ws.activeTerminalId = terminalId;
+  ws.panes[paneId] = {
+    id: paneId,
+    kind: "terminal",
+    title: paneInfo.title,
+    terminalId,
+    agentKind: paneInfo.agent === "codex" ? "codex" : paneInfo.claude_session_id ? "claude" : null,
+  };
+  allocateTermNum(); // advance the counter for each restored terminal
+
+  if (paneInfo.claude_session_id) scheduleResumeForPane(terminalId, paneInfo, rws, resume);
+  return paneId;
+}
+
+/**
+ * Schedule the agent's resume for a restored terminal. The first 8 sessions are
+ * 600 ms apart; beyond that they go in waves of 8 offset by 8 s, so the slot
+ * within a wave stays tight while total time never runs away (and the base
+ * delay stays well below the hard timeout for any realistic count).
+ */
+function scheduleResumeForPane(terminalId: number, paneInfo: RustPaneInfo, rws: RustWorkspace, resume: ResumeCounter): void {
+  const sessionId = paneInfo.claude_session_id!;
+  // A suspicious id still gets a usable terminal: skip the injection, keep the shell.
+  if (!isValidSessionId(sessionId)) {
+    log.warn(
+      `Refusing to inject suspicious session ID for pane ${paneInfo.id} in workspace "${rws.name}": ${sessionId}. Spawning fresh terminal instead.`,
+    );
+    return;
+  }
+  const idx = resume.startIndex + resume.count;
+  const wave = Math.floor(idx / 8);
+  const slot = idx % 8;
+  const baseDelay = 500 + wave * 8_000 + slot * 600;
+  resume.count++;
+  // savedPid is null: restore always spawns a fresh PTY, so the old Claude is
+  // dead whatever the saved PID says; passing it risks a recycled PID cancelling
+  // the resume.
+  scheduleClaudeResume(terminalId, sessionId, null, baseDelay, {
+    checkPidAlive,
+    writeToTerminal,
+    subscribeToFrames: onTerminalGrid,
+  }, paneInfo.agent === "codex" ? "codex" : "claude");
+}
+
+/** Re-fetch the diff from git. Null when the file was committed or discarded meanwhile. */
+async function restoreDiffPane(ws: Workspace, rws: RustWorkspace, paneInfo: RustPaneInfo): Promise<string | null> {
+  const staged = paneInfo.file_paths[1] === "staged";
+  const filePath = paneInfo.file_paths[2];
+  const paneId = `diff-${crypto.randomUUID().slice(0, 8)}`;
+  try {
+    const diff = await gitDiffFile(rws.root_path, filePath, staged);
+    ws.panes[paneId] = {
+      id: paneId,
+      kind: "diff",
+      title: filePath.split("/").pop() ?? filePath,
+      diffFilePath: filePath,
+      diffOldContent: diff.old_content,
+      diffNewContent: diff.new_content,
+      diffStaged: staged,
+      diffPreview: false,
+    };
+    return paneId;
+  } catch (e) {
+    log.warn(`Failed to restore diff pane for "${filePath}":`, e);
+    return null;
+  }
+}
+
+/** Reopen the pane's files. Null when none of them could be read (a blank pane is never restored). */
+async function restoreEditorPane(ws: Workspace, rws: RustWorkspace, paneInfo: RustPaneInfo): Promise<string | null> {
+  const paneId = `editor-${crypto.randomUUID().slice(0, 8)}`;
+  const filePaths: string[] = [];
+  for (const path of paneInfo.file_paths) {
+    if (path.startsWith("untitled-")) {
+      if (!ws.openFileIndex[path]) addOpenFile(ws, { name: path, path, content: "" });
+      filePaths.push(path);
+      continue;
+    }
+    try {
+      const content = await readFile(path);
+      const name = path.split("/").pop() ?? path;
+      if (!ws.openFileIndex[path]) addOpenFile(ws, { name, path, content });
+      filePaths.push(path);
+    } catch (e) {
+      // The file may be gone. Not surfaced to the user, but traced so restore
+      // weirdness stays debuggable.
+      log.debug(
+        `Skipping missing/unreadable file during restore: "${path}" (workspace "${rws.name}", pane ${paneInfo.id}):`,
+        e,
+      );
+    }
+  }
+  // Blank editor panes are artifacts of diff panes once persisted as empty
+  // Editor entries; a real editor pane always has at least one file.
+  if (filePaths.length === 0) return null;
+
+  const activeFilePath =
+    paneInfo.active_file_path && filePaths.includes(paneInfo.active_file_path)
+      ? paneInfo.active_file_path
+      : (filePaths[0] ?? null);
+  ws.panes[paneId] = { id: paneId, kind: "editor", title: paneInfo.title, filePaths, activeFilePath };
+  return paneId;
+}
+
+/** Remap the saved layout onto the new pane ids and drop leaves whose pane did not come back. */
+function restoreLayout(ws: Workspace, rws: RustWorkspace, idMap: Map<string, string>): void {
   if (rws.layout) {
     try {
       ws.layout = remapLayout(rws.layout, idMap);
     } catch (e) {
       log.warn("Failed to remap workspace layout:", e);
-      // Fall back to first pane as leaf if layout is corrupt
       const firstPaneId = Object.keys(ws.panes)[0];
       if (firstPaneId) ws.layout = { type: "leaf", paneId: firstPaneId };
     }
-
-    // Strip any layout leaves that have no corresponding pane (e.g. blank editor
-    // panes that were skipped above, or stale IDs from removed pane types).
     if (ws.layout) {
       const paneIds = new Set(Object.keys(ws.panes));
-      const danglingLeaves = [...collectLeafIds(ws.layout)].filter(id => !paneIds.has(id));
-      for (const leafId of danglingLeaves) {
-        const result = removeNodeFromTree(ws.layout!, leafId);
-        ws.layout = result.tree; // may become null if all panes were stripped
+      for (const leafId of [...collectLeafIds(ws.layout)].filter((id) => !paneIds.has(id))) {
+        ws.layout = removeNodeFromTree(ws.layout!, leafId).tree; // null once every pane is gone
       }
     }
   }
+  ws.activePaneId = (rws.active_pane_id && idMap.get(rws.active_pane_id)) ?? findFirstLeaf(ws.layout);
+}
 
-  // Set active pane
-  ws.activePaneId =
-    (rws.active_pane_id && idMap.get(rws.active_pane_id)) ?? findFirstLeaf(ws.layout);
-
-  // Kill any spawned terminals whose pane ended up orphaned (not in the layout).
-  if (ws.layout) {
-    const layoutLeafIds = collectLeafIds(ws.layout);
-    const orphanedTerminalIds: number[] = [];
-    for (const [paneId, pane] of Object.entries(ws.panes)) {
-      if (!layoutLeafIds.has(paneId) && pane.kind === "terminal" && pane.terminalId != null) {
-        orphanedTerminalIds.push(pane.terminalId);
-      }
-    }
-    if (orphanedTerminalIds.length > 0) {
-      for (const tid of orphanedTerminalIds) {
-        killTerminal(tid).catch(() => {});
-      }
+/** Kill PTYs whose pane ended up outside the layout (its leaf was pruned). */
+function killOrphanedTerminals(ws: Workspace): void {
+  if (!ws.layout) return;
+  const layoutLeafIds = collectLeafIds(ws.layout);
+  for (const [paneId, pane] of Object.entries(ws.panes)) {
+    if (!layoutLeafIds.has(paneId) && pane.kind === "terminal" && pane.terminalId != null) {
+      killTerminal(pane.terminalId).catch((e) => log.warn("Failed to kill orphaned terminal:", pane.terminalId, e));
     }
   }
-
-  validateLayout(ws);
-
-  return { ws, resumeCount: localClaudeResumeIndex };
 }
 

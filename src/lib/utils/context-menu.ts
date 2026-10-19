@@ -10,6 +10,8 @@
 
 export interface ContextMenuItem {
   label: string;
+  /** Bootstrap-icon class (e.g. "bi-terminal") shown before the label. */
+  icon?: string;
   shortcut?: string;
   disabled?: boolean;
   action?: () => void;
@@ -143,6 +145,12 @@ function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void, dep
     btn.disabled = (!hasSubmenu && !item.action) || (item.disabled ?? false);
     btn.tabIndex = -1;
 
+    if (item.icon) {
+      const icon = document.createElement("i");
+      icon.className = `bi ${item.icon}`;
+      btn.appendChild(icon);
+    }
+
     const labelSpan = document.createElement("span");
     labelSpan.textContent = item.label;
     btn.appendChild(labelSpan);
@@ -209,7 +217,13 @@ function buildMenu(items: (ContextMenuItem | "sep")[], onRemove: () => void, dep
         });
       }
 
+      // mousedown only keeps focus where it was (an editor or terminal must not
+      // blur); the action runs on click so a programmatic `.click()` works too.
       btn.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      btn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         removeSubmenu();
@@ -260,8 +274,16 @@ export function positionFixedMenu(menu: HTMLElement, x: number, y: number): void
   });
 }
 
+/** Tears down the open top-level menu, listeners included. Replacing only the element leaked them. */
+let removeActiveMenu: (() => void) | null = null;
+
+/** Close the open context menu, if any. */
+export function closeContextMenu(): void {
+  removeActiveMenu?.();
+}
+
 export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y: number): void {
-  document.querySelector(".splice-ctx-menu")?.remove();
+  closeContextMenu();
   removeSubmenu();
 
   const menu = buildMenu(items, remove);
@@ -270,9 +292,11 @@ export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y
   positionFixedMenu(menu, x, y);
 
   function remove() {
+    if (removeActiveMenu === remove) removeActiveMenu = null;
     removeSubmenu();
     menu.remove();
     document.removeEventListener("mousedown",   outside, true);
+    document.removeEventListener("click",       outside, true);
     document.removeEventListener("keydown",     onKey,   true);
     document.removeEventListener("contextmenu", outside, true);
   }
@@ -285,6 +309,10 @@ export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y
     if (e.key === "Tab")    { e.preventDefault(); }
   };
   document.addEventListener("mousedown",   outside, true);
+  // A programmatic `.click()` (automation, keyboard-driven UIs) fires no mousedown;
+  // without this the menu, and its Escape-swallowing keydown listener, outlived it.
+  document.addEventListener("click",       outside, true);
   document.addEventListener("keydown",     onKey,   true);
   document.addEventListener("contextmenu", outside, true);
+  removeActiveMenu = remove;
 }

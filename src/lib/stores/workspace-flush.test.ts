@@ -18,7 +18,7 @@ vi.mock("./settings.svelte", () => {
   };
   return {
     settings: fakeSettings,
-    effectiveSettings: fakeSettings,
+    effectiveSettings: fakeSettings, defaultViewMode: () => "split" as const,
   };
 });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   findFirstEditorPaneId,
   hasDirtyFilesByPane,
@@ -588,5 +588,79 @@ describe("updateFileContent", () => {
   it("no-ops for unknown file path", () => {
     const ws = makeWs();
     expect(() => updateFileContent(ws, "nope.ts", "content")).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// File watchers are reference counted on the Rust side, so every open path
+// must register exactly one watch per index entry and every final close must
+// release exactly one. Re-clicking the active tab, promoting a preview to a
+// pin, or opening the same file in a second pane used to add a reference each
+// time while close released once, so watchers (and their file:changed events)
+// outlived the tab.
+
+vi.mock("../ipc/commands", () => ({
+  watchPath: vi.fn().mockResolvedValue(undefined),
+  unwatchPath: vi.fn().mockResolvedValue(undefined),
+}));
+
+// The store reaches IPC through dynamic import(); under vitest that resolves on
+// a macrotask, so a microtask flush is not enough.
+async function flushIpc() {
+  await new Promise((r) => setTimeout(r, 20));
+}
+
+describe("open/close watcher pairing", () => {
+  beforeEach(async () => {
+    const ipc = await import("../ipc/commands");
+    vi.mocked(ipc.watchPath).mockClear();
+    vi.mocked(ipc.unwatchPath).mockClear();
+  });
+
+  it("reopening_and_pinning_an_open_file_adds_no_extra_watch", async () => {
+    const ipc = await import("../ipc/commands");
+    const ws = makeWs({ e1: makeEditorPane("e1", []) }, leaf("e1"), [], "e1");
+    openFileInWorkspace(ws, makeFile("/p/a.ts", { preview: true }), "e1");
+    openFileInWorkspace(ws, makeFile("/p/a.ts", { preview: true }), "e1"); // re-click active tab
+    openFileInWorkspace(ws, makeFile("/p/a.ts"), "e1");                    // promote to pinned
+    await flushIpc();
+    console.log("DBG watch calls:", vi.mocked(ipc.watchPath).mock.calls.length);
+    expect(ipc.watchPath).toHaveBeenCalledTimes(1);
+    expect(ipc.watchPath).toHaveBeenCalledWith("/p/a.ts");
+  });
+
+  it("file_open_in_two_panes_is_watched_once_and_unwatched_once", async () => {
+    const ipc = await import("../ipc/commands");
+    const ws = makeWs(
+      { e1: makeEditorPane("e1", []), e2: makeEditorPane("e2", []) },
+      hSplit(leaf("e1"), leaf("e2")),
+      [],
+      "e1",
+    );
+    openFileInWorkspace(ws, makeFile("/p/a.ts"), "e1");
+    openFileInWorkspace(ws, makeFile("/p/a.ts"), "e2");
+    await flushIpc();
+    expect(ipc.watchPath).toHaveBeenCalledTimes(1);
+
+    closeFileInWorkspace(ws, "/p/a.ts", "e1");
+    await flushIpc();
+    expect(ipc.unwatchPath).not.toHaveBeenCalled(); // still open in e2
+
+    closeFileInWorkspace(ws, "/p/a.ts", "e2");
+    await flushIpc();
+    expect(ipc.unwatchPath).toHaveBeenCalledTimes(1);
+    expect(ipc.unwatchPath).toHaveBeenCalledWith("/p/a.ts");
+    expect(ws.openFiles).toHaveLength(0);
+  });
+
+  it("untitled_and_ssh_files_are_never_watched", async () => {
+    const ipc = await import("../ipc/commands");
+    const ws = makeWs({ e1: makeEditorPane("e1", []) }, leaf("e1"), [], "e1");
+    openFileInWorkspace(ws, makeFile("untitled-1"), "e1");
+    const ssh = makeWs({ e1: makeEditorPane("e1", []) }, leaf("e1"), [], "e1");
+    ssh.sshConfig = { host: "h", port: 22, user: "u", keyPath: "", remotePath: "/r" };
+    openFileInWorkspace(ssh, makeFile("/r/b.ts"), "e1");
+    await flushIpc();
+    expect(ipc.watchPath).not.toHaveBeenCalled();
   });
 });

@@ -290,6 +290,9 @@ pub fn run() {
                     if let Err(e) = attention::install_hook() {
                         tracing::warn!("Failed to install Claude hook: {}", e);
                     }
+                    if let Err(e) = attention::install_codex_integration() {
+                        tracing::warn!("Failed to install Codex integration: {}", e);
+                    }
                 }
             });
 
@@ -320,12 +323,27 @@ pub fn run() {
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .resizable(true);
 
-                let _ = sec_builder.build();
+                if let Ok(window) = sec_builder.build() {
+                    window_swizzle::fix_traffic_lights_soon(&window.as_ref().window());
+                }
             } else {
                 let _ = app.emit("menu-event", event.id().0.as_str());
             }
         })
         .on_window_event(|window, event| {
+            // Windows created at runtime (menu, dock) can finish their first layout
+            // before the overlay style mask is applied, so the NSThemeFrame hook
+            // skips them; re-apply on the events that follow a window's appearance.
+            #[cfg(target_os = "macos")]
+            if matches!(
+                event,
+                tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::Moved(_)
+                    | tauri::WindowEvent::Focused(true)
+                    | tauri::WindowEvent::ThemeChanged(_)
+            ) {
+                window_swizzle::fix_traffic_lights(window);
+            }
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let _ = window.emit("app:closing", ());
             }

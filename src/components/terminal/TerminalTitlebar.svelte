@@ -2,7 +2,8 @@
   import { ui } from "../../lib/stores/ui.svelte";
   import { effectiveSettings } from "../../lib/stores/settings.svelte";
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
-  import DropdownMenu, { type DropdownItem } from "../shared/DropdownMenu.svelte";
+  import PaneHeaderActions from "../shared/PaneHeaderActions.svelte";
+  import type { PaneHeaderAction } from "../../lib/actions";
   import type { AttentionNotification } from "../../lib/stores/attention.svelte";
   import { beginDrag, getDragActive, isDragging } from "../../lib/stores/drag.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
@@ -27,7 +28,7 @@
     notification?: AttentionNotification | null;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
-    onAction?: (action: string) => void;
+    onAction?: (action: PaneHeaderAction) => void;
     onRename?: (title: string) => void;
   } = $props();
 
@@ -91,57 +92,6 @@
     beginDrag({ filePath: "", fileName: title, sourcePaneId: paneId, kind: "terminal" }, e);
   }
 
-  let splitMenuOpen = $state(false);
-  let splitBtnEl = $state<HTMLButtonElement | null>(null);
-  let splitDropdown: DropdownMenu;
-
-  const splitItems: DropdownItem[] = [
-    { label: "Split Right", icon: "bi-layout-split", action: "horizontal:after" },
-    { label: "Split Left", icon: "bi-layout-split", iconStyle: "transform: scaleX(-1)", action: "horizontal:before" },
-    { label: "Split Down", icon: "bi-layout-split", iconStyle: "transform: rotate(90deg)", action: "vertical:after" },
-    { label: "Split Up", icon: "bi-layout-split", iconStyle: "transform: rotate(-90deg)", action: "vertical:before" },
-  ];
-
-  function handleSplitSelect(action: string) {
-    const [dir, side] = action.split(":") as [SplitDirection, "before" | "after"];
-    onSplit?.(dir, side);
-  }
-
-  // --- Plus dropdown ---
-  let plusMenuOpen = $state(false);
-  let plusBtnEl = $state<HTMLButtonElement | null>(null);
-  let plusDropdown: DropdownMenu;
-
-  const plusItems: DropdownItem[] = [
-    { label: "New File", shortcut: "⌘ N", action: "new-file" },
-    { label: "Open File", shortcut: "⌘ P", action: "open-file" },
-    { label: "", action: "", separator: true },
-    { label: "Search Project", shortcut: "⌘ F", action: "search-project" },
-    { label: "Search Symbols", shortcut: "⌘ T", action: "search-symbols" },
-    { label: "", action: "", separator: true },
-    { label: "New Terminal", shortcut: "⌃ `", action: "new-terminal" },
-  ];
-
-  function handlePlusSelect(action: string) {
-    onAction?.(action);
-  }
-
-  function toggleSplitMenu(e: MouseEvent) {
-    e.stopPropagation();
-    plusMenuOpen = false;
-    splitMenuOpen = !splitMenuOpen;
-  }
-
-  function togglePlusMenu(e: MouseEvent) {
-    e.stopPropagation();
-    splitMenuOpen = false;
-    plusMenuOpen = !plusMenuOpen;
-  }
-
-  function onResize() {
-    splitDropdown?.reposition();
-    plusDropdown?.reposition();
-  }
 
   // --- Live Claude telemetry for this pane's terminal ---
   const terminalId = $derived(workspaceManager.activeWorkspace?.panes[paneId]?.terminalId ?? null);
@@ -149,36 +99,17 @@
   // Color the context-window readout as it fills toward compaction.
   const ctxColor = $derived.by(() => {
     const pct = claudeStatus?.contextPct;
-    if (pct == null) return "var(--txt-dim)";
+    if (pct == null) return "var(--text-dim)";
     if (pct >= 85) return "var(--ansi-red)";
     if (pct >= 70) return "var(--ansi-yellow)";
-    return "var(--txt-dim)";
+    return "var(--text-dim)";
   });
 </script>
-
-<svelte:window onresize={onResize} />
-
-<DropdownMenu
-  bind:this={splitDropdown}
-  bind:open={splitMenuOpen}
-  triggerEl={splitBtnEl}
-  items={splitItems}
-  onSelect={handleSplitSelect}
-  containerClass="split-menu-container"
-/>
-<DropdownMenu
-  bind:this={plusDropdown}
-  bind:open={plusMenuOpen}
-  triggerEl={plusBtnEl}
-  items={plusItems}
-  onSelect={handlePlusSelect}
-  containerClass="plus-menu-container"
-/>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="flex items-center px-2.5 bg-tab-active border-b border-border text-xs shrink-0 select-none overflow-hidden min-w-0 transition-opacity duration-100"
-  style="height: var(--titlebar-height); min-height: var(--titlebar-height); padding-left: calc(0.625rem + var(--header-traffic-offset, 0px)); transition: padding-left 150ms ease;{isBeingDragged ? ' opacity: 0.35;' : ''}"
+  style="height: var(--titlebar-height); min-height: var(--titlebar-height);{isBeingDragged ? ' opacity: 0.35;' : ''}"
   onmousedown={handleMouseDown}
 >
   {#if editing}
@@ -228,6 +159,11 @@
         ><i class="bi bi-clock-history mr-1 text-[10px]"></i>{lastTouchedLabel}</span
       >
     {/if}
+    {#if claudeStatus?.model}
+      <span class="shrink-0" title="Model in this terminal's agent session">
+        <i class="bi bi-cpu mr-1 text-[10px]"></i>{claudeStatus.model}
+      </span>
+    {/if}
     {#if claudeStatus?.contextPct != null}
       <span class="shrink-0" style="color: {ctxColor};" title="Claude context window used">
         <i class="bi bi-pie-chart mr-1 text-[10px]"></i>{Math.round(claudeStatus.contextPct)}%
@@ -241,35 +177,7 @@
     {#if ui.zoomedPaneId}
       <span class="text-[10px] uppercase tracking-wide text-accent mr-1 font-medium">Zoomed</span>
     {/if}
-    {#if onAction}
-      <div class="plus-menu-container">
-        <button
-          bind:this={plusBtnEl}
-          class="pane-action-btn"
-          title="New..."
-          onclick={togglePlusMenu}
-        >
-          <i class="bi bi-plus-lg"></i>
-        </button>
-      </div>
-    {/if}
-    {#if onSplit}
-      <div class="split-menu-container">
-        <button
-          bind:this={splitBtnEl}
-          class="pane-action-btn"
-          title="Split Pane"
-          onclick={toggleSplitMenu}
-        >
-          <i class="bi bi-layout-split"></i>
-        </button>
-      </div>
-    {/if}
-    {#if onClose}
-      <button class="pane-action-btn close" title="Close" onclick={onClose}>
-        <i class="bi bi-x-lg" style="font-size: var(--ui-icon)"></i>
-      </button>
-    {/if}
+    <PaneHeaderActions {onAction} {onSplit} {onClose} />
   </span>
 </div>
 

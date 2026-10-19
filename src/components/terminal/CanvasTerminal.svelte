@@ -27,8 +27,12 @@
    * Scroll: Wheel events accumulate fractional deltas and flush whole-line scrolls per RAF.
    * In mouse-protocol mode, wheel events become button 64/65 sequences.
    */
-  import { onMount, onDestroy } from "svelte";
-  import { TerminalRenderer, HEADER_SIZE, CELL_SIZE } from "../../lib/terminal/renderer";
+  import { onMount, onDestroy, untrack } from "svelte";
+  import { TerminalRenderer } from "../../lib/terminal/renderer";
+  import { decodeHeader, mouseModeOf, MODE_APP_CURSOR_KEYS, MODE_BRACKETED_PASTE, MODE_MOUSE_SGR, MODE_FOCUS_EVENTS } from "../../lib/terminal/protocol";
+  import { encodeMouseButton, heldButton, cellToReport, encodeMouseEvent, MOUSE_MOTION, MOUSE_NO_BUTTON, MOUSE_WHEEL_UP, MOUSE_WHEEL_DOWN } from "../../lib/terminal/mouse";
+  import { wordRangeAt, joinSelectedLines } from "../../lib/terminal/selection";
+  import { encodePaste } from "../../lib/terminal/paste";
   import type { TerminalSearchMatch } from "../../lib/ipc/commands";
   import { effectiveSettings } from "../../lib/stores/settings.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
@@ -67,7 +71,6 @@
   let renderer = $state<TerminalRenderer | null>(null);
   let resizeObserver: ResizeObserver | null = null;
   let unlistenGrid: (() => void) | null = null;
-  let unlistenExit: (() => void) | null = null;
   let unlistenClipboard: (() => void) | null = null;
   // Set true in onDestroy. Async listener registrations check this after their
   // await resolves; if destroyed before resolution, they immediately unlisten the
@@ -116,13 +119,17 @@
   // Selection state
   let isSelecting = false;
   let dragScrollInterval: ReturnType<typeof setInterval> | null = null;
-  // Set to true when the window regains focus, consumed by the next mousedown so that
-  // clicking to re-focus the app doesn't inadvertently open a URL or start a selection.
+  // Clicking an inactive Splice window to bring it back (after a link opened the
+  // browser, say) must not act on the terminal: it would re-open the still-hovered
+  // URL. Two signals cover both event orders WebKit produces: `focusClickPending`
+  // is set by the window `focus` event and consumed by the next mousedown, and
+  // `windowFocused` is false from `blur` until `focus`, for the case where the
+  // activating mousedown is delivered before the focus event.
   let focusClickPending = false;
+  let windowFocused = document.hasFocus();
 
   // Frame metadata (updated each time a frame arrives)
   let frameFirstDisplayHistoryRow = 0;
-  let frameScrollbackLen = 0;
   let frameRows = 0;
   let frameCols = 0;
 
@@ -167,42 +174,38 @@
     }
   });
 
-  // Update terminal font when settings change
+  // Update terminal font when settings change. Only the two font settings are
+  // dependencies: handleResize reads ui.sidebarResizing, and tracking that here
+  // re-ran the font update on every sidebar drag.
   $effect(() => {
     if (!renderer) return;
     const fs = effectiveSettings.terminal.font_size;
     const ff = `${effectiveSettings.terminal.font_family}, Consolas, 'Courier New', monospace`;
-    renderer.updateFont(fs, ff);
-    handleResize();
-    renderer.rerender();
-  });
-
-  // Re-fit terminal when UI zoom changes.
-  // ResizeObserver uses CSS content-box coordinates which don't change when only
-  // document.documentElement.style.zoom changes, so it won't fire on zoom.
-  // We have to re-measure explicitly.
-  // Double-RAF: WebKit needs two frames to fully apply the CSS zoom and update
-  // layout metrics. Single-RAF can fire before offsetWidth reflects the new zoom.
-  // Force-reset currentCols/currentRows so the PTY always gets a fresh SIGWINCH
-  // even when the computed cols happen to equal the pre-zoom value.
-  $effect(() => {
-    const _scale = effectiveSettings.appearance.ui_scale; // subscribe
-    if (!renderer || !containerEl) return;
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      currentCols = 0;
-      currentRows = 0;
+    untrack(() => {
+      renderer!.updateFont(fs, ff);
       handleResize();
-    }));
+      renderer!.rerender();
+    });
   });
 
-  // Re-fit when pane zoom is toggled.
-  // When a pane is zoomed, a second CanvasTerminal instance is mounted in the overlay
-  // at full-screen size and resizes the PTY to match. When zoom is dismissed that instance
-  // is destroyed, but the original instance (hidden in the PaneGrid via visibility:hidden)
-  // never saw its container resize — so ResizeObserver won't fire. Force a remeasure here.
+  // Re-fit after layout changes the ResizeObserver cannot see:
+  // - UI zoom: ResizeObserver reports CSS content-box sizes, which do not change
+  //   when only document.documentElement.style.zoom changes.
+  // - Pane zoom: the overlay mounts a second instance that resizes the PTY; when
+  //   zoom is dismissed the original (hidden via visibility:hidden) never saw its
+  //   container change.
+  // Double-RAF: WebKit needs two frames before offsetWidth reflects the new zoom.
+  // currentCols/currentRows are reset so the PTY gets a SIGWINCH even when the
+  // computed size happens to match. The first run only records the state: the
+  // mount-time handleResize has already fitted the PTY.
+  let refitKey: string | null = null;
   $effect(() => {
-    const _zoomed = ui.zoomedPaneId; // subscribe
+    const key = `${effectiveSettings.appearance.ui_scale}|${ui.zoomedPaneId ?? ""}`;
     if (!renderer || !containerEl) return;
+    if (refitKey === key) return;
+    const first = refitKey === null;
+    refitKey = key;
+    if (first) return;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       currentCols = 0;
       currentRows = 0;
@@ -221,12 +224,6 @@
       renderer.rerender();
     }
   });
-
-  /** Returns true if codepoint is a word boundary (for double-click selection). */
-  function isWordBreak(cp: number): boolean {
-    if (cp <= 32) return true;
-    return '"\'()[]{}|<>'.includes(String.fromCodePoint(cp));
-  }
 
   /**
    * Map a mouse/wheel event to a terminal cell, correcting for root CSS zoom
@@ -318,7 +315,7 @@
     const { writeToTerminal, scrollTerminal, resizeTerminal, refreshTerminal, saveTempImage, writeToClipboard } = await import(
       "../../lib/ipc/commands"
     );
-    const { onTerminalGrid, onTerminalExit, onTerminalClipboard } = await import(
+    const { onTerminalGrid, onTerminalClipboard } = await import(
       "../../lib/ipc/events"
     );
 
@@ -377,9 +374,21 @@
     // a stale URL open (hoveredUrl may still point at the link from before blur).
     const onWindowFocus = () => {
       if (renderer) renderer.rerender();
+      windowFocused = true;
       focusClickPending = true;
+      // A refocus by keyboard (⌘Tab) has no click to consume; don't swallow a
+      // later, deliberate click.
+      setTimeout(() => { focusClickPending = false; }, 500);
     };
-    const onWindowBlur = () => { focusClickPending = false; };
+    const onWindowBlur = () => {
+      windowFocused = false;
+      focusClickPending = false;
+      // The pointer may still sit on the link when the browser comes to the front.
+      if (renderer?.hoveredUrl) {
+        renderer.hoveredUrl = null;
+        renderer.rerender();
+      }
+    };
     window.addEventListener('focus', onWindowFocus);
     window.addEventListener('blur', onWindowBlur);
     cleanupFns.push(() => window.removeEventListener('focus', onWindowFocus));
@@ -391,13 +400,12 @@
     const gridUnlisten = await onTerminalGrid(
       terminalId,
       (data: Uint8Array) => {
-        if (data.length >= HEADER_SIZE) {
-          const hv = new DataView(data.buffer, data.byteOffset);
-          frameCols = hv.getUint16(0, true);
-          frameRows = hv.getUint16(2, true);
-          modeFlags = data[10];
-          frameFirstDisplayHistoryRow = hv.getInt32(12, true);
-          frameScrollbackLen = hv.getUint32(16, true);
+        const header = decodeHeader(data);
+        if (header) {
+          frameCols = header.cols;
+          frameRows = header.rows;
+          modeFlags = header.modeFlags;
+          frameFirstDisplayHistoryRow = header.firstDisplayHistoryRow;
         }
         // Update renderer metadata immediately (before RAF) so that rerender()
         // called from mouse events uses the correct history coordinates in isSelected().
@@ -420,12 +428,6 @@
     unlistenGrid = gridUnlisten;
     // Listener is live on both sides now — ask for the frame we may have missed.
     requestFrameUntilReceived();
-
-    const exitUnlisten = await onTerminalExit(terminalId, (_code: number) => {
-      // Could show exit message
-    });
-    if (destroyed) { exitUnlisten(); return; }
-    unlistenExit = exitUnlisten;
 
     // OSC 52: remote clipboard writes (e.g. from tmux, vim over SSH)
     const clipUnlisten = await onTerminalClipboard(terminalId, (text: string) => {
@@ -451,44 +453,12 @@
       const [lo, hi] = a.historyRow <= b.historyRow ? [a, b] : [b, a];
       const { getTerminalTextRange } = await import("../../lib/ipc/commands");
       const lines = await getTerminalTextRange(terminalId, lo.historyRow, hi.historyRow);
-      if (lines.length === 0) return "";
-      if (lines.length === 1) {
-        const minCol = Math.min(lo.col, hi.col);
-        const maxCol = Math.max(lo.col, hi.col);
-        return lines[0].substring(minCol, maxCol + 1).trimEnd();
-      }
-      const segments = [
-        lines[0].substring(lo.col).trimEnd(),
-        ...lines.slice(1, -1).map(l => l.trimEnd()),
-        lines[lines.length - 1].substring(0, hi.col + 1).trimEnd(),
-      ];
-      let result = "";
-      for (let i = 0; i < segments.length; i++) {
-        result += segments[i];
-        if (i < segments.length - 1) {
-          // Soft-wrap: raw line's last char is non-space → join without newline
-          const rawLastChar = lines[i][lines[i].length - 1];
-          result += (rawLastChar !== ' ' && rawLastChar !== '\0') ? "" : "\n";
-        }
-      }
-      return result.replace(/\n+$/, "");
+      return joinSelectedLines(lines, lo.col, hi.col);
     }
 
-    /** Encode and send a mouse event to the terminal PTY. */
+    /** Encode and send a mouse report to the terminal PTY (SGR when the app enabled it, else X10). */
     function sendMouseEvent(button: number, cx: number, cy: number, press: boolean) {
-      const mouseSgr = (modeFlags & 0x20) !== 0;
-      if (mouseSgr) {
-        // SGR extended: ESC[<button;cx;cyM (press) / ESC[<button;cx;cym (release)
-        writeToTerminal(terminalId, textEncoder.encode(
-          `\x1b[<${button};${cx};${cy}${press ? "M" : "m"}`
-        ));
-      } else {
-        // X10 fallback: ESC[M<b><x><y> (3 bytes, clamped to 32-255)
-        const b = Math.min(32 + button, 255);
-        const x = Math.min(32 + cx, 255);
-        const y = Math.min(32 + cy, 255);
-        writeToTerminal(terminalId, new Uint8Array([0x1b, 0x5b, 0x4d, b, x, y]));
-      }
+      writeToTerminal(terminalId, encodeMouseEvent(button, cx, cy, press, (modeFlags & MODE_MOUSE_SGR) !== 0));
     }
 
     // Keyboard handler
@@ -511,7 +481,7 @@
         return;
       }
 
-      const bytes = keyToBytes(e, (modeFlags & 2) !== 0);
+      const bytes = keyToBytes(e, (modeFlags & MODE_APP_CURSOR_KEYS) !== 0);
       if (bytes) {
         e.preventDefault();
         // A key the shell consumed (Escape in vim, Ctrl+key) is not also a Splice
@@ -562,27 +532,17 @@
 
       const text = e.clipboardData?.getData("text");
       if (!text) return;
-      const bracketed = (modeFlags & 1) !== 0;
-      let bytes: Uint8Array;
-      if (bracketed) {
-        const prefix = textEncoder.encode("\x1b[200~");
-        const content = textEncoder.encode(text);
-        const suffix = textEncoder.encode("\x1b[201~");
-        bytes = new Uint8Array(
-          prefix.length + content.length + suffix.length,
-        );
-        bytes.set(prefix, 0);
-        bytes.set(content, prefix.length);
-        bytes.set(suffix, prefix.length + content.length);
-      } else {
-        bytes = textEncoder.encode(text);
-      }
-      writeToTerminal(terminalId, bytes);
+      writeToTerminal(terminalId, encodePaste(text, (modeFlags & MODE_BRACKETED_PASTE) !== 0));
     };
     document.addEventListener("paste", onPaste, { capture: true });
     cleanupFns.push(() => document.removeEventListener("paste", onPaste, { capture: true }));
 
     // Mouse selection and protocol forwarding
+    // True between a mouse-protocol press on this canvas and its release. Move and
+    // release listeners live on `window` (so a drag that leaves the canvas still
+    // ends), so without this every terminal in mouse mode received every release.
+    let protocolPressActive = false;
+
     const onMouseDown = (e: MouseEvent) => {
       if (!renderer) return;
       // Explicitly focus the canvas so Cmd+C keydown fires here (WKWebView doesn't
@@ -591,26 +551,22 @@
 
       // Consume the focus-regain click: when the user clicks to bring this window
       // back to the front the click-through would otherwise open a stale hoveredUrl.
-      if (focusClickPending) {
+      if (focusClickPending || !windowFocused) {
         focusClickPending = false;
+        windowFocused = true;
         return;
       }
 
-      const mouseMode = (modeFlags >> 3) & 0x3;
+      const mouseMode = mouseModeOf(modeFlags);
 
       // When mouse protocol is active, forward button press to terminal — except
       // right-click (button 2), which always opens Splice's context menu (matches
       // Terminal.app). Without this, a TUI app in mouse mode (e.g. Claude Code
       // fullscreen) eats every right-click and the menu never appears.
       if (mouseMode > 0 && e.button !== 2) {
-        let btn = e.button === 0 ? 0 : e.button === 1 ? 1 : 2;
-        if (e.shiftKey) btn |= 4;
-        if (e.altKey) btn |= 8;
-        if (e.ctrlKey) btn |= 16;
-        const cell = eventToCell(e);
-        const cx = Math.min(Math.max(1, cell.col + 1), 223); // 1-based, clamped for X10
-        const cy = Math.min(Math.max(1, cell.row + 1), 223);
-        sendMouseEvent(btn, cx, cy, true);
+        const { cx, cy } = cellToReport(eventToCell(e));
+        protocolPressActive = true;
+        sendMouseEvent(encodeMouseButton(e), cx, cy, true);
         return;
       }
 
@@ -637,63 +593,12 @@
 
       if (e.detail === 2) {
         // Double-click: word select across soft-wrapped rows
-        const data = renderer.currentFrame;
-        if (data) {
-          const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-          const cols = view.getUint16(0, true);
-          const rows = view.getUint16(2, true);
-
-          function cpAt(r: number, c: number): number | null {
-            if (r < 0 || r >= rows || c < 0 || c >= cols) return null;
-            const off = HEADER_SIZE + (r * cols + c) * CELL_SIZE;
-            if (off + CELL_SIZE > data!.length) return null;
-            return view.getUint32(off, true);
-          }
-
-          let startRow = cell.row;
-          let startCol = cell.col;
-          let endRow = cell.row;
-          let endCol = cell.col;
-
-          // Scan left; wrap to previous row when at left edge and that row's
-          // last char is non-break (indicates the row was soft-wrapped).
-          outer_left: while (true) {
-            while (startCol > 0) {
-              const cp = cpAt(startRow, startCol - 1);
-              if (cp === null || isWordBreak(cp)) break outer_left;
-              startCol--;
-            }
-            if (startRow === 0) break;
-            const prevLast = cpAt(startRow - 1, cols - 1);
-            if (prevLast === null || isWordBreak(prevLast)) break;
-            startRow--;
-            startCol = cols - 1;
-          }
-
-          // Scan right; wrap to next row when at right edge and the next
-          // row's first char is non-break.
-          outer_right: while (true) {
-            while (endCol < cols - 1) {
-              const cp = cpAt(endRow, endCol + 1);
-              if (cp === null || isWordBreak(cp)) break outer_right;
-              endCol++;
-            }
-            if (endRow >= rows - 1) break;
-            const nextFirst = cpAt(endRow + 1, 0);
-            if (nextFirst === null || isWordBreak(nextFirst)) break;
-            endRow++;
-            endCol = 0;
-          }
-
-          const selStart = {
-            historyRow: renderer.displayToHistoryRow(startRow, frameFirstDisplayHistoryRow),
-            col: startCol,
-          };
-          const selEnd = {
-            historyRow: renderer.displayToHistoryRow(endRow, frameFirstDisplayHistoryRow),
-            col: endCol,
-          };
-          renderer.setSelection(selStart, selEnd);
+        const range = renderer.currentFrame ? wordRangeAt(renderer.currentFrame, cell.row, cell.col) : null;
+        if (range) {
+          renderer.setSelection(
+            { historyRow: renderer.displayToHistoryRow(range.startRow, frameFirstDisplayHistoryRow), col: range.startCol },
+            { historyRow: renderer.displayToHistoryRow(range.endRow, frameFirstDisplayHistoryRow), col: range.endCol },
+          );
           renderer.rerender();
         }
         return;
@@ -706,19 +611,16 @@
     };
 
     const onMouseMove = (e: MouseEvent) => {
-      const mouseMode = (modeFlags >> 3) & 0x3;
+      const mouseMode = mouseModeOf(modeFlags);
 
-      // Mouse protocol motion events
+      // Mouse protocol motion events. Button-drag motion (mode 2) is forwarded
+      // only for a press that started on this canvas; any-motion (mode 3) only
+      // while the pointer is over it (see onCanvasMouseMove).
       if (mouseMode > 0) {
         if (!renderer) return;
-        const isButtonHeld = e.buttons !== 0;
-        if (mouseMode === 3 || (mouseMode === 2 && isButtonHeld)) {
-          const cell = eventToCell(e);
-          const cx = Math.min(Math.max(1, cell.col + 1), 223);
-          const cy = Math.min(Math.max(1, cell.row + 1), 223);
-          // Derive held button from e.buttons bitmask
-          const btn = (e.buttons & 1) ? 0 : (e.buttons & 4) ? 1 : (e.buttons & 2) ? 2 : 0;
-          sendMouseEvent(32 + btn, cx, cy, true);
+        if (mouseMode === 2 && protocolPressActive && e.buttons !== 0) {
+          const { cx, cy } = cellToReport(eventToCell(e));
+          sendMouseEvent(MOUSE_MOTION + heldButton(e.buttons), cx, cy, true);
         }
         return;
       }
@@ -742,19 +644,15 @@
     };
 
     const onMouseUp = async (e: MouseEvent) => {
-      const mouseMode = (modeFlags >> 3) & 0x3;
+      const mouseMode = mouseModeOf(modeFlags);
 
-      // Mouse protocol: forward button release (except right-click, see mousedown)
+      // Mouse protocol: forward the release of a press that started here (right-click
+      // never sends a press, see mousedown; a release elsewhere is not ours).
       if (mouseMode > 0 && e.button !== 2) {
-        if (!renderer) return;
-        let btn = e.button === 0 ? 0 : e.button === 1 ? 1 : 2;
-        if (e.shiftKey) btn |= 4;
-        if (e.altKey) btn |= 8;
-        if (e.ctrlKey) btn |= 16;
-        const cell = eventToCell(e);
-        const cx = Math.min(Math.max(1, cell.col + 1), 223);
-        const cy = Math.min(Math.max(1, cell.row + 1), 223);
-        sendMouseEvent(btn, cx, cy, false);
+        if (!renderer || !protocolPressActive) return;
+        protocolPressActive = false;
+        const { cx, cy } = cellToReport(eventToCell(e));
+        sendMouseEvent(encodeMouseButton(e), cx, cy, false);
         return;
       }
 
@@ -788,9 +686,18 @@
     cleanupFns.push(() => window.removeEventListener("mousemove", onMouseMove));
     cleanupFns.push(() => window.removeEventListener("mouseup", onMouseUp));
 
-    // Canvas-level hover: URL detection (only fires when pointer is over the canvas)
+    // Canvas-level hover: URL detection, and any-motion (mode 3) mouse reporting,
+    // both of which only make sense while the pointer is over this canvas.
     const onCanvasMouseMove = (e: MouseEvent) => {
-      if (!renderer || isSelecting || ((modeFlags >> 3) & 0x3) !== 0) return;
+      if (!renderer || isSelecting) return;
+      const mouseMode = mouseModeOf(modeFlags);
+      if (mouseMode !== 0) {
+        if (mouseMode === 3 && !protocolPressActive) {
+          const { cx, cy } = cellToReport(eventToCell(e));
+          sendMouseEvent(MOUSE_MOTION + MOUSE_NO_BUTTON, cx, cy, true);
+        }
+        return;
+      }
       const cell = eventToCell(e);
       const historyRow = renderer.displayToHistoryRow(cell.row, frameFirstDisplayHistoryRow);
       const url = renderer.detectedUrls.find(u =>
@@ -827,16 +734,12 @@
       e.preventDefault();
       if (!renderer) return;
 
-      const mouseMode = (modeFlags >> 3) & 0x3;
+      const mouseMode = mouseModeOf(modeFlags);
       // Shift bypasses mouse mode to reach the terminal's own scrollback (iTerm,
       // Terminal.app, Kitty, Alacritty, WezTerm convention) — lets the user read
       // what scrolled past during a TUI app's continuous redraw.
       wheelForward = mouseMode > 0 && !e.shiftKey;
-      if (wheelForward) {
-        const cell = eventToCell(e);
-        wheelCol = Math.min(Math.max(1, cell.col + 1), 223);
-        wheelRow = Math.min(Math.max(1, cell.row + 1), 223);
-      }
+      if (wheelForward) ({ cx: wheelCol, cy: wheelRow } = cellToReport(eventToCell(e)));
 
       // Reset accumulator on direction change to avoid stickiness
       if ((e.deltaY > 0 && scrollAccum < 0) || (e.deltaY < 0 && scrollAccum > 0)) {
@@ -851,7 +754,7 @@
           if (lines === 0) return;
           scrollAccum -= lines * ch;
           if (wheelForward) {
-            const wheelBtn = lines < 0 ? 64 : 65; // 64=scroll-up, 65=scroll-down
+            const wheelBtn = lines < 0 ? MOUSE_WHEEL_UP : MOUSE_WHEEL_DOWN;
             for (let i = 0; i < Math.abs(lines); i++) sendMouseEvent(wheelBtn, wheelCol, wheelRow, true);
           } else {
             scrollTerminal(terminalId, -lines).catch(log.error);
@@ -870,7 +773,7 @@
         renderer.rerender();
       }
       resetBlinkTimer();
-      if ((modeFlags & 0x40) !== 0) {
+      if ((modeFlags & MODE_FOCUS_EVENTS) !== 0) {
         writeToTerminal(terminalId, textEncoder.encode("\x1b[I"));
       }
     };
@@ -885,7 +788,7 @@
         clearInterval(blinkInterval);
         blinkInterval = null;
       }
-      if ((modeFlags & 0x40) !== 0) {
+      if ((modeFlags & MODE_FOCUS_EVENTS) !== 0) {
         writeToTerminal(terminalId, textEncoder.encode("\x1b[O"));
       }
     };
@@ -914,7 +817,7 @@
           submenu: [
             ...savedPrompts.map(p => ({
               label: p.name,
-              action: () => writeToTerminal(terminalId, new TextEncoder().encode(p.text)),
+              action: () => writeToTerminal(terminalId, textEncoder.encode(p.text)),
             })),
             ...(savedPrompts.length > 0 ? ["sep" as const] : []),
             { label: "Add Prompt...", action: () => { ui.addPromptModal = true; } },
@@ -931,7 +834,7 @@
         }},
         { label: "Paste",      shortcut: "⌘V", action: async () => {
             const text = await navigator.clipboard.readText().catch(() => "");
-            if (text) writeToTerminal(terminalId, new TextEncoder().encode(text));
+            if (text) writeToTerminal(terminalId, textEncoder.encode(text));
         }},
         { label: "Select All", shortcut: "⌘A", action: () => {
             if (!renderer) return;
@@ -988,7 +891,6 @@
     }
     cleanupFns = [];
     unlistenGrid?.();
-    unlistenExit?.();
     unlistenClipboard?.();
     resizeObserver?.disconnect();
     if (blinkInterval) clearInterval(blinkInterval);

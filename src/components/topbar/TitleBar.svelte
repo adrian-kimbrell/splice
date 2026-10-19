@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { log } from "../../lib/utils/log";
+  import { pickAndOpenFolder } from "../../lib/utils/open-paths";
   /**
    * TitleBar.svelte -- Top bar combining window drag region, attention notifications,
    * and quick-action buttons (open folder, new terminal, settings).
@@ -15,7 +15,7 @@
    */
   import { attentionStore } from '../../lib/stores/attention.svelte';
   import { workspaceManager } from '../../lib/stores/workspace.svelte';
-  import { ui } from '../../lib/stores/ui.svelte';
+  import { ui, isPanelVisible, togglePanel, type SidebarPanel } from '../../lib/stores/ui.svelte';
   import { settings } from '../../lib/stores/settings.svelte';
   import { docZoom } from '../../lib/utils/zoom';
   import SettingsPane from '../panes/SettingsPane.svelte';
@@ -23,16 +23,12 @@
   // Drawer toggles. The explorer can sit on either side; leftDrawerOpen /
   // rightDrawerOpen track the actual left/right panels regardless of which is which.
   const explorerOnLeft = $derived(settings.appearance.explorer_side === 'left');
-  const leftDrawerOpen = $derived(explorerOnLeft ? ui.explorerVisible : ui.workspacesVisible);
-  const rightDrawerOpen = $derived(explorerOnLeft ? ui.workspacesVisible : ui.explorerVisible);
-  function toggleLeftDrawer() {
-    if (explorerOnLeft) ui.explorerVisible = !ui.explorerVisible;
-    else ui.workspacesVisible = !ui.workspacesVisible;
-  }
-  function toggleRightDrawer() {
-    if (explorerOnLeft) ui.workspacesVisible = !ui.workspacesVisible;
-    else ui.explorerVisible = !ui.explorerVisible;
-  }
+  const leftPanel = $derived<SidebarPanel>(explorerOnLeft ? "explorer" : "workspaces");
+  const rightPanel = $derived<SidebarPanel>(explorerOnLeft ? "workspaces" : "explorer");
+  const leftDrawerOpen = $derived(isPanelVisible(leftPanel));
+  const rightDrawerOpen = $derived(isPanelVisible(rightPanel));
+  const toggleLeftDrawer = () => togglePanel(leftPanel);
+  const toggleRightDrawer = () => togglePanel(rightPanel);
 
 
   const notifList = $derived(
@@ -100,19 +96,7 @@
     }
   }
 
-  async function handleOpenFolder() {
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog');
-      const selected = await open({ directory: true, multiple: false });
-      if (selected) {
-        if (!workspaceManager.activeWorkspace) workspaceManager.createEmptyWorkspace();
-        await workspaceManager.openFolderInWorkspace(selected as string);
-        ui.explorerVisible = true;
-      }
-    } catch (e) {
-      log.error('Failed to open folder:', e);
-    }
-  }
+  const handleOpenFolder = pickAndOpenFolder;
 </script>
 
 <div class="titlebar-shell">

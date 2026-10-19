@@ -1,5 +1,6 @@
 <script lang="ts">
   import { log } from "../../lib/utils/log";
+  import type { PaneHeaderAction } from "../../lib/actions";
   /**
    * TerminalPane.svelte -- Wraps a CanvasTerminal with its titlebar and search overlay.
    *
@@ -48,7 +49,7 @@
     active?: boolean;
     onSplit?: (direction: SplitDirection, side: "before" | "after") => void;
     onClose?: () => void;
-    onAction?: (action: string) => void;
+    onAction?: (action: PaneHeaderAction) => void;
     onRename?: (title: string) => void;
   } = $props();
 
@@ -98,7 +99,9 @@
   });
 
   function handleKeyDown(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+    // ⌘F only. Ctrl+F belongs to the shell (readline forward-char, less/vim page
+    // down); the canvas encodes it as 0x06 and stops propagation before this runs.
+    if (e.metaKey && !e.ctrlKey && e.key === "f") {
       e.preventDefault();
       searchVisible = !searchVisible;
     }

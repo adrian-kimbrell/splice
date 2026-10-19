@@ -15,7 +15,7 @@
   import { fileClipboard } from "../../lib/stores/file-clipboard.svelte";
   import { getFileGitStatus, getDirGitStatus, type GitStatusKind } from "../../lib/stores/git.svelte";
   import { untrack, setContext } from "svelte";
-  import { positionFixedMenu } from "../../lib/utils/context-menu";
+  import { showContextMenu, type ContextMenuItem } from "../../lib/utils/context-menu";
 
   // Provide per-workspace expanded-path tracking via context so that FileTreeItem
   // components at any depth can read/write the set without prop-drilling.
@@ -65,15 +65,12 @@
   // FSEvents watcher), bump refreshGeneration so expanded subdirectory items
   // re-read their children via readDirTree.
   $effect(() => {
-    const _watch = entries;
+    void entries;
     untrack(() => { refreshGeneration++; });
   });
 
   let treeEl = $state<HTMLDivElement>();
   let focusedPath = $state<string | null>(null);
-
-  // --- Context menu state ---
-  let ctxMenuEl = $state<HTMLDivElement | null>(null);
 
   // --- Inline prompt state ---
   let promptMode = $state<"new-file" | "new-folder" | "rename" | null>(null);
@@ -222,88 +219,31 @@
     entry?: FileEntry;
   };
 
-  function removeCtxMenu() {
-    if (ctxMenuEl) {
-      ctxMenuEl.remove();
-      ctxMenuEl = null;
-    }
-  }
-
-  function handleDocClick(e: MouseEvent) {
-    if (ctxMenuEl && !ctxMenuEl.contains(e.target as Node)) {
-      removeCtxMenu();
-    }
-  }
-
   function handleItemContextMenu(e: MouseEvent, entry: FileEntry) {
     const target: MenuTarget = entry.is_dir
       ? { kind: "folder", path: entry.path, parentDir: entry.path, entry }
       : { kind: "file", path: entry.path, parentDir: entry.path.substring(0, entry.path.lastIndexOf("/")), entry };
-    showContextMenu(e, target);
+    openTargetMenu(e, target);
   }
 
   function handleTreeContextMenu(e: MouseEvent) {
     // Only fires for empty space or root folder (items stopPropagation)
     e.preventDefault();
     const target: MenuTarget = { kind: "empty", path: rootPath, parentDir: rootPath };
-    showContextMenu(e, target);
+    openTargetMenu(e, target);
   }
 
   function handleRootContextMenu(e: MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     const target: MenuTarget = { kind: "root", path: rootPath, parentDir: rootPath };
-    showContextMenu(e, target);
+    openTargetMenu(e, target);
   }
 
-  type MenuItem = {
-    label: string;
-    shortcut?: string;
-    action?: () => void;
-    separator?: boolean;
-    disabled?: boolean;
-  };
+  type MenuItem = ContextMenuItem | "sep";
 
-  function showContextMenu(e: MouseEvent, target: MenuTarget) {
-    removeCtxMenu();
-
-    const items: MenuItem[] = buildMenuItems(target);
-    const menu = document.createElement("div");
-    menu.className = "tab-ctx-menu split-dropdown";
-    menu.style.position = "fixed";
-    menu.style.transform = "none";
-
-    for (const item of items) {
-      if (item.separator) {
-        const sep = document.createElement("div");
-        sep.className = "split-dropdown-sep";
-        menu.appendChild(sep);
-        continue;
-      }
-      const btn = document.createElement("button");
-      btn.className = "split-dropdown-item" + (item.disabled ? " disabled" : "");
-      btn.disabled = !!item.disabled;
-      btn.textContent = item.label;
-      if (item.shortcut) {
-        const kbd = document.createElement("kbd");
-        kbd.textContent = item.shortcut;
-        btn.appendChild(kbd);
-      }
-      if (!item.disabled && item.action) {
-        const action = item.action;
-        btn.addEventListener("click", () => {
-          removeCtxMenu();
-          action();
-        });
-      }
-      menu.appendChild(btn);
-    }
-
-    document.body.appendChild(menu);
-    ctxMenuEl = menu;
-
-    // Position + clamp with zoom (ui_scale) correction. See [[zoom-coords]].
-    positionFixedMenu(menu, e.clientX, e.clientY);
+  function openTargetMenu(e: MouseEvent, target: MenuTarget) {
+    showContextMenu(buildMenuItems(target), e.clientX, e.clientY);
   }
 
   function buildMenuItems(target: MenuTarget): MenuItem[] {
@@ -325,7 +265,7 @@
     });
 
     if (kind !== "empty") {
-      items.push({ separator: true, label: "" });
+      items.push("sep");
       items.push({
         label: "Reveal in Finder",
         shortcut: "\u2325\u2318R",
@@ -341,7 +281,7 @@
       });
     }
 
-    items.push({ separator: true, label: "" });
+    items.push("sep");
     items.push({
       label: "Find in Folder\u2026",
       shortcut: "\u2325\u2318F",
@@ -349,7 +289,7 @@
     });
 
     if (isFileOrFolder) {
-      items.push({ separator: true, label: "" });
+      items.push("sep");
       items.push({
         label: "Cut",
         shortcut: "\u2318X",
@@ -374,7 +314,7 @@
         action: () => actionPaste(kind === "file" ? parentDir : path),
       });
 
-      items.push({ separator: true, label: "" });
+      items.push("sep");
       items.push({
         label: "Copy Path",
         shortcut: "\u2325\u2318C",
@@ -386,7 +326,7 @@
         action: () => navigator.clipboard.writeText(path.replace(rootPath + "/", "")),
       });
 
-      items.push({ separator: true, label: "" });
+      items.push("sep");
       items.push({
         label: "Rename",
         shortcut: "F2",
@@ -395,7 +335,7 @@
     }
 
     if (kind === "root") {
-      items.push({ separator: true, label: "" });
+      items.push("sep");
       items.push({
         label: "Copy Path",
         shortcut: "\u2325\u2318C",
@@ -403,13 +343,13 @@
       });
     }
 
-    items.push({ separator: true, label: "" });
+    items.push("sep");
     if (isFileOrFolder) {
       items.push({
         label: "Delete",
         action: () => actionDelete(path, isFile),
       });
-      items.push({ separator: true, label: "" });
+      items.push("sep");
     }
     items.push({
       label: "Collapse All",
@@ -424,9 +364,10 @@
 
   async function refreshTree() {
     const wsId = workspaceManager.activeWorkspaceId;
+    // loadFileTree assigns a fresh `entries` array, and the effect above bumps
+    // refreshGeneration for it; bumping here as well made every expanded folder
+    // re-read its children twice per operation.
     if (wsId) await workspaceManager.loadFileTree(wsId);
-    // Bump refresh generation so expanded FileTreeItems reload their children
-    refreshGeneration++;
   }
 
   async function doCreateFile(dir: string, name: string) {
@@ -632,7 +573,6 @@
   });
 </script>
 
-<svelte:document onclick={handleDocClick} />
 
 {#if promptMode === "rename"}
   <!-- svelte-ignore a11y_no_static_element_interactions -->

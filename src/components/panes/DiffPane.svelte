@@ -6,8 +6,7 @@
   import { editorTheme, editorHighlighting } from "../../lib/theme/editor-theme";
   import { getLanguageExtension } from "../../lib/editor/language-loader";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
-  import { refreshGitStatus } from "../../lib/stores/git.svelte";
-  import { pushToast } from "../../lib/stores/toasts.svelte";
+  import { stageFiles, unstageFiles, discardFiles } from "../../lib/stores/git.svelte";
   import { effectiveSettings } from "../../lib/stores/settings.svelte";
 
   let {
@@ -39,73 +38,37 @@
 
   let containerEl = $state<HTMLDivElement>();
   let mergeView: MergeView | null = null;
+  // Rebuilds await the language loader; a rebuild that was superseded while
+  // waiting must not construct a second MergeView into the same container.
+  let buildGen = 0;
   let acting = $state(false);
 
   const fileName = $derived(filePath.split("/").pop() ?? filePath);
   const wsId = $derived(workspaceManager.activeWorkspaceId ?? "");
 
-  async function doRefresh() {
-    if (wsId && rootPath) await refreshGitStatus(wsId, rootPath);
-  }
-
-  async function stageFile() {
+  /** Run a git action on this file; on success the pane has nothing left to show. */
+  async function act(run: () => Promise<boolean>) {
     pinPane();
     acting = true;
     try {
-      const { gitStage } = await import("../../lib/ipc/commands");
-      await gitStage(rootPath, [filePath]);
-      await doRefresh();
-      onClose();
-    } catch (e) {
-      pushToast(`Failed to stage ${fileName}: ${e}`);
+      if (await run()) onClose();
     } finally {
       acting = false;
     }
   }
-
-  async function unstageFile() {
-    pinPane();
-    acting = true;
-    try {
-      const { gitUnstage } = await import("../../lib/ipc/commands");
-      await gitUnstage(rootPath, [filePath]);
-      await doRefresh();
-      onClose();
-    } catch (e) {
-      pushToast(`Failed to unstage ${fileName}: ${e}`);
-    } finally {
-      acting = false;
-    }
-  }
-
-  async function discardFile() {
-    const { ask } = await import("@tauri-apps/plugin-dialog");
-    const confirmed = await ask(
-      `Discard changes to "${fileName}"? This cannot be undone.`,
-      { title: "Discard Changes", kind: "warning" },
-    );
-    if (!confirmed) return;
-    pinPane();
-    acting = true;
-    try {
-      const { gitDiscard } = await import("../../lib/ipc/commands");
-      await gitDiscard(rootPath, [filePath]);
-      await doRefresh();
-      onClose();
-    } catch (e) {
-      pushToast(`Failed to discard ${fileName}: ${e}`);
-    } finally {
-      acting = false;
-    }
-  }
+  const stageFile = () => act(() => stageFiles(wsId, rootPath, [filePath]));
+  const unstageFile = () => act(() => unstageFiles(wsId, rootPath, [filePath]));
+  const discardFile = () => act(() => discardFiles(wsId, rootPath, [filePath]));
 
   async function buildMergeView() {
     if (!containerEl) return;
+    const gen = ++buildGen;
 
     mergeView?.destroy();
     mergeView = null;
 
     const langExt = await getLanguageExtension(filePath).catch(() => null);
+    if (gen !== buildGen || !containerEl) return;
 
     // MergeView scrolls as one unit via .cm-mergeView (overflow-y: auto).
     // Override editorTheme's height:100% back to auto so editors size to content.
@@ -131,9 +94,7 @@
   // Recreate MergeView whenever content or file changes (e.g. preview pane replacement)
   $effect(() => {
     // Track reactive dependencies
-    const _fp = filePath;
-    const _old = oldContent;
-    const _new = newContent;
+    void filePath; void oldContent; void newContent;
     if (containerEl) buildMergeView();
   });
 
@@ -230,7 +191,7 @@
   }
   .diff-action-btn.discard:hover {
     color: var(--ansi-red);
-    border-color: rgba(var(--ansi-red-rgb, 224,108,117), 0.4);
+    border-color: color-mix(in srgb, var(--ansi-red) 40%, transparent);
     background: var(--git-deleted-bg);
   }
   .diff-action-btn:disabled {
@@ -253,17 +214,17 @@
     box-shadow: none !important;
   }
   .diff-container :global(.cm-merge-a .cm-changedLine) {
-    box-shadow: inset 3px 0 0 rgba(224, 108, 117, 0.7) !important;
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ansi-red) 70%, transparent) !important;
   }
   .diff-container :global(.cm-merge-b .cm-changedLine) {
-    box-shadow: inset 3px 0 0 rgba(152, 195, 121, 0.7) !important;
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--git-added) 70%, transparent) !important;
   }
   .diff-container :global(.cm-merge-a .cm-changedText) {
-    background: rgba(224, 108, 117, 0.3) !important;
+    background: color-mix(in srgb, var(--ansi-red) 30%, transparent) !important;
     border-radius: 2px;
   }
   .diff-container :global(.cm-merge-b .cm-changedText) {
-    background: rgba(152, 195, 121, 0.3) !important;
+    background: color-mix(in srgb, var(--git-added) 30%, transparent) !important;
     border-radius: 2px;
   }
   .diff-container :global(.cm-merge-gap) {

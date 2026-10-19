@@ -2,6 +2,7 @@ import { log } from "../utils/log";
 import type { FileEntry, OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
 import { MAX_SPLIT_DEPTH } from "./layout.svelte";
+import { getGitBranch, readDirTree, sftpListDir } from "../ipc/commands";
 
 export interface SshConfig {
   host: string;
@@ -202,9 +203,8 @@ export function markFileSaved(file: OpenFile): void {
 }
 
 export async function fetchGitBranchImpl(ws: Workspace): Promise<void> {
-  if (!ws.rootPath) return;
+  if (!ws.rootPath || ws.sshConfig) return; // remote root: no local git repo
   try {
-    const { getGitBranch } = await import("../ipc/commands");
     ws.gitBranch = await getGitBranch(ws.rootPath);
   } catch {
     ws.gitBranch = "";
@@ -215,13 +215,38 @@ export async function loadFileTreeImpl(ws: Workspace): Promise<void> {
   if (!ws.rootPath) return;
   try {
     if (ws.sshConfig) {
-      const { sftpListDir } = await import("../ipc/commands");
       ws.fileTree = await sftpListDir(ws.id, ws.rootPath);
     } else {
-      const { readDirTree } = await import("../ipc/commands");
       ws.fileTree = await readDirTree(ws.rootPath);
     }
   } catch (e) {
     log.error("Failed to load file tree:", e);
   }
+}
+
+/**
+ * A workspace with every field defaulted. The three creation paths (empty,
+ * from a directory, restored from disk) override only what they know, so a
+ * new field is added here once instead of in three literals.
+ */
+export function newWorkspace(
+  init: Pick<Workspace, "id" | "name" | "rootPath" | "viewMode"> & Partial<Workspace>,
+): Workspace {
+  return {
+    fileTree: [],
+    openFiles: [],
+    openFileIndex: {},
+    terminalIds: [],
+    activeTerminalId: null,
+    layout: null,
+    panes: {},
+    activePaneId: null,
+    gitBranch: "",
+    explorerVisible: true,
+    explorerWidth: 240,
+    expandedPaths: new Set(),
+    sshConfig: null,
+    icon: null,
+    ...init,
+  };
 }

@@ -34,6 +34,14 @@ export type LayoutNode =
       children: [LayoutNode, LayoutNode];
     };
 
+/** Coding agents Splice can track in a terminal. */
+export type AgentKind = "claude" | "codex";
+
+/** Command that resumes an agent session in a fresh shell. */
+export function resumeCommand(agent: AgentKind | null | undefined, sessionId: string): string {
+  return agent === "codex" ? `codex resume ${sessionId}` : `claude --resume ${sessionId}`;
+}
+
 export interface PaneConfig {
   id: string;
   kind: "editor" | "terminal" | "diff";
@@ -43,6 +51,8 @@ export interface PaneConfig {
   activeFilePath?: string | null;
   claudeSessionId?: string | null;
   claudePid?: number | null;
+  /** Which CLI reported `claudeSessionId`; decides the resume command on restore. */
+  agentKind?: AgentKind | null;
   // Diff pane fields
   diffFilePath?: string;
   diffOldContent?: string;
@@ -53,6 +63,9 @@ export interface PaneConfig {
    *  "Xm ago" badge in the pane header once stale. Not persisted across restarts. */
   lastTouchedAt?: number;
 }
+
+/** Smallest a pane may be dragged, in layout px (both axes). */
+export const PANE_MIN_PX = 80;
 
 export const MAX_SPLIT_DEPTH = 10;
 
@@ -81,9 +94,6 @@ export function collectLeafIds(node: LayoutNode): Set<string> {
 }
 
 // Default layout: single terminal pane
-export function defaultLayout(): LayoutNode {
-  return { type: "leaf", paneId: "term-1" };
-}
 
 /** Deep-clone a layout tree into fresh plain objects.
  *  Use before reparenting subtrees (Svelte 5 $state proxies break when moved between

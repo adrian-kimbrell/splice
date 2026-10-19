@@ -126,6 +126,8 @@ export interface RustPaneInfo {
   active_file_path: string | null;
   claude_session_id: string | null;
   claude_pid: number | null;
+  /** "claude" | "codex"; absent in records from older builds (claude). */
+  agent?: string | null;
   terminal_id: number | null;
 }
 
@@ -153,6 +155,8 @@ export interface RustWorkspace {
   ssh_config?: RustSshConfig | null;
   /** Bootstrap-icon class shown next to the name in the workspaces bar. */
   icon?: string | null;
+  /** "split" or "single"; absent/null means the `default_single_view` setting decides. */
+  view_mode?: "split" | "single" | null;
 }
 
 export interface WorkspacesResponse {
@@ -476,6 +480,3 @@ export async function sftpWriteFile(workspaceId: string, path: string, content: 
   return invoke("sftp_write_file", { workspaceId, path, content });
 }
 
-export async function sshPing(workspaceId: string): Promise<boolean> {
-  return invoke("ssh_ping", { workspaceId });
-}
