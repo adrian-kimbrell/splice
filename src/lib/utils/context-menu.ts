@@ -287,6 +287,7 @@ export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y
     removeSubmenu();
     menu.remove();
     document.removeEventListener("mousedown",   outside, true);
+    document.removeEventListener("click",       outside, true);
     document.removeEventListener("keydown",     onKey,   true);
     document.removeEventListener("contextmenu", outside, true);
   }
@@ -299,6 +300,9 @@ export function showContextMenu(items: (ContextMenuItem | "sep")[], x: number, y
     if (e.key === "Tab")    { e.preventDefault(); }
   };
   document.addEventListener("mousedown",   outside, true);
+  // A programmatic `.click()` (automation, keyboard-driven UIs) fires no mousedown;
+  // without this the menu, and its Escape-swallowing keydown listener, outlived it.
+  document.addEventListener("click",       outside, true);
   document.addEventListener("keydown",     onKey,   true);
   document.addEventListener("contextmenu", outside, true);
 }

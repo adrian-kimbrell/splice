@@ -34,11 +34,16 @@ describe("Zoomed pane focus", () => {
     }, file);
     await (await browser.$(".cm-content")).waitForExist({ timeout: 5_000 });
 
-    const st = await api.state();
-    const ws = st.workspaces.find((w) => w.id === st.activeWorkspaceId);
-    const editor = ws?.panes.find((p) => p.kind === "editor");
-    if (!editor) throw new Error("no editor pane after opening a file");
-    paneId = editor.id;
+    // The pane is created synchronously with the open, but the dev-API snapshot
+    // is a separate request; poll it rather than sampling once.
+    await browser.waitUntil(async () => {
+      const st = await api.state();
+      const editor = st.workspaces
+        .flatMap((w) => w.panes)
+        .find((p) => p.kind === "editor" && p.filePaths.includes(file));
+      if (editor) paneId = editor.id;
+      return !!editor;
+    }, { timeout: 5_000, timeoutMsg: `no editor pane holding ${file} after opening it` });
   });
 
   after(async () => {
