@@ -29,7 +29,6 @@ const FLAG_UNDERLINE = 0x04;
 const FLAG_DIM = 0x08;
 const FLAG_INVERSE = 0x10;
 const FLAG_STRIKETHROUGH = 0x20;
-const FLAG_BLINK = 0x40;
 const FLAG_HIDDEN = 0x80;
 
 // Module-level color string cache: key = (r<<16)|(g<<8)|b → "rgb(r,g,b)"
@@ -97,7 +96,6 @@ export class TerminalRenderer {
   private _isFocused = true;
 
   // Search highlighting
-  private searchMatches: SearchMatch[] = [];
   private searchActiveIndex = -1;
   private searchMatchByRow = new Map<number, Array<{ colStart: number; colEnd: number; idx: number }>>();
 
@@ -208,7 +206,6 @@ export class TerminalRenderer {
   }
 
   setSearchMatches(matches: SearchMatch[], activeIndex: number) {
-    this.searchMatches = matches;
     this.searchActiveIndex = activeIndex;
     // Build a row-indexed map for O(1) lookup during render
     this.searchMatchByRow = new Map();

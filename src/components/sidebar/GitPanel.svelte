@@ -1,7 +1,7 @@
 <script lang="ts">
   import { log } from "../../lib/utils/log";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
-  import { gitStore, refreshGitStatus, getGitEntry, type GitStatusKind } from "../../lib/stores/git.svelte";
+  import { refreshGitStatus, getGitEntry } from "../../lib/stores/git.svelte";
   import type { GitFileStatus } from "../../lib/ipc/commands";
   import { pushToast } from "../../lib/stores/toasts.svelte";
   import GitLog from "./GitLog.svelte";
@@ -75,8 +75,8 @@
     }
   }
 
-  async function stageAll() {
-    const paths = [...unstagedFiles, ...untrackedFiles].map(f => f.path);
+  /** Stage a group of files (the "+" on a section header). */
+  async function stagePaths(paths: string[]) {
     if (paths.length === 0) return;
     try {
       const { gitStage } = await import("../../lib/ipc/commands");
@@ -249,7 +249,7 @@
             <button
               class="text-txt-dim hover:text-txt-bright cursor-pointer px-1"
               title="Stage All Modified"
-              onclick={() => { const paths = unstagedFiles.map(f => f.path); import("../../lib/ipc/commands").then(({ gitStage }) => gitStage(rootPath, paths)).then(doRefresh).catch(e => log.error("Failed to stage:", e)); }}
+              onclick={() => stagePaths(unstagedFiles.map(f => f.path))}
             >
               <i class="bi bi-plus-lg text-[11px]"></i>
             </button>
@@ -287,7 +287,7 @@
             <button
               class="text-txt-dim hover:text-txt-bright cursor-pointer px-1"
               title="Stage All Untracked"
-              onclick={() => { const paths = untrackedFiles.map(f => f.path); import("../../lib/ipc/commands").then(({ gitStage }) => gitStage(rootPath, paths)).then(doRefresh).catch(e => log.error("Failed to stage:", e)); }}
+              onclick={() => stagePaths(untrackedFiles.map(f => f.path))}
             >
               <i class="bi bi-plus-lg text-[11px]"></i>
             </button>

@@ -26,7 +26,7 @@
   import { ui } from "../../lib/stores/ui.svelte";
   import { getExtForPath, getLanguageExtension } from "../../lib/editor/language-loader";
   import { saveEditorView, restoreEditorView } from "../../lib/editor/view-state";
-  import { lspKindToType, lspServerName, buildLspCompletionSource, buildHoverExtension } from "../../lib/editor/lsp-extensions";
+  import { lspServerName, buildLspCompletionSource, buildHoverExtension } from "../../lib/editor/lsp-extensions";
 
   let {
     content,

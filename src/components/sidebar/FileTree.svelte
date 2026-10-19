@@ -65,7 +65,7 @@
   // FSEvents watcher), bump refreshGeneration so expanded subdirectory items
   // re-read their children via readDirTree.
   $effect(() => {
-    const _watch = entries;
+    void entries;
     untrack(() => { refreshGeneration++; });
   });
 

@@ -146,11 +146,9 @@
 
   // --- Tab context menu ---
   let ctxMenuEl = $state<HTMLDivElement | null>(null);
-  let ctxMenuPath = $state<string | null>(null);
 
   function showTabContextMenu(e: MouseEvent, tabPath: string) {
     removeCtxMenu();
-    ctxMenuPath = tabPath;
     const tabData = tabs.find((t) => t.path === tabPath);
     const isReadOnly = tabData?.readOnly ?? false;
     const isPinned = tabData?.pinned ?? false;
@@ -208,7 +206,6 @@
     if (ctxMenuEl) {
       ctxMenuEl.remove();
       ctxMenuEl = null;
-      ctxMenuPath = null;
     }
   }
 

@@ -141,7 +141,7 @@
     <div class="px-3 py-6 text-txt-dim text-center">No commits found</div>
   {:else}
     <div class="flex-1 overflow-y-auto">
-      {#each graphNodes as node, i (node.entry.hash)}
+      {#each graphNodes as node (node.entry.hash)}
         <div class="flex items-start hover:bg-selected px-1 py-px" style="min-height: 22px;">
           <!-- Graph column -->
           <svg width={graphWidth} height="22" class="shrink-0" style="min-width: {graphWidth}px;">

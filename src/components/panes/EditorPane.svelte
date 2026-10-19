@@ -26,7 +26,7 @@
   import HtmlPreview from "./HtmlPreview.svelte";
   import type { SplitDirection } from "../../lib/stores/layout.svelte";
   import { registerPaneContent, unregisterPaneContent } from "../../lib/stores/drag.svelte";
-  import { onMount } from "svelte";
+  import { isImagePath } from "../../lib/utils/open-paths";
 
   let {
     tabs,
@@ -47,7 +47,6 @@
     onAutoSave,
     onAction,
     onTabContextAction,
-    onTogglePreview,
   }: {
     tabs: { name: string; path: string; preview?: boolean; dirty?: boolean; pinned?: boolean; readOnly?: boolean }[];
     activeTab: string | null;
@@ -67,16 +66,7 @@
     onAutoSave?: () => void;
     onAction?: (action: string) => void;
     onTabContextAction?: (action: string, path: string) => void;
-    onTogglePreview?: () => void;
   } = $props();
-
-  const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp"]);
-
-  function isImageFile(path: string): boolean {
-    const dot = path.lastIndexOf(".");
-    if (dot < 0) return false;
-    return IMAGE_EXTENSIONS.has(path.slice(dot).toLowerCase());
-  }
 
   let previewMode = $state<"editor" | "preview">("editor");
 
@@ -114,7 +104,7 @@
   {/if}
   <div bind:this={contentAreaEl} class="flex-1 overflow-hidden">
     {#if filePath}
-      {#if isImageFile(filePath)}
+      {#if isImagePath(filePath)}
         <ImagePreview {filePath} />
       {:else if isMdFile(filePath) && previewMode === "preview"}
         <MarkdownPreview {content} />

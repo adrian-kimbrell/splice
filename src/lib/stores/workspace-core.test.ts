@@ -250,3 +250,51 @@ describe("workspace manager core", () => {
     expect(live.openFileIndex["/saved.ts"]).toBe(live.openFiles[0]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Session restore must produce the same list/index proxy sharing as live opens.
+// restoreWorkspaceImpl used to build a plain object and the manager assigned it
+// into the $state map afterwards, so Svelte proxied `openFiles[i]` and
+// `openFileIndex[path]` independently: a dirty flag set through the index was
+// invisible through the list, the close prompt was skipped and Save All saved
+// nothing. Only release builds restore, so dev never saw it.
+
+describe("workspace manager restore proxies", () => {
+  beforeEach(async () => {
+    wipe();
+    const ipc = await import("../ipc/commands");
+    for (const fn of Object.values(ipc)) if (typeof fn === "function" && "mockClear" in fn) (fn as ReturnType<typeof vi.fn>).mockClear();
+    vi.mocked(ipc.readFile).mockResolvedValue("original");
+  });
+  afterEach(() => wipe());
+
+  function editorRws(): RustWorkspace {
+    return {
+      id: "r2", name: "proj", root_path: "",
+      layout: { type: "Leaf", pane_id: "p1" },
+      panes: [{
+        id: "p1", pane_type: { Editor: { file_path: "/a.ts" } }, title: "a.ts",
+        file_paths: ["/a.ts"], active_file_path: "/a.ts",
+        claude_session_id: null, claude_pid: null, terminal_id: null,
+      }],
+      terminal_ids: [], open_file_paths: ["/a.ts"], active_file_path: "/a.ts", active_pane_id: "p1",
+      explorer_visible: true, expanded_paths: [], ssh_config: null,
+    } as unknown as RustWorkspace;
+  }
+
+  it("restored_file_list_and_index_share_one_proxy", async () => {
+    await workspaceManager.restoreWorkspace(editorRws());
+    const live = mgr.workspaces["r2"];
+    expect(live.openFiles).toHaveLength(1);
+    expect(live.openFileIndex["/a.ts"]).toBe(live.openFiles[0]);
+  });
+
+  it("dirty_flag_on_restored_file_is_visible_via_list", async () => {
+    await workspaceManager.restoreWorkspace(editorRws());
+    workspaceManager.switchWorkspace("r2");
+    workspaceManager.updateFileContent("/a.ts", "changed");
+    const live = mgr.workspaces["r2"];
+    expect(live.openFileIndex["/a.ts"].dirty).toBe(true);
+    expect(live.openFiles.some(f => f.dirty)).toBe(true); // what Save All / close-confirm check
+  });
+});

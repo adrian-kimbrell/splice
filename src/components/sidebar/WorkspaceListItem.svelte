@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { Workspace } from "../../lib/stores/workspace.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
-  import type { PaneConfig } from "../../lib/stores/layout.svelte";
   import { attentionStore } from "../../lib/stores/attention.svelte";
 
   let {

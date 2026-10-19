@@ -18,7 +18,6 @@
   let replaceMode = $state(false);
   let replaceQuery = $state("");
   let replacing = $state(false);
-  let replaceCount = $state(0);
   let replaceMessage = $state("");
 
   // Group results by file path
@@ -97,7 +96,6 @@
           filesModified++;
         }
       }
-      replaceCount = totalReplaced;
       replaceMessage = totalReplaced > 0
         ? `Replaced ${totalReplaced} occurrence${totalReplaced !== 1 ? "s" : ""} in ${filesModified} file${filesModified !== 1 ? "s" : ""}`
         : "No replacements made";
