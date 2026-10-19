@@ -63,6 +63,9 @@ export interface DevPane {
   terminalId: number | null;
   activeFilePath: string | null;
   filePaths: string[];
+  /** Agent session reported by the Claude/Codex hooks, when any. */
+  claudeSessionId: string | null;
+  agentKind: "claude" | "codex" | null;
 }
 
 export interface DevNotification {

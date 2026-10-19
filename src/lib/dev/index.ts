@@ -421,6 +421,8 @@ async function setup() {
               terminalId: p.terminalId ?? null,
               activeFilePath: p.activeFilePath ?? null,
               filePaths: p.filePaths ?? [],
+              claudeSessionId: p.claudeSessionId ?? null,
+              agentKind: p.agentKind ?? null,
             }))
           : [],
       };
