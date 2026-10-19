@@ -6,8 +6,7 @@
   import { editorTheme, editorHighlighting } from "../../lib/theme/editor-theme";
   import { getLanguageExtension } from "../../lib/editor/language-loader";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
-  import { refreshGitStatus } from "../../lib/stores/git.svelte";
-  import { pushToast } from "../../lib/stores/toasts.svelte";
+  import { stageFiles, unstageFiles, discardFiles } from "../../lib/stores/git.svelte";
   import { effectiveSettings } from "../../lib/stores/settings.svelte";
 
   let {
@@ -47,60 +46,19 @@
   const fileName = $derived(filePath.split("/").pop() ?? filePath);
   const wsId = $derived(workspaceManager.activeWorkspaceId ?? "");
 
-  async function doRefresh() {
-    if (wsId && rootPath) await refreshGitStatus(wsId, rootPath);
-  }
-
-  async function stageFile() {
+  /** Run a git action on this file; on success the pane has nothing left to show. */
+  async function act(run: () => Promise<boolean>) {
     pinPane();
     acting = true;
     try {
-      const { gitStage } = await import("../../lib/ipc/commands");
-      await gitStage(rootPath, [filePath]);
-      await doRefresh();
-      onClose();
-    } catch (e) {
-      pushToast(`Failed to stage ${fileName}: ${e}`);
+      if (await run()) onClose();
     } finally {
       acting = false;
     }
   }
-
-  async function unstageFile() {
-    pinPane();
-    acting = true;
-    try {
-      const { gitUnstage } = await import("../../lib/ipc/commands");
-      await gitUnstage(rootPath, [filePath]);
-      await doRefresh();
-      onClose();
-    } catch (e) {
-      pushToast(`Failed to unstage ${fileName}: ${e}`);
-    } finally {
-      acting = false;
-    }
-  }
-
-  async function discardFile() {
-    const { ask } = await import("@tauri-apps/plugin-dialog");
-    const confirmed = await ask(
-      `Discard changes to "${fileName}"? This cannot be undone.`,
-      { title: "Discard Changes", kind: "warning" },
-    );
-    if (!confirmed) return;
-    pinPane();
-    acting = true;
-    try {
-      const { gitDiscard } = await import("../../lib/ipc/commands");
-      await gitDiscard(rootPath, [filePath]);
-      await doRefresh();
-      onClose();
-    } catch (e) {
-      pushToast(`Failed to discard ${fileName}: ${e}`);
-    } finally {
-      acting = false;
-    }
-  }
+  const stageFile = () => act(() => stageFiles(wsId, rootPath, [filePath]));
+  const unstageFile = () => act(() => unstageFiles(wsId, rootPath, [filePath]));
+  const discardFile = () => act(() => discardFiles(wsId, rootPath, [filePath]));
 
   async function buildMergeView() {
     if (!containerEl) return;

@@ -184,3 +184,57 @@ export function getTotalChangedCount(workspaceId: string): number {
   if (!entry) return 0;
   return entry.stagedFiles.length + entry.unstagedFiles.length + entry.untrackedFiles.length;
 }
+
+// ---------------------------------------------------------------------------
+// Stage / unstage / discard
+//
+// Shared by the git panel and the diff pane so the IPC call, the status
+// refresh and the failure toast live in one place. Each returns true on
+// success. `discardFiles` asks for confirmation first and returns false when
+// the user declines.
+// ---------------------------------------------------------------------------
+
+type GitAction = "stage" | "unstage" | "discard";
+
+async function runGitAction(
+  action: GitAction,
+  workspaceId: string,
+  rootPath: string,
+  paths: string[],
+): Promise<boolean> {
+  if (paths.length === 0) return false;
+  try {
+    const ipc = await import("../ipc/commands");
+    if (action === "stage") await ipc.gitStage(rootPath, paths);
+    else if (action === "unstage") await ipc.gitUnstage(rootPath, paths);
+    else await ipc.gitDiscard(rootPath, paths);
+    await refreshGitStatus(workspaceId, rootPath);
+    return true;
+  } catch (e) {
+    const what = paths.length === 1 ? (paths[0].split("/").pop() ?? paths[0]) : `${paths.length} files`;
+    const { pushToast } = await import("./toasts.svelte");
+    pushToast(`Failed to ${action} ${what}: ${e}`, "error");
+    return false;
+  }
+}
+
+export function stageFiles(workspaceId: string, rootPath: string, paths: string[]): Promise<boolean> {
+  return runGitAction("stage", workspaceId, rootPath, paths);
+}
+
+export function unstageFiles(workspaceId: string, rootPath: string, paths: string[]): Promise<boolean> {
+  return runGitAction("unstage", workspaceId, rootPath, paths);
+}
+
+/** Confirm, then `git checkout --` the paths. */
+export async function discardFiles(workspaceId: string, rootPath: string, paths: string[]): Promise<boolean> {
+  if (paths.length === 0) return false;
+  const { ask } = await import("@tauri-apps/plugin-dialog");
+  const what = paths.length === 1 ? `"${paths[0].split("/").pop() ?? paths[0]}"` : `${paths.length} files`;
+  const confirmed = await ask(`Discard changes to ${what}? This cannot be undone.`, {
+    title: "Discard Changes",
+    kind: "warning",
+  });
+  if (!confirmed) return false;
+  return runGitAction("discard", workspaceId, rootPath, paths);
+}
