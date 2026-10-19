@@ -19,6 +19,8 @@
   --text-dim: #83868f;
   --text-bright: #f6f7f8;
   --accent: #00ff88;
+  /* Text drawn on top of --accent (buttons, badges). Themes may override. */
+  --accent-fg: var(--bg-editor);
   --tab-indicator: #00ff88;
 
   --radius-sm: 5px;

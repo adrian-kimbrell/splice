@@ -61,10 +61,10 @@
     "var(--accent)",
     "var(--ansi-yellow)",
     "var(--ansi-red)",
-    "#c678dd",
-    "#61afef",
-    "#d19a66",
-    "#56b6c2",
+    "var(--syn-kw)",
+    "var(--syn-fn)",
+    "var(--syn-num)",
+    "var(--syn-mac)",
   ];
 
   const graphNodes = $derived.by((): GraphNode[] => {

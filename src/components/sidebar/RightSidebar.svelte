@@ -227,14 +227,14 @@
   <!-- Splice logo lockup at bottom -->
   <div class="shrink-0 flex items-center justify-center gap-1.5 py-2.5 opacity-20">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="14" height="14" fill="none">
-      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2"/>
-      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2" transform="rotate(60 16 16)"/>
-      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2" transform="rotate(-60 16 16)"/>
+      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="var(--text-bright)" stroke-width="2"/>
+      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="var(--text-bright)" stroke-width="2" transform="rotate(60 16 16)"/>
+      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="var(--text-bright)" stroke-width="2" transform="rotate(-60 16 16)"/>
       <circle cx="16" cy="16" r="2.5" fill="white"/>
       <path d="M18 4 L11 15 L15.5 15 L14 28 L21 17 L16.5 17 Z" fill="white"/>
     </svg>
     {#if !compact}
-      <span class="text-white text-[11px] font-medium tracking-wide">Splice</span>
+      <span class="text-txt-bright text-[11px] font-medium tracking-wide">Splice</span>
     {/if}
   </div>
 </div>

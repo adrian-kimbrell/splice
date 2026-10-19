@@ -445,7 +445,7 @@
     background: var(--accent);
     border: none;
     border-radius: 3px;
-    color: #fff;
+    color: var(--accent-fg);
     cursor: pointer;
     font-size: var(--ui-xs);
     padding: 3px 8px;
@@ -516,7 +516,7 @@
   }
   .ssh-btn-connect {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     border-color: transparent;
   }
   .ssh-btn-connect:hover:not(:disabled) {

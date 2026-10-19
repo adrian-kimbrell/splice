@@ -71,8 +71,8 @@
   .toast-action {
     margin-left: 4px;
     padding: 2px 10px;
-    background: var(--accent, #00ff88);
-    color: #000;
+    background: var(--accent);
+    color: var(--accent-fg);
     border: none;
     border-radius: 3px;
     font-size: var(--ui-label);

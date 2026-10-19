@@ -196,7 +196,7 @@
       </div>
     {/if}
     {#if searchError}
-      <div class="text-[10px] text-red-400">{searchError}</div>
+      <div class="text-[10px]" style="color: var(--ansi-red)">{searchError}</div>
     {/if}
     {#if replaceMessage}
       <div class="text-[10px] text-txt-dim">{replaceMessage}</div>

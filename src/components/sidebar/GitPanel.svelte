@@ -148,7 +148,7 @@
       ></textarea>
       <button
         class="w-full mt-1 px-2 py-1 rounded cursor-pointer transition-all duration-75"
-        style="background: var(--accent); color: #000; font-weight: 500;"
+        style="background: var(--accent); color: var(--accent-fg); font-weight: 500;"
         style:opacity={(!hasStaged || !commitMessage.trim() || committing) ? "0.4" : "1"}
         disabled={!hasStaged || !commitMessage.trim() || committing}
         onclick={doCommit}

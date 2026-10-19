@@ -214,17 +214,17 @@
     box-shadow: none !important;
   }
   .diff-container :global(.cm-merge-a .cm-changedLine) {
-    box-shadow: inset 3px 0 0 rgba(224, 108, 117, 0.7) !important;
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ansi-red) 70%, transparent) !important;
   }
   .diff-container :global(.cm-merge-b .cm-changedLine) {
-    box-shadow: inset 3px 0 0 rgba(152, 195, 121, 0.7) !important;
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--git-added) 70%, transparent) !important;
   }
   .diff-container :global(.cm-merge-a .cm-changedText) {
-    background: rgba(224, 108, 117, 0.3) !important;
+    background: color-mix(in srgb, var(--ansi-red) 30%, transparent) !important;
     border-radius: 2px;
   }
   .diff-container :global(.cm-merge-b .cm-changedText) {
-    background: rgba(152, 195, 121, 0.3) !important;
+    background: color-mix(in srgb, var(--git-added) 30%, transparent) !important;
     border-radius: 2px;
   }
   .diff-container :global(.cm-merge-gap) {
