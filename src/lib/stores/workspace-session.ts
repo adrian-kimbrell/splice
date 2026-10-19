@@ -5,6 +5,7 @@ import { validateLayout } from "./workspace-tab-ops";
 import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs, addOpenFile, newWorkspace } from "./workspace-types";
 import { collectLeafIds, removeNodeFromTree } from "./layout.svelte";
 import { effectiveSettings, defaultViewMode } from "./settings.svelte";
+import { SIDEBAR_MIN_WIDTH, SIDEBAR_DEFAULT_WIDTH } from "./ui.svelte";
 
 interface PendingResume {
   timers: ReturnType<typeof setTimeout>[];
@@ -273,7 +274,7 @@ export async function restoreWorkspaceImpl(
     name: rws.name,
     rootPath: rws.root_path,
     explorerVisible: rws.explorer_visible ?? true,
-    explorerWidth: Math.max(150, rws.explorer_width ?? 240),
+    explorerWidth: Math.max(SIDEBAR_MIN_WIDTH.explorer, rws.explorer_width ?? SIDEBAR_DEFAULT_WIDTH.explorer),
     expandedPaths: new Set(rws.expanded_paths ?? []),
     sshConfig: rws.ssh_config
       ? {

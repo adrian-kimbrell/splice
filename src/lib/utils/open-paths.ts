@@ -11,7 +11,9 @@ import { pushToast } from "../stores/toasts.svelte";
 import { addRecentFile } from "../stores/recent-files.svelte";
 import { dispatchEditorAction } from "../stores/editor-actions.svelte";
 import { log } from "./log";
-import { readFile, sftpReadFile, takePendingOpenPaths } from "../ipc/commands";
+import { readFile, sftpReadFile, takePendingOpenPaths, copyPath } from "../ipc/commands";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -152,4 +154,56 @@ export async function drainOpenPaths(): Promise<void> {
   } catch (e) {
     log.error("Failed to open paths from OS:", e);
   }
+}
+
+/** Finder "Open With" while running: the Rust side buffers the path and pings us. */
+export async function startOpenPathListener(): Promise<() => void> {
+  return listen("open-path", () => { drainOpenPaths(); });
+}
+
+/**
+ * Native file drag-and-drop onto the window. A drop onto a folder row in the
+ * explorer copies the files into that folder; anywhere else opens them as tabs.
+ */
+export async function startNativeDrop(): Promise<() => void> {
+  return getCurrentWebview().onDragDropEvent(async (event) => {
+    if (event.payload.type !== "drop") return;
+    const paths = event.payload.paths;
+    if (paths.length === 0) return;
+
+    // Tauri reports position in physical pixels; elementFromPoint expects CSS pixels.
+    const dpr = window.devicePixelRatio || 1;
+    const x = event.payload.position.x / dpr;
+    const y = event.payload.position.y / dpr;
+
+    // Walk up from the drop point looking for a folder row (FileTreeItem sets
+    // data-path + data-is-dir).
+    let el: Element | null = document.elementFromPoint(x, y);
+    let targetDir: string | null = null;
+    while (el) {
+      if (el instanceof HTMLElement && el.dataset.path && el.dataset.isDir === "true") {
+        targetDir = el.dataset.path;
+        break;
+      }
+      el = el.parentElement;
+    }
+
+    if (!targetDir) {
+      openDroppedFiles(paths);
+      return;
+    }
+    let ok = 0;
+    for (const src of paths) {
+      const name = src.split("/").filter(Boolean).pop() ?? "file";
+      const dest = `${targetDir}/${name}`;
+      try {
+        await copyPath(src, dest);
+        ok++;
+      } catch (e) {
+        log.error(`Failed to copy ${src} → ${dest}:`, e);
+        pushToast(`Could not copy ${name}: ${e}`, "error");
+      }
+    }
+    if (ok > 0) pushToast(ok === 1 ? "Copied 1 item" : `Copied ${ok} items`, "success");
+  });
 }

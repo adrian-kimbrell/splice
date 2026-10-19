@@ -275,3 +275,18 @@ export function flushSettingsSave(): void {
   if (!isTauri || !settingsInitPromise) return;
   updateSettings($state.snapshot(settings)).catch((e) => log.error("Failed to flush settings:", e));
 }
+
+/**
+ * Apply settings saved by another window. Rust broadcasts `settings-changed`
+ * after each save to every window except the sender.
+ */
+export async function startSettingsSync(): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<Settings>("settings-changed", (event) => {
+    const updated = event.payload;
+    if (updated.general) Object.assign(settings.general, updated.general);
+    if (updated.editor) Object.assign(settings.editor, updated.editor);
+    if (updated.appearance) Object.assign(settings.appearance, updated.appearance);
+    if (updated.terminal) Object.assign(settings.terminal, updated.terminal);
+  });
+}

@@ -78,3 +78,9 @@ export function runAction(id: string): boolean {
   void Promise.resolve(handler()).catch((e) => log.error(`Action "${id}" failed:`, e));
   return true;
 }
+
+/** Native menu items (src-tauri/src/lib.rs) arrive as `menu-event` with the item id. */
+export async function startMenuEvents(): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<string>("menu-event", (event) => { runAction(event.payload); });
+}

@@ -7,7 +7,7 @@
  * No-ops gracefully outside a Tauri environment.
  */
 import { log } from "./log";
-import { registerWindow } from "../ipc/commands";
+import { registerWindow, getAllWorkspaceLabels } from "../ipc/commands";
 
 /** Opens a fresh, independent app window with its own workspace file. */
 export async function openNewWindow(): Promise<void> {
@@ -33,5 +33,31 @@ export async function openNewWindow(): Promise<void> {
     });
   } catch (e) {
     log.error("Failed to open new window:", e);
+  }
+}
+
+/**
+ * Main window only: reopen the secondary windows that were registered before a
+ * crash or force-quit, so their workspaces come back.
+ */
+export async function reopenRegisteredWindows(): Promise<void> {
+  const { getCurrentWebviewWindow, WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+  const currentLabel = getCurrentWebviewWindow().label;
+  if (currentLabel !== "main") return;
+  const labels = await getAllWorkspaceLabels();
+  for (const l of labels) {
+    if (l === currentLabel) continue;
+    new WebviewWindow(l, {
+      url: "/",
+      title: "Splice",
+      width: 1280,
+      height: 800,
+      minWidth: 800,
+      minHeight: 600,
+      decorations: true,
+      titleBarStyle: "overlay",
+      hiddenTitle: true,
+      resizable: true,
+    });
   }
 }

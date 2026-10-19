@@ -43,39 +43,31 @@
   import AddPromptModal from "./overlays/AddPromptModal.svelte";
   import TitleBar from "./topbar/TitleBar.svelte";
   import { showContextMenu } from "../lib/utils/context-menu";
-  import { registerActions, runAction } from "../lib/actions";
+  import { registerActions, runAction, startMenuEvents } from "../lib/actions";
+  import { startClaudeWiring } from "../lib/startup/claude-wiring";
+  import { startFileWatchListeners } from "../lib/startup/file-watch";
+  import { startWindowCloseHandler } from "../lib/startup/window-close";
   import { focusPaneContent } from "../lib/utils/pane-focus";
-  import { openNewWindow } from "../lib/utils/new-window";
-  import { isImagePath, toastFileReadError, readFileForWs, openDroppedFiles, drainOpenPaths, pickAndOpenFolder, pickAndOpenFile } from "../lib/utils/open-paths";
+  import { openNewWindow, reopenRegisteredWindows } from "../lib/utils/new-window";
+  import { isImagePath, toastFileReadError, readFileForWs, drainOpenPaths, pickAndOpenFolder, pickAndOpenFile, startOpenPathListener, startNativeDrop } from "../lib/utils/open-paths";
   import WelcomeScreen from "./WelcomeScreen.svelte";
   import { confirmUnsaved, requestCloseWorkspace } from "../lib/utils/close-workspace";
-  import { wasRecentlyWrittenBySplice } from "../lib/stores/self-writes";
-  import { ui } from "../lib/stores/ui.svelte";
+  import { ui, isPanelVisible, togglePanel, panelWidth, setPanelWidth, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_DEFAULT_WIDTH, type SidebarPanel } from "../lib/stores/ui.svelte";
   import { initKeybindings, enterZenMode, exitZenMode, bumpFocusedPaneFont, resetFocusedPaneFont } from "../lib/utils/keybindings";
   import type { FileEntry } from "../lib/stores/files.svelte";
   import type { PaneConfig, SplitDirection } from "../lib/stores/layout.svelte";
   import { collectLeafIds } from "../lib/stores/layout.svelte";
-  import { type DropZone, setDropCallback } from "../lib/stores/drag.svelte";
+  import { type DropZone, setDropCallback, zoneToSplit } from "../lib/stores/drag.svelte";
   import type { TabDragData } from "../lib/stores/drag.svelte";
   import { workspaceManager } from "../lib/stores/workspace.svelte";
-  import { settings, effectiveSettings, initSettings, debouncedSaveSettings, flushSettingsSave, loadProjectSettings } from "../lib/stores/settings.svelte";
-  import type { Settings } from "../lib/stores/settings.svelte";
+  import { settings, effectiveSettings, initSettings, debouncedSaveSettings, loadProjectSettings, startSettingsSync } from "../lib/stores/settings.svelte";
   import { applyTheme } from "../lib/theme/themes";
   import { loadCustomThemes } from "../lib/theme/custom-themes.svelte";
   import { dispatchEditorAction } from "../lib/stores/editor-actions.svelte";
   import { loadRecentFiles, addRecentFile } from "../lib/stores/recent-files.svelte";
   import { loadRecentProjects } from "../lib/stores/recent-projects.svelte";
-  import { pushToast } from "../lib/stores/toasts.svelte";
-  import { isUnderRoot } from "../lib/utils/path-utils";
-  import { cancelPendingResume } from "../lib/stores/workspace-session";
   import { getTabsForPane, getActiveTabForPane, getContentForPane } from "../lib/stores/workspace-view-helpers";
 
-  // Pre-import commands module for fast access after first load
-  let _commands: typeof import("../lib/ipc/commands") | null = null;
-  async function getCommands() {
-    if (!_commands) _commands = await import("../lib/ipc/commands");
-    return _commands;
-  }
 
 
   function handleSplitPane(paneId: string, direction: SplitDirection, side: "before" | "after" = "after") {
@@ -193,18 +185,12 @@
     }, 0);
   }
 
-  function handleTabDrop(
-    filePath: string,
-    sourcePaneId: string,
-    targetPaneId: string,
-    direction: SplitDirection,
-    side: "before" | "after",
-    zone: DropZone,
-  ) {
-    if (zone === "center") {
+  /** A tab dropped on a pane: into it (no split) or beside it (split on that side). */
+  function handleTabDrop(filePath: string, sourcePaneId: string, targetPaneId: string, split: ReturnType<typeof zoneToSplit>) {
+    if (!split) {
       workspaceManager.moveTabToExistingPane(filePath, sourcePaneId, targetPaneId);
     } else {
-      workspaceManager.moveTabToNewPane(filePath, sourcePaneId, targetPaneId, direction, side);
+      workspaceManager.moveTabToNewPane(filePath, sourcePaneId, targetPaneId, split.direction, split.side);
     }
   }
 
@@ -220,33 +206,20 @@
 
   // --- Physical sidebar layout derived from logical panel state ---
   const explorerOnLeft = $derived(settings.appearance.explorer_side === "left");
-
-  // Map physical sides to logical panels
-  const leftVisible = $derived(explorerOnLeft ? ui.explorerVisible : ui.workspacesVisible);
-  const rightVisible = $derived(explorerOnLeft ? ui.workspacesVisible : ui.explorerVisible);
-  const leftWidth = $derived(explorerOnLeft ? ui.explorerWidth : ui.workspacesWidth);
-  const rightWidth = $derived(explorerOnLeft ? ui.workspacesWidth : ui.explorerWidth);
-  const leftMinWidth = $derived(explorerOnLeft ? 150 : 62);
-  const rightMinWidth = $derived(explorerOnLeft ? 62 : 150);
+  const leftPanel = $derived<SidebarPanel>(explorerOnLeft ? "explorer" : "workspaces");
+  const rightPanel = $derived<SidebarPanel>(explorerOnLeft ? "workspaces" : "explorer");
+  const leftVisible = $derived(isPanelVisible(leftPanel));
+  const rightVisible = $derived(isPanelVisible(rightPanel));
+  const leftWidth = $derived(panelWidth(leftPanel));
+  const rightWidth = $derived(panelWidth(rightPanel));
+  const leftMinWidth = $derived(SIDEBAR_MIN_WIDTH[leftPanel]);
+  const rightMinWidth = $derived(SIDEBAR_MIN_WIDTH[rightPanel]);
   const leftLabel = $derived(explorerOnLeft ? "Explorer" : "Workspaces");
   const rightLabel = $derived(explorerOnLeft ? "Workspaces" : "Explorer");
-
-  function setLeftWidth(w: number) {
-    if (explorerOnLeft) ui.explorerWidth = w;
-    else ui.workspacesWidth = w;
-  }
-  function setRightWidth(w: number) {
-    if (explorerOnLeft) ui.workspacesWidth = w;
-    else ui.explorerWidth = w;
-  }
-  function toggleLeft() {
-    if (explorerOnLeft) ui.explorerVisible = !ui.explorerVisible;
-    else ui.workspacesVisible = !ui.workspacesVisible;
-  }
-  function toggleRight() {
-    if (explorerOnLeft) ui.workspacesVisible = !ui.workspacesVisible;
-    else ui.explorerVisible = !ui.explorerVisible;
-  }
+  const setLeftWidth = (w: number) => setPanelWidth(leftPanel, w);
+  const setRightWidth = (w: number) => setPanelWidth(rightPanel, w);
+  const toggleLeft = () => togglePanel(leftPanel);
+  const toggleRight = () => togglePanel(rightPanel);
 
   function handleSidebarResizeDown(side: "left" | "right", e: MouseEvent) {
     e.preventDefault();
@@ -264,7 +237,7 @@
       rafPending = false;
       const delta = pendingX - startX;
       const newWidth = side === "left" ? startWidth + delta : startWidth - delta;
-      const clamped = Math.max(min, Math.min(500, newWidth));
+      const clamped = Math.max(min, Math.min(SIDEBAR_MAX_WIDTH, newWidth));
       if (side === "left") setLeftWidth(clamped);
       else setRightWidth(clamped);
     }
@@ -471,277 +444,37 @@
       // Standalone module so its listeners survive App.svelte HMR updates.
       import("../lib/dev/index").catch((e) => log.warn("[dev] dev API bridge failed to load:", e));
     }
-    // Eagerly pre-import commands module
-    import("../lib/ipc/commands").then(m => { _commands = m; });
     // Await settings before initializing workspaces (restore_previous_session check)
     await initSettings();
     // Load any user-installed custom themes so they're available immediately
     loadCustomThemes();
     // Restore sidebar widths from persisted settings, enforcing minimums
-    ui.explorerWidth = Math.max(150, settings.appearance.explorer_width ?? 240);
-    ui.workspacesWidth = settings.appearance.workspaces_width ?? 220;
+    ui.explorerWidth = Math.max(SIDEBAR_MIN_WIDTH.explorer, settings.appearance.explorer_width ?? SIDEBAR_DEFAULT_WIDTH.explorer);
+    ui.workspacesWidth = settings.appearance.workspaces_width ?? SIDEBAR_DEFAULT_WIDTH.workspaces;
 
-    let unlistenSettings: (() => void) | null = null;
-    let unlistenAttention: (() => void) | null = null;
-    let unlistenMenu: (() => void) | null = null;
-    let unlistenDragDrop: (() => void) | null = null;
-    let unlistenFileChanged: (() => void) | null = null;
-    let unlistenTreeChanged: (() => void) | null = null;
-    let unlistenClosing: (() => void) | null = null;
-    let unlistenSession: (() => void) | null = null;
-    let unlistenOpenPath: (() => void) | null = null;
-    let unlistenClaudeStatus: (() => void) | null = null;
-    let treeChangeTimer: ReturnType<typeof setTimeout> | null = null;
+    const disposers: (() => void)[] = [];
 
-    // Register the Claude session listener BEFORE restoring workspaces so we
-    // never miss a session event from a restored terminal's Claude process.
-    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-      const { listen } = await import("@tauri-apps/api/event");
-      unlistenSession = await listen<{ terminal_id: number; session_id: string; claude_pid: number }>("terminal:claude-session", ({ payload }) => {
-        const ws = Object.values(workspaceManager.workspaces).find(
-          w => w.terminalIds.includes(payload.terminal_id)
-        );
-        const paneId = `term-${payload.terminal_id}`;
-        if (ws?.panes[paneId]) {
-          cancelPendingResume(payload.terminal_id);
-          ws.panes[paneId].claudeSessionId = payload.session_id;
-          ws.panes[paneId].claudePid = payload.claude_pid;
-          workspaceManager.debouncedPersistWorkspace(ws.id);
-        }
-      });
-    }
+    // Before workspaces restore, so no session event from a restored terminal's
+    // Claude process is missed.
+    if (isTauri) disposers.push(await startClaudeWiring());
 
     workspaceManager.initializeWorkspaces();
     loadRecentFiles();
     loadRecentProjects();
+    disposers.push(workspaceManager.startGitPolling());
 
-    // Main window: reopen any secondary windows registered before a crash
     if (isTauri) {
-      const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      const currentLabel = getCurrentWebviewWindow().label;
-      if (currentLabel === "main") {
-        const { getAllWorkspaceLabels } = await getCommands();
-        const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-        const labels = await getAllWorkspaceLabels();
-        for (const l of labels) {
-          if (l === currentLabel) continue;
-          new WebviewWindow(l, {
-            url: "/",
-            title: "Splice",
-            width: 1280,
-            height: 800,
-            minWidth: 800,
-            minHeight: 600,
-            decorations: true,
-            titleBarStyle: "overlay",
-            hiddenTitle: true,
-            resizable: true,
-          });
-        }
-      }
-    }
-
-    const stopGitPolling = workspaceManager.startGitPolling();
-
-    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-      import("@tauri-apps/api/event").then(({ listen }) => {
-        listen<Settings>("settings-changed", (event) => {
-          const updated = event.payload;
-          if (updated.general) Object.assign(settings.general, updated.general);
-          if (updated.editor) Object.assign(settings.editor, updated.editor);
-          if (updated.appearance) Object.assign(settings.appearance, updated.appearance);
-          if (updated.terminal) Object.assign(settings.terminal, updated.terminal);
-        }).then((fn) => { unlistenSettings = fn; });
-
-        listen<string>("menu-event", (event) => { runAction(event.payload); })
-          .then((fn) => { unlistenMenu = fn; });
-
-        listen("open-path", () => { drainOpenPaths(); })
-          .then((fn) => { unlistenOpenPath = fn; });
-      });
-
+      reopenRegisteredWindows().catch((e) => log.warn("Failed to reopen secondary windows:", e));
+      disposers.push(
+        await startSettingsSync(),
+        await startMenuEvents(),
+        await startOpenPathListener(),
+        await startWindowCloseHandler(),
+        await startFileWatchListeners(),
+        await startNativeDrop(),
+      );
       // Drain anything macOS handed us during cold launch (before listeners were ready).
       drainOpenPaths();
-
-      const { installClaudeHook } = await getCommands();
-      const { onAttentionNotify } = await import("../lib/ipc/events");
-      const { attentionStore } = await import("../lib/stores/attention.svelte");
-
-      installClaudeHook().catch(log.warn);
-
-      unlistenAttention = await onAttentionNotify((payload) => {
-        // Only show notifications for terminals with an active Claude session
-        // in THIS Splice instance. This prevents cross-instance leakage when
-        // multiple Splice windows share the same ~/.config/Splice/.attention_port.
-        const hasActiveSession = Object.values(workspaceManager.workspaces).some(w => {
-          if (!w.terminalIds.includes(payload.terminal_id)) return false;
-          const paneId = `term-${payload.terminal_id}`;
-          return !!w.panes[paneId]?.claudeSessionId;
-        });
-        if (!hasActiveSession) return;
-        attentionStore.notify({
-          terminalId: payload.terminal_id,
-          type: payload.notification_type === "permission_prompt" ? "permission" : "idle",
-          message: payload.message,
-          timestamp: Date.now(),
-        });
-      });
-
-      // --- Live Claude status HUD (context-window % + cost in the terminal header) ---
-      const { onClaudeStatus } = await import("../lib/ipc/events");
-      const { claudeStore, statusFromPayload } = await import("../lib/stores/claude.svelte");
-
-      // A terminal is "ours" only if it has an active Claude session in THIS
-      // instance — mirrors the attention-notify guard to avoid cross-instance leakage.
-      const hasActiveClaudeSession = (terminalId: number): boolean =>
-        Object.values(workspaceManager.workspaces).some(
-          w => w.terminalIds.includes(terminalId) && !!w.panes[`term-${terminalId}`]?.claudeSessionId,
-        );
-
-      unlistenClaudeStatus = await onClaudeStatus((p) => {
-        if (!hasActiveClaudeSession(p.terminal_id)) return;
-        const status = statusFromPayload(p);
-        if (status) claudeStore.setStatus(status);
-      });
-
-      // Persist all workspaces before the window closes, awaiting completion
-      import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => {
-        const appWindow = getCurrentWindow();
-        const currentLabel = appWindow.label;
-        unlistenClosing = await appWindow.onCloseRequested(async (event) => {
-          event.preventDefault();
-          // A secondary window owns its workspaces: closing it deletes its workspace
-          // file (unregisterWindow below), so everything in it is gone for good.
-          // Confirm first when there is anything to lose.
-          if (currentLabel !== "main") {
-            const count = Object.keys(workspaceManager.workspaces).length;
-            if (count > 0) {
-              let ok = true;
-              try {
-                const { ask } = await import("@tauri-apps/plugin-dialog");
-                ok = await ask(
-                  `Close this window? ${count} workspace${count === 1 ? "" : "s"} in it will be removed, and their terminals ended.`,
-                  { title: "Close Window", kind: "warning", okLabel: "Close Window", cancelLabel: "Cancel" },
-                );
-              } catch {
-                ok = window.confirm("Close this window and remove its workspaces?");
-              }
-              if (!ok) return;
-            }
-          }
-          flushSettingsSave();
-          // Cancel + flush any pending debounced persistence so state mutated
-          // <500ms before quit is not lost when timers fire after destroy.
-          await workspaceManager.flushPersistTimers();
-          await Promise.allSettled(
-            Object.keys(workspaceManager.workspaces).map(wsId =>
-              workspaceManager.persistWorkspace(wsId)
-            )
-          );
-          // Graceful close of secondary window: remove from registry + delete workspace file
-          if (currentLabel !== "main") {
-            const { unregisterWindow } = await getCommands();
-            await unregisterWindow(currentLabel).catch(log.warn);
-          }
-          try {
-            await appWindow.destroy();
-          } catch {
-            await appWindow.close();
-          }
-        });
-      }).catch(log.warn);
-
-      // Listen for file watcher events
-      const { listen } = await import("@tauri-apps/api/event");
-      listen<string>("file:changed", async (event) => {
-        const changedPath = event.payload;
-        for (const ws of Object.values(workspaceManager.workspaces)) {
-          if (ws.sshConfig) continue; // remote paths won't fire local watcher events
-          const file = ws.openFileIndex[changedPath];
-          if (!file) continue;
-          if (file.dirty) {
-            // Our own save followed by a quick keystroke looks exactly like this;
-            // only warn when the write did not come from Splice.
-            if (!wasRecentlyWrittenBySplice(changedPath)) {
-              pushToast("File changed externally: " + (changedPath.split("/").pop() ?? changedPath), "warning", 5000);
-            }
-          } else {
-            try {
-              const { readFile } = await getCommands();
-              const content = await readFile(changedPath);
-              file.content = content;
-              file.originalContent = content;
-              file.dirty = false;
-            } catch {
-              // ignore read errors
-            }
-          }
-        }
-      }).then((fn) => { unlistenFileChanged = fn; });
-
-      // Listen for directory tree changes (new/deleted/renamed files)
-      listen<string>("tree:changed", (event) => {
-        if (treeChangeTimer) clearTimeout(treeChangeTimer);
-        treeChangeTimer = setTimeout(async () => {
-          treeChangeTimer = null;
-          const changedPath = event.payload;
-          log.debug("[watch] tree:changed", changedPath);
-          const { refreshGitStatus } = await import("../lib/stores/git.svelte");
-          for (const [wsId, w] of Object.entries(workspaceManager.workspaces)) {
-            if (w.rootPath && isUnderRoot(changedPath, w.rootPath)) {
-              workspaceManager.loadFileTree(wsId);
-              refreshGitStatus(wsId, w.rootPath);
-            }
-          }
-        }, 50);
-      }).then((fn) => { unlistenTreeChanged = fn; });
-
-      // Listen for native file drag-and-drop
-      const { getCurrentWebview } = await import("@tauri-apps/api/webview");
-      unlistenDragDrop = await getCurrentWebview().onDragDropEvent(async (event) => {
-        if (event.payload.type !== "drop") return;
-        const paths = event.payload.paths;
-        if (paths.length === 0) return;
-
-        // Tauri reports position in physical pixels; elementFromPoint expects CSS pixels.
-        const dpr = window.devicePixelRatio || 1;
-        const x = event.payload.position.x / dpr;
-        const y = event.payload.position.y / dpr;
-
-        // Walk up from the drop point looking for a folder row (FileTreeItem
-        // sets data-path + data-is-dir). If we find one, copy each dropped
-        // file into that folder. Otherwise fall back to opening in the editor.
-        let el: Element | null = document.elementFromPoint(x, y);
-        let targetDir: string | null = null;
-        while (el) {
-          if (el instanceof HTMLElement && el.dataset.path && el.dataset.isDir === "true") {
-            targetDir = el.dataset.path;
-            break;
-          }
-          el = el.parentElement;
-        }
-
-        if (targetDir) {
-          const { copyPath } = await import("../lib/ipc/commands");
-          let ok = 0;
-          for (const src of paths) {
-            const name = src.split("/").filter(Boolean).pop() ?? "file";
-            const dest = `${targetDir}/${name}`;
-            try {
-              await copyPath(src, dest);
-              ok++;
-            } catch (e) {
-              log.error(`Failed to copy ${src} → ${dest}:`, e);
-              pushToast(`Could not copy ${name}: ${e}`, "error");
-            }
-          }
-          if (ok > 0) {
-            pushToast(ok === 1 ? `Copied 1 item` : `Copied ${ok} items`, "success");
-          }
-        } else {
-          openDroppedFiles(paths);
-        }
-      });
     }
 
     // Every command the menu, shortcuts, palette and pane menu can invoke.
@@ -805,13 +538,8 @@
         if (zone === "center") {
           workspaceManager.swapPanesInLayout(data.sourcePaneId, targetPaneId);
         } else {
-          let direction: SplitDirection = "horizontal";
-          let side: "before" | "after" = "after";
-          if (zone === "left") { direction = "horizontal"; side = "before"; }
-          else if (zone === "right") { direction = "horizontal"; side = "after"; }
-          else if (zone === "top") { direction = "vertical"; side = "before"; }
-          else if (zone === "bottom") { direction = "vertical"; side = "after"; }
-          workspaceManager.movePaneInLayout(data.sourcePaneId, targetPaneId, direction, side);
+          const split = zoneToSplit(zone);
+          if (split) workspaceManager.movePaneInLayout(data.sourcePaneId, targetPaneId, split.direction, split.side);
         }
         return;
       }
@@ -823,13 +551,7 @@
         if (cfg?.filePaths && cfg.filePaths.length <= 1) return;
       }
 
-      let direction: SplitDirection = "horizontal";
-      let side: "before" | "after" = "after";
-      if (zone === "left") { direction = "horizontal"; side = "before"; }
-      else if (zone === "right") { direction = "horizontal"; side = "after"; }
-      else if (zone === "top") { direction = "vertical"; side = "before"; }
-      else if (zone === "bottom") { direction = "vertical"; side = "after"; }
-      handleTabDrop(data.filePath, data.sourcePaneId, targetPaneId, direction, side, zone);
+      handleTabDrop(data.filePath, data.sourcePaneId, targetPaneId, zoneToSplit(zone));
     });
 
     // onMount ignores a cleanup returned from an async callback (it sees a
@@ -837,19 +559,8 @@
     mountCleanup = () => {
       stopKeybindings();
       setDropCallback(null);
-      stopGitPolling();
       unregisterActions();
-      unlistenSettings?.();
-      unlistenAttention?.();
-      unlistenMenu?.();
-      unlistenDragDrop?.();
-      unlistenFileChanged?.();
-      if (treeChangeTimer) clearTimeout(treeChangeTimer);
-      unlistenTreeChanged?.();
-      unlistenClosing?.();
-      unlistenSession?.();
-      unlistenOpenPath?.();
-      unlistenClaudeStatus?.();
+      for (const dispose of disposers) dispose();
     };
   });
 
