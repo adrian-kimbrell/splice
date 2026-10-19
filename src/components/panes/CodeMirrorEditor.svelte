@@ -226,49 +226,60 @@
     });
   }
 
-  function triggerRename(): void {
-    if (!view) return;
-    const pos = view.state.selection.main.head;
-    const { line: lspLine, character: lspChar } = getCursorLspPos(pos);
-    lspClient
-      .prepareRename(filePath, lspLine, lspChar)
-      .catch(() => null)
-      .then((prep) => {
-        if (!prep) return;
-        const coords = view!.coordsAtPos(pos);
-        renamePos = { x: coords?.left ?? 0, y: coords?.top ?? 0 };
-        renameName = prep.placeholder ?? "";
-        renameTarget = { line: lspLine, char: lspChar };
-        renaming = true;
-        setTimeout(
-          () =>
-            document
-              .querySelector<HTMLInputElement>(".rename-input")
-              ?.select(),
-          0,
-        );
-      });
+  /** Start the language server for this file if needed; false means "no LSP, do nothing". */
+  async function lspReady(): Promise<boolean> {
+    if (!view || !isTauri || !lspClient.getLanguageId(filePath)) return false;
+    try {
+      return await lspClient.ensureReady(filePath, view.state.doc.toString(), getWorkspaceRoot());
+    } catch (e) {
+      log.warn("LSP not ready:", e);
+      return false;
+    }
   }
 
-  function triggerCodeActions(): void {
-    if (!view) return;
-    const pos = view.state.selection.main.head;
-    const { line: lspLine, character: lspChar } = getCursorLspPos(pos);
-    lspClient
-      .codeActions(filePath, lspLine, lspChar)
-      .catch(() => [] as CodeAction[])
-      .then((actions) => {
-        if (!actions.length) return;
-        const coords = view!.coordsAtPos(pos) ?? { left: 0, top: 0 };
-        showContextMenu(
-          actions.map((a) => ({
-            label: a.title,
-            action: () => lspClient.executeCodeAction(a, applyWorkspaceEdit),
-          })),
-          coords.left + 8,
-          coords.top,
-        );
-      });
+  type LspNav = (path: string, line: number, character: number) => Promise<LspLocation[]>;
+
+  /** Go-to-X at `pos` (default: the cursor). Shared by the keymap and the context menu. */
+  async function lspNavigate(nav: LspNav, pos = view?.state.selection.main.head ?? 0): Promise<void> {
+    if (!(await lspReady())) return;
+    const { line, character } = getCursorLspPos(pos);
+    const locs = await nav(filePath, line, character).catch((e) => { log.warn("LSP navigation failed:", e); return [] as LspLocation[]; });
+    await navigateOrShowPicker(locs);
+  }
+
+  /** Keymap wrapper: a go-to-X command that resolves the symbol under the cursor. */
+  const lspNavKey = (nav: LspNav) => () => {
+    if (!isTauri || !lspClient.getLanguageId(filePath)) return false;
+    void lspNavigate(nav);
+    return true;
+  };
+
+  /** Open the inline rename box for the symbol at `pos`, anchored at its coordinates. */
+  async function triggerRename(pos = view?.state.selection.main.head ?? 0, fallback = { x: 0, y: 0 }): Promise<void> {
+    if (!view || !(await lspReady())) return;
+    const { line, character } = getCursorLspPos(pos);
+    const prep = await lspClient.prepareRename(filePath, line, character).catch(() => null);
+    if (!prep) return;
+    const coords = view.coordsAtPos(pos);
+    renamePos = { x: coords?.left ?? fallback.x, y: coords?.top ?? fallback.y };
+    renameName = prep.placeholder ?? "";
+    renameTarget = { line, char: character };
+    renaming = true;
+    setTimeout(() => document.querySelector<HTMLInputElement>(".rename-input")?.select(), 0);
+  }
+
+  /** Show the code-action menu for the symbol at `pos`, anchored at its coordinates. */
+  async function triggerCodeActions(pos = view?.state.selection.main.head ?? 0, fallback = { x: 0, y: 0 }): Promise<void> {
+    if (!view || !(await lspReady())) return;
+    const { line, character } = getCursorLspPos(pos);
+    const actions = await lspClient.codeActions(filePath, line, character).catch(() => [] as CodeAction[]);
+    if (!actions.length) return;
+    const coords = view.coordsAtPos(pos) ?? { left: fallback.x, top: fallback.y };
+    showContextMenu(
+      actions.map((a) => ({ label: a.title, action: () => lspClient.executeCodeAction(a, applyWorkspaceEdit) })),
+      coords.left + 8,
+      coords.top,
+    );
   }
 
   onMount(() => {
@@ -342,12 +353,12 @@
           { key: "Mod-m", run: cursorMatchingBracket },
           { key: "Shift-Alt-f", run: formatDocument },
           // LSP keybindings
-          { key: "F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoDefinition(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }).catch(() => {}); return true; } },
-          { key: "Ctrl-F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoDeclaration(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }).catch(() => {}); return true; } },
-          { key: "Mod-F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoTypeDefinition(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }).catch(() => {}); return true; } },
-          { key: "Shift-F12", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; const p = getCursorLspPos(view!.state.selection.main.head); lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) lspClient.gotoImplementation(filePath, p.line, p.character).then(l => navigateOrShowPicker(l)).catch(() => {}); }).catch(() => {}); return true; } },
-          { key: "F2", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) triggerRename(); }).catch(() => {}); return true; } },
-          { key: "Mod-.", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; lspClient.ensureReady(filePath, view!.state.doc.toString(), getWorkspaceRoot()).then(ok => { if (ok) triggerCodeActions(); }).catch(() => {}); return true; } },
+          { key: "F12",       run: lspNavKey((p, l, c) => lspClient.gotoDefinition(p, l, c)) },
+          { key: "Ctrl-F12",  run: lspNavKey((p, l, c) => lspClient.gotoDeclaration(p, l, c)) },
+          { key: "Mod-F12",   run: lspNavKey((p, l, c) => lspClient.gotoTypeDefinition(p, l, c)) },
+          { key: "Shift-F12", run: lspNavKey((p, l, c) => lspClient.gotoImplementation(p, l, c)) },
+          { key: "F2",   run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; void triggerRename(); return true; } },
+          { key: "Mod-.", run: () => { if (!isTauri || !lspClient.getLanguageId(filePath)) return false; void triggerCodeActions(); return true; } },
           ...closeBracketsKeymap,
           ...searchKeymap,
           ...foldKeymap,
@@ -716,76 +727,28 @@
     // at the beginning of the selection rather than at the arbitrary click position
     const lspPos = hasSelection ? sel.from : clickPos;
     const { line: lspLine, character: lspChar } = getCursorLspPos(lspPos);
-    // Enabled for any language we support — ensureReady() bootstraps on first use
+    // Enabled for any language we support — lspReady() bootstraps on first use
     const hasLsp = isTauri && !!lspClient.getLanguageId(filePath);
-    const doc = view.state.doc.toString();
-    const root = getWorkspaceRoot();
-
-    // Wrapper: starts the server if needed, returns false to abort
-    async function withLsp(): Promise<boolean> {
-      try {
-        return await lspClient.ensureReady(filePath, doc, root);
-      } catch {
-        return false;
-      }
-    }
+    const anchor = { x: e.clientX, y: e.clientY };
 
     showContextMenu([
-      { label: "Go to Definition",      shortcut: "F12",    disabled: !hasLsp,
+      { label: "Go to Definition",      shortcut: "F12",   disabled: !hasLsp,
+        action: () => lspNavigate((p, l, c) => lspClient.gotoDefinition(p, l, c), lspPos) },
+      { label: "Go to Declaration",     shortcut: "^F12",  disabled: !hasLsp,
+        action: () => lspNavigate((p, l, c) => lspClient.gotoDeclaration(p, l, c), lspPos) },
+      { label: "Go to Type Definition", shortcut: "⌘F12",  disabled: !hasLsp,
+        action: () => lspNavigate((p, l, c) => lspClient.gotoTypeDefinition(p, l, c), lspPos) },
+      { label: "Go to Implementation",  shortcut: "⇧F12",  disabled: !hasLsp,
+        action: () => lspNavigate((p, l, c) => lspClient.gotoImplementation(p, l, c), lspPos) },
+      { label: "Find All References",   shortcut: "⌥⇧F12", disabled: !hasLsp,
         action: async () => {
-          if (!await withLsp()) return;
-          navigateOrShowPicker(await lspClient.gotoDefinition(filePath, lspLine, lspChar).catch(() => []));
-        }},
-      { label: "Go to Declaration",     shortcut: "^F12",   disabled: !hasLsp,
-        action: async () => {
-          if (!await withLsp()) return;
-          navigateOrShowPicker(await lspClient.gotoDeclaration(filePath, lspLine, lspChar).catch(() => []));
-        }},
-      { label: "Go to Type Definition", shortcut: "⌘F12",   disabled: !hasLsp,
-        action: async () => {
-          if (!await withLsp()) return;
-          navigateOrShowPicker(await lspClient.gotoTypeDefinition(filePath, lspLine, lspChar).catch(() => []));
-        }},
-      { label: "Go to Implementation",  shortcut: "⇧F12",   disabled: !hasLsp,
-        action: async () => {
-          if (!await withLsp()) return;
-          navigateOrShowPicker(await lspClient.gotoImplementation(filePath, lspLine, lspChar).catch(() => []));
-        }},
-      { label: "Find All References",   shortcut: "⌥⇧F12",  disabled: !hasLsp,
-        action: async () => {
-          if (!await withLsp()) return;
-          const locs = await lspClient.findReferences(filePath, lspLine, lspChar).catch(() => [] as LspLocation[]);
-          lspReferences = locs;
+          if (!(await lspReady())) return;
+          lspReferences = await lspClient.findReferences(filePath, lspLine, lspChar).catch(() => [] as LspLocation[]);
         }},
       "sep",
-      { label: "Rename Symbol",   shortcut: "F2",   disabled: !hasLsp,
-        action: async () => {
-          if (!await withLsp()) return;
-          const prep = await lspClient.prepareRename(filePath, lspLine, lspChar).catch(() => null);
-          if (!prep) return;
-          const coords = view!.coordsAtPos(clickPos);
-          renamePos = { x: coords?.left ?? e.clientX, y: coords?.top ?? e.clientY };
-          renameName = prep.placeholder ?? "";
-          renameTarget = { line: lspLine, char: lspChar };
-          renaming = true;
-          setTimeout(() => document.querySelector<HTMLInputElement>(".rename-input")?.select(), 0);
-        }},
-      { label: "Format Buffer",   shortcut: "⌘⇧I",  action: () => formatDocument(view!) },
-      { label: "Show Code Actions", shortcut: "⌘.",  disabled: !hasLsp,
-        action: async () => {
-          if (!await withLsp()) return;
-          const actions = await lspClient.codeActions(filePath, lspLine, lspChar).catch(() => [] as CodeAction[]);
-          if (actions.length) {
-            showContextMenu(
-              actions.map((a: CodeAction) => ({
-                label: a.title,
-                action: () => lspClient.executeCodeAction(a, applyWorkspaceEdit),
-              })),
-              e.clientX + 8,
-              e.clientY,
-            );
-          }
-        }},
+      { label: "Rename Symbol",     shortcut: "F2",  disabled: !hasLsp, action: () => triggerRename(lspPos, anchor) },
+      { label: "Format Buffer",     shortcut: "⌘⇧I", action: () => formatDocument(view!) },
+      { label: "Show Code Actions", shortcut: "⌘.",  disabled: !hasLsp, action: () => triggerCodeActions(lspPos, anchor) },
       "sep",
       { label: "Cut",  shortcut: "⌘X", disabled: !hasSelection || readonly, action: () => {
           navigator.clipboard.writeText(selectedText).catch(() => {});
