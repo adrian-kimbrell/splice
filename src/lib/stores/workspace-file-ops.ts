@@ -7,7 +7,7 @@ import { cloneLayout, treeDepth, findShallowestLeaf, splitNodeInTree, MAX_SPLIT_
 import { markSelfWrite } from "./self-writes";
 // Static on purpose: watch/unwatch must be counted reliably (the Rust watcher is
 // reference counted) and `commands.ts` has no import-time side effects.
-import { watchPath, unwatchPath } from "../ipc/commands";
+import { watchPath, unwatchPath, sftpWriteFile, writeFile } from "../ipc/commands";
 
 // --- Query helpers ---
 
@@ -237,10 +237,8 @@ async function pickSavePath(title: string): Promise<string | null> {
  */
 async function writeBuffer(ws: Workspace, path: string, content: string): Promise<void> {
   if (ws.sshConfig) {
-    const { sftpWriteFile } = await import("../ipc/commands");
     await sftpWriteFile(ws.id, path, content);
   } else {
-    const { writeFile } = await import("../ipc/commands");
     markSelfWrite(path);
     await writeFile(path, content);
   }

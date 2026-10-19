@@ -11,6 +11,7 @@ import { pushToast } from "../stores/toasts.svelte";
 import { addRecentFile } from "../stores/recent-files.svelte";
 import { dispatchEditorAction } from "../stores/editor-actions.svelte";
 import { log } from "./log";
+import { readFile, sftpReadFile, takePendingOpenPaths } from "../ipc/commands";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -45,10 +46,8 @@ export function toastFileReadError(path: string, e: unknown): void {
 export async function readFileForWs(path: string): Promise<string> {
   const ws = workspaceManager.activeWorkspace;
   if (ws?.sshConfig) {
-    const { sftpReadFile } = await import("../ipc/commands");
     return sftpReadFile(ws.id, path);
   }
-  const { readFile } = await import("../ipc/commands");
   return readFile(path);
 }
 
@@ -142,7 +141,6 @@ export async function openDroppedFiles(paths: string[]): Promise<void> {
 export async function drainOpenPaths(): Promise<void> {
   if (!isTauri) return;
   try {
-    const { takePendingOpenPaths } = await import("../ipc/commands");
     for (const t of await takePendingOpenPaths()) {
       try {
         if (t.is_dir) await openFolderPath(t.path);

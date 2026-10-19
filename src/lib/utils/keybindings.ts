@@ -17,6 +17,7 @@ import { ui } from "../stores/ui.svelte";
 import { workspaceManager } from "../stores/workspace.svelte";
 import { settings, debouncedSaveSettings } from "../stores/settings.svelte";
 import type { LayoutNode } from "../stores/layout.svelte";
+import { readFile, saveScreenshot } from "../ipc/commands";
 
 function isInsideCodeMirror(el: Element | null): boolean {
   return !!el?.closest(".cm-editor");
@@ -272,7 +273,6 @@ export function initKeybindings(): () => void {
       (async () => {
         try {
           const { toPng } = await import("html-to-image");
-          const { saveScreenshot } = await import("../ipc/commands");
           await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
           const dataUrl = await toPng(document.documentElement, {
             pixelRatio: window.devicePixelRatio || 1,
@@ -379,7 +379,6 @@ export function initKeybindings(): () => void {
         const { ensureWorkspaceSettingsFile } = await import("../stores/settings.svelte");
         const path = await ensureWorkspaceSettingsFile(ws.rootPath);
         if (!path) return;
-        const { readFile } = await import("../ipc/commands");
         const content = await readFile(path).catch(() => "{\n  \n}\n");
         workspaceManager.openFileInWorkspace({
           name: "settings.json",

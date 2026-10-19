@@ -1,6 +1,6 @@
 import { log } from "../utils/log";
 import type { Workspace } from "./workspace-types";
-import type { RustWorkspace } from "../ipc/commands";
+import { type RustWorkspace, checkPidAlive, getTerminalCwd, gitDiffFile, killTerminal, readFile, saveWorkspace, spawnTerminal, writeToTerminal } from "../ipc/commands";
 import { validateLayout } from "./workspace-tab-ops";
 import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs, addOpenFile, newWorkspace } from "./workspace-types";
 import { collectLeafIds, removeNodeFromTree } from "./layout.svelte";
@@ -176,7 +176,6 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
   const layoutLeafIds = layoutSnapshot ? collectLeafIds(layoutSnapshot) : new Set<string>();
 
   try {
-    const { saveWorkspace, getTerminalCwd } = await import("../ipc/commands");
 
     // Gather actual terminal CWDs in parallel before building the panes array.
     const terminalCwdMap = new Map<string, string>();
@@ -263,8 +262,6 @@ export async function restoreWorkspaceImpl(
   register: (skeleton: Workspace) => Workspace = (w) => w,
 ): Promise<{ ws: Workspace; resumeCount: number }> {
   // Hoist all IPC imports once to avoid repeated dynamic import overhead in loops.
-  const { spawnTerminal, readFile, checkPidAlive, writeToTerminal, killTerminal } =
-    await import("../ipc/commands");
   const { onTerminalGrid } = await import("../ipc/events");
 
   const idMap = new Map<string, string>();
@@ -419,7 +416,6 @@ export async function restoreWorkspaceImpl(
       const paneId = `diff-${crypto.randomUUID().slice(0, 8)}`;
       idMap.set(paneInfo.id, paneId);
       try {
-        const { gitDiffFile } = await import("../ipc/commands");
         const diff = await gitDiffFile(rws.root_path, filePath, staged);
         ws.panes[paneId] = {
           id: paneId,

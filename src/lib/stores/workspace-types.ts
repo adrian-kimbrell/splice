@@ -2,6 +2,7 @@ import { log } from "../utils/log";
 import type { FileEntry, OpenFile } from "./files.svelte";
 import type { LayoutNode, PaneConfig, SplitDirection } from "./layout.svelte";
 import { MAX_SPLIT_DEPTH } from "./layout.svelte";
+import { getGitBranch, readDirTree, sftpListDir } from "../ipc/commands";
 
 export interface SshConfig {
   host: string;
@@ -204,7 +205,6 @@ export function markFileSaved(file: OpenFile): void {
 export async function fetchGitBranchImpl(ws: Workspace): Promise<void> {
   if (!ws.rootPath || ws.sshConfig) return; // remote root: no local git repo
   try {
-    const { getGitBranch } = await import("../ipc/commands");
     ws.gitBranch = await getGitBranch(ws.rootPath);
   } catch {
     ws.gitBranch = "";
@@ -215,10 +215,8 @@ export async function loadFileTreeImpl(ws: Workspace): Promise<void> {
   if (!ws.rootPath) return;
   try {
     if (ws.sshConfig) {
-      const { sftpListDir } = await import("../ipc/commands");
       ws.fileTree = await sftpListDir(ws.id, ws.rootPath);
     } else {
-      const { readDirTree } = await import("../ipc/commands");
       ws.fileTree = await readDirTree(ws.rootPath);
     }
   } catch (e) {

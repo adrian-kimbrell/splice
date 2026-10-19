@@ -6,7 +6,7 @@
  */
 
 import { log } from "../utils/log";
-import type { GitFileStatus } from "../ipc/commands";
+import { type GitFileStatus, gitDiscard, gitStage, gitStatus, gitUnstage } from "../ipc/commands";
 
 export type GitStatusKind = "modified" | "added" | "deleted" | "untracked" | "renamed" | "conflict" | "clean";
 
@@ -106,7 +106,6 @@ export async function refreshGitStatus(workspaceId: string, rootPath: string): P
   refreshGenerations.set(workspaceId, gen);
 
   try {
-    const { gitStatus } = await import("../ipc/commands");
     const { repo_root, files } = await gitStatus(rootPath);
 
     // Discard stale results if a newer refresh started while we awaited
@@ -204,10 +203,9 @@ async function runGitAction(
 ): Promise<boolean> {
   if (paths.length === 0) return false;
   try {
-    const ipc = await import("../ipc/commands");
-    if (action === "stage") await ipc.gitStage(rootPath, paths);
-    else if (action === "unstage") await ipc.gitUnstage(rootPath, paths);
-    else await ipc.gitDiscard(rootPath, paths);
+    if (action === "stage") await gitStage(rootPath, paths);
+    else if (action === "unstage") await gitUnstage(rootPath, paths);
+    else await gitDiscard(rootPath, paths);
     await refreshGitStatus(workspaceId, rootPath);
     return true;
   } catch (e) {

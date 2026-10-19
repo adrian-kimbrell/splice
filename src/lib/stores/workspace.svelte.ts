@@ -23,7 +23,7 @@ import { ui } from "./ui.svelte";
 import { isCornerDragActive } from "./corner-drag.svelte";
 import { isDragging as isTabDragging } from "./drag.svelte";
 import { effectiveSettings, defaultViewMode } from "./settings.svelte";
-import type { RustWorkspace } from "../ipc/commands";
+import { type RustWorkspace, addAllowedRoot, closeWorkspace as closeWsIpc, deleteWorkspace, getWorkspaces, killTerminal, reorderWorkspaces, setActiveWorkspaceId, spawnTerminal, sshConnect, sshDisconnect, unwatchPath, watchPath } from "../ipc/commands";
 import { addRecentProject } from "./recent-projects.svelte";
 import { attentionStore } from "./attention.svelte";
 import type { Workspace } from "./workspace-types";
@@ -122,9 +122,7 @@ class WorkspaceManager {
     entries.splice(toIndex, 0, entry);
     this.workspaces = Object.fromEntries(entries) as Record<string, Workspace>;
     const ids = Object.keys(this.workspaces);
-    import("../ipc/commands").then(({ reorderWorkspaces }) => {
-      reorderWorkspaces(ids).catch(log.warn);
-    });
+    reorderWorkspaces(ids).catch(log.warn);
   }
 
   renameWorkspace(id: string, name: string): void {
@@ -171,9 +169,7 @@ class WorkspaceManager {
     ui.explorerVisible = this.workspaces[id].explorerVisible;
     ui.explorerWidth = this.workspaces[id].explorerWidth;
     // Persist the active workspace ID
-    import("../ipc/commands").then(({ setActiveWorkspaceId }) => {
-      setActiveWorkspaceId(id).catch(log.warn);
-    });
+    setActiveWorkspaceId(id).catch(log.warn);
   }
 
   closeWorkspace(id: string): void {
@@ -204,7 +200,6 @@ class WorkspaceManager {
    */
   private async attachRoot(wsId: string, rootPath: string): Promise<void> {
     try {
-      const { addAllowedRoot, watchPath } = await import("../ipc/commands");
       await addAllowedRoot(rootPath);
       await watchPath(rootPath);
     } catch (e) {
@@ -219,9 +214,7 @@ class WorkspaceManager {
 
   /** Kill a PTY that was spawned but never placed in a pane (the workspace vanished or a drag interrupted). */
   private discardSpawnedTerminal(terminalId: number): void {
-    import("../ipc/commands")
-      .then(({ killTerminal }) => killTerminal(terminalId))
-      .catch(e => log.warn("Failed to kill orphaned terminal:", terminalId, e));
+    killTerminal(terminalId).catch(e => log.warn("Failed to kill orphaned terminal:", terminalId, e));
   }
 
   // --- Workspace creation ---
@@ -269,9 +262,7 @@ class WorkspaceManager {
     // the Rust side); close only ever unwatched the final root.
     const previousRoot = ws.rootPath;
     if (previousRoot && previousRoot !== rootPath && !ws.sshConfig) {
-      import("../ipc/commands")
-        .then(({ unwatchPath }) => unwatchPath(previousRoot))
-        .catch(e => log.warn("Failed to unwatch previous root:", previousRoot, e));
+      unwatchPath(previousRoot).catch(e => log.warn("Failed to unwatch previous root:", previousRoot, e));
     }
     ws.rootPath = rootPath;
     addRecentProject(rootPath);
@@ -301,7 +292,6 @@ class WorkspaceManager {
     let terminalId: number;
     let paneId: string;
     try {
-      const { spawnTerminal } = await import("../ipc/commands");
       terminalId = await spawnTerminal(effectiveSettings.terminal.default_shell, rootPath, 80, 24);
       paneId = `term-${terminalId}`;
     } catch (e) {
@@ -347,7 +337,6 @@ class WorkspaceManager {
     if (!this.workspaces[wsId]) return null;
 
     try {
-      const { spawnTerminal } = await import("../ipc/commands");
       const ws = this.workspaces[wsId]!;
 
       // Guard before spawning — no PTY wasted if we can't place it in the layout
@@ -424,28 +413,23 @@ class WorkspaceManager {
     if (ws) {
       // Disconnect SSH session if remote
       if (ws.sshConfig) {
-        import("../ipc/commands").then(({ sshDisconnect }) => {
-          sshDisconnect(id).catch(e => log.warn("Failed to disconnect SSH:", id, e));
-        });
+        sshDisconnect(id).catch(e => log.warn("Failed to disconnect SSH:", id, e));
       }
 
       // Unwatch the workspace directory and all open file watchers (local only)
       if (!ws.sshConfig && (ws.rootPath || ws.openFiles.length > 0)) {
-        import("../ipc/commands").then(({ unwatchPath }) => {
-          if (ws.rootPath) unwatchPath(ws.rootPath!).catch(e => log.warn("Failed to unwatch path:", e));
-          for (const file of ws.openFiles) {
-            if (!file.path.startsWith("untitled-")) {
-              unwatchPath(file.path).catch(e => log.warn("Failed to unwatch file:", file.path, e));
-            }
+        if (ws.rootPath) unwatchPath(ws.rootPath).catch(e => log.warn("Failed to unwatch path:", e));
+        for (const file of ws.openFiles) {
+          if (!file.path.startsWith("untitled-")) {
+            unwatchPath(file.path).catch(e => log.warn("Failed to unwatch file:", file.path, e));
           }
-        });
+        }
       }
       // Clear attention notifications for all terminals in this workspace
       for (const tid of ws.terminalIds) {
         attentionStore.clear(tid);
       }
       try {
-        const { closeWorkspace: closeWsIpc, killTerminal } = await import("../ipc/commands");
         const killed = await closeWsIpc(id);
         // The backend kills the terminals listed in the persisted record; anything
         // spawned inside the debounce window since the last save is only known here.
@@ -459,7 +443,6 @@ class WorkspaceManager {
         // IPC failed — kill terminals individually and remove the workspace record
         // from the backend so it isn't spuriously restored on next launch.
         try {
-          const { killTerminal, deleteWorkspace } = await import("../ipc/commands");
           for (const tid of ws.terminalIds) {
             killTerminal(tid).catch(e => log.warn("Failed to kill terminal:", tid, e));
           }
@@ -807,7 +790,6 @@ class WorkspaceManager {
 
       if (sourcePane.kind === "terminal") {
         // Spawn a new terminal for the split
-        const { spawnTerminal } = await import("../ipc/commands");
         let terminalId: number;
         if (ws.sshConfig) {
           terminalId = await spawnTerminal("/usr/bin/ssh", "/", 80, 24, buildSshExtraArgs(ws.sshConfig));
@@ -877,7 +859,6 @@ class WorkspaceManager {
     if (config?.kind === "terminal" && config.terminalId != null) {
       const termId = config.terminalId;
       try {
-        const { killTerminal } = await import("../ipc/commands");
         await killTerminal(termId);
       } catch (e) {
         log.error("Failed to kill terminal:", e);
@@ -1006,7 +987,6 @@ class WorkspaceManager {
     // and slowed iteration to a crawl. Production builds restore as usual.
     if (import.meta.env.DEV) return;
     try {
-      const { getWorkspaces } = await import("../ipc/commands");
       const { active_workspace_id, workspaces } = await getWorkspaces();
       const shouldRestore = effectiveSettings.general.restore_previous_session;
 
@@ -1055,7 +1035,7 @@ class WorkspaceManager {
       // Reconnect the SSH session on restore, then load the remote file tree. Panes
       // are restored like local ones; only a workspace that ended up with none gets
       // a fresh terminal (spawning unconditionally added one per launch).
-      import("../ipc/commands").then(async ({ sshConnect }) => {
+      void (async () => {
         try {
           await sshConnect(ws.id, ws.sshConfig!);
           this.loadFileTree(ws.id);
@@ -1063,7 +1043,7 @@ class WorkspaceManager {
         } catch (e) {
           log.error("Failed to reconnect SSH session:", e);
         }
-      });
+      })();
     } else if (ws.rootPath) {
       void this.attachRoot(ws.id, ws.rootPath);
     }
