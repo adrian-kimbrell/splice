@@ -7,8 +7,13 @@
  * visible copy can take focus, so every caller goes through here.
  */
 
-/** The focusable element inside a pane: terminal canvas, editor, or anything with a tabindex. */
-const CONTENT_SELECTOR = "canvas[tabindex], .cm-content, [tabindex]";
+/**
+ * The focusable element inside a pane, in priority order: terminal canvas, editor
+ * content, then anything with a tabindex. Tried one at a time: a single combined
+ * selector would return whichever comes first in document order, and a tab's
+ * `tabindex` precedes the editor body.
+ */
+const CONTENT_SELECTORS = ["canvas[tabindex]", ".cm-content", "[tabindex]"];
 
 /**
  * Rendered and not hidden. `offsetParent` is null under `display: none` (the
@@ -33,8 +38,12 @@ export function focusPaneContent(paneId: string, opts: { unlessInside?: boolean 
   const paneEl = findVisiblePaneEl(paneId);
   if (!paneEl) return false;
   if (opts.unlessInside && paneEl.contains(document.activeElement)) return false;
-  const target = paneEl.querySelector<HTMLElement>(CONTENT_SELECTOR);
-  if (!target) return false;
-  target.focus();
-  return true;
+  for (const selector of CONTENT_SELECTORS) {
+    const target = paneEl.querySelector<HTMLElement>(selector);
+    if (target) {
+      target.focus();
+      return true;
+    }
+  }
+  return false;
 }
