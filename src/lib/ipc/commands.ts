@@ -126,6 +126,8 @@ export interface RustPaneInfo {
   active_file_path: string | null;
   claude_session_id: string | null;
   claude_pid: number | null;
+  /** "claude" | "codex"; absent in records from older builds (claude). */
+  agent?: string | null;
   terminal_id: number | null;
 }
 

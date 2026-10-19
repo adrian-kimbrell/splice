@@ -25,7 +25,7 @@ function hasActiveClaudeSession(terminalId: number): boolean {
 }
 
 export async function startClaudeWiring(): Promise<() => void> {
-  const unlistenSession = await listen<{ terminal_id: number; session_id: string; claude_pid: number }>(
+  const unlistenSession = await listen<{ terminal_id: number; session_id: string; claude_pid: number; agent?: string }>(
     "terminal:claude-session",
     ({ payload }) => {
       const ws = Object.values(workspaceManager.workspaces).find((w) => w.terminalIds.includes(payload.terminal_id));
@@ -34,6 +34,7 @@ export async function startClaudeWiring(): Promise<() => void> {
         cancelPendingResume(payload.terminal_id);
         ws.panes[paneId].claudeSessionId = payload.session_id;
         ws.panes[paneId].claudePid = payload.claude_pid;
+        ws.panes[paneId].agentKind = payload.agent === "codex" ? "codex" : "claude";
         workspaceManager.debouncedPersistWorkspace(ws.id);
       }
     },

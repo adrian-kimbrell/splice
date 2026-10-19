@@ -87,6 +87,10 @@ pub struct PaneInfo {
     pub claude_session_id: Option<String>,
     #[serde(default)]
     pub claude_pid: Option<u32>,
+    /// "claude" or "codex": which CLI the saved session id belongs to, so restore
+    /// injects the right resume command. None = claude (records from older builds).
+    #[serde(default)]
+    pub agent: Option<String>,
     #[serde(default)]
     pub terminal_id: Option<u32>,
 }

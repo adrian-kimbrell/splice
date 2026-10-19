@@ -479,7 +479,8 @@ pub fn install_claude_hook(state: State<'_, Mutex<AppState>>) -> Result<(), Stri
         .map_err(|e| e.to_string())?
         .attention_port
         .ok_or("Attention server not started")?;
-    crate::attention::install_hook()
+    crate::attention::install_hook()?;
+    crate::attention::install_codex_integration()
 }
 
 #[cfg(test)]

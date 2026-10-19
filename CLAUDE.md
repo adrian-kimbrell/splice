@@ -91,6 +91,15 @@ Splice starts → attention::start_server (HTTP on port 19876-19878)
 → Claude Code triggers hook → Python urllib POST to localhost with X-Splice-Token header
 → server.rs parses request → emits "terminal:attention-notify" event
 → attention.svelte.ts store → TitleBar shows notification badge
+
+Codex (attention/codex.rs): the same server, fed by Codex's `notify` program
+(`~/.codex/config.toml`, runs after every turn, no trust step: done-badge + session id
+for `codex resume` on restore) and by hooks in `~/.codex/hooks.json`
+(SessionStart / PermissionRequest / Stop: permission badge + model name; Codex runs
+them only after the user trusts them once via `/hooks`). Both call
+`~/.codex/splice-hooks/splice_codex_hook.py`, which POSTs with `agent: "codex"`;
+`/session` carries `agent` through to the pane (`agentKind`) so restore injects
+`codex resume <id>` instead of `claude --resume <id>`.
 ```
 
 ### Drag-and-Drop (Tabs/Panes)

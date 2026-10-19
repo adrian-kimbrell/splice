@@ -159,6 +159,11 @@
         ><i class="bi bi-clock-history mr-1 text-[10px]"></i>{lastTouchedLabel}</span
       >
     {/if}
+    {#if claudeStatus?.model}
+      <span class="shrink-0" title="Model in this terminal's agent session">
+        <i class="bi bi-cpu mr-1 text-[10px]"></i>{claudeStatus.model}
+      </span>
+    {/if}
     {#if claudeStatus?.contextPct != null}
       <span class="shrink-0" style="color: {ctxColor};" title="Claude context window used">
         <i class="bi bi-pie-chart mr-1 text-[10px]"></i>{Math.round(claudeStatus.contextPct)}%

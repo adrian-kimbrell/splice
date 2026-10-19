@@ -34,6 +34,14 @@ export type LayoutNode =
       children: [LayoutNode, LayoutNode];
     };
 
+/** Coding agents Splice can track in a terminal. */
+export type AgentKind = "claude" | "codex";
+
+/** Command that resumes an agent session in a fresh shell. */
+export function resumeCommand(agent: AgentKind | null | undefined, sessionId: string): string {
+  return agent === "codex" ? `codex resume ${sessionId}` : `claude --resume ${sessionId}`;
+}
+
 export interface PaneConfig {
   id: string;
   kind: "editor" | "terminal" | "diff";
@@ -43,6 +51,8 @@ export interface PaneConfig {
   activeFilePath?: string | null;
   claudeSessionId?: string | null;
   claudePid?: number | null;
+  /** Which CLI reported `claudeSessionId`; decides the resume command on restore. */
+  agentKind?: AgentKind | null;
   // Diff pane fields
   diffFilePath?: string;
   diffOldContent?: string;

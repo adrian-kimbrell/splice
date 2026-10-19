@@ -4,7 +4,7 @@ import { type RustWorkspace, type RustPaneInfo, checkPidAlive, getTerminalCwd, g
 import { validateLayout } from "./workspace-tab-ops";
 import { onTerminalGrid } from "../ipc/events";
 import { remapLayout, findFirstLeaf, frontendToRustLayout, buildSshExtraArgs, addOpenFile, newWorkspace } from "./workspace-types";
-import { collectLeafIds, removeNodeFromTree } from "./layout.svelte";
+import { collectLeafIds, removeNodeFromTree, resumeCommand, type AgentKind } from "./layout.svelte";
 import { effectiveSettings, defaultViewMode } from "./settings.svelte";
 import { SIDEBAR_MIN_WIDTH, SIDEBAR_DEFAULT_WIDTH } from "./ui.svelte";
 
@@ -112,7 +112,8 @@ export async function waitForShellReady(
 }
 
 /**
- * Schedule `claude --resume {sessionId}` injection into a terminal.
+ * Schedule the agent's resume command (`claude --resume {sessionId}` or
+ * `codex resume {sessionId}`) for injection into a terminal.
  * Waits for shell-ready detection (cursor stability after `staggerMs`), then
  * retries 3 times at +0ms, +5000ms, +13000ms.
  * Cancels all retries if `savedPid` is still alive (Claude didn't exit).
@@ -127,6 +128,7 @@ export function scheduleClaudeResume(
     writeToTerminal: (id: number, data: Uint8Array) => Promise<void>;
     subscribeToFrames: (id: number, cb: (data: Uint8Array) => void) => Promise<() => void>;
   },
+  agent: AgentKind = "claude",
 ): void {
   (async () => {
     const abort = new AbortController();
@@ -155,8 +157,8 @@ export function scheduleClaudeResume(
           } catch { /* ignore — if check fails, proceed with resume */ }
         }
         try {
-          await deps.writeToTerminal(terminalId, new TextEncoder().encode(`claude --resume ${sessionId}\n`));
-        } catch (e) { log.warn("claude --resume injection failed:", e); }
+          await deps.writeToTerminal(terminalId, new TextEncoder().encode(resumeCommand(agent, sessionId) + "\n"));
+        } catch (e) { log.warn("resume injection failed:", e); }
       }, extra);
       pending.timers.push(t);
     }
@@ -199,6 +201,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
       .map((pane) => {
         const claudeSessionId = pane.kind === "terminal" ? (pane.claudeSessionId ?? null) : null;
         const claudePid = pane.kind === "terminal" ? (pane.claudePid ?? null) : null;
+        const agent = pane.kind === "terminal" ? (pane.agentKind ?? null) : null;
         const terminalId = pane.kind === "terminal" ? (pane.terminalId ?? null) : null;
         const isDiff = pane.kind === "diff";
         return {
@@ -213,6 +216,7 @@ export async function persistWorkspaceImpl(ws: Workspace, activeFilePath: string
           active_file_path: isDiff ? null : (pane.activeFilePath ?? null),
           claude_session_id: claudeSessionId,
           claude_pid: claudePid,
+          agent,
           terminal_id: terminalId,
         };
       });
@@ -371,7 +375,13 @@ async function restoreTerminalPane(
   const paneId = `term-${terminalId}`;
   ws.terminalIds.push(terminalId);
   ws.activeTerminalId = terminalId;
-  ws.panes[paneId] = { id: paneId, kind: "terminal", title: paneInfo.title, terminalId };
+  ws.panes[paneId] = {
+    id: paneId,
+    kind: "terminal",
+    title: paneInfo.title,
+    terminalId,
+    agentKind: paneInfo.agent === "codex" ? "codex" : paneInfo.claude_session_id ? "claude" : null,
+  };
   allocateTermNum(); // advance the counter for each restored terminal
 
   if (paneInfo.claude_session_id) scheduleResumeForPane(terminalId, paneInfo, rws, resume);
@@ -379,7 +389,7 @@ async function restoreTerminalPane(
 }
 
 /**
- * Schedule `claude --resume` for a restored terminal. The first 8 sessions are
+ * Schedule the agent's resume for a restored terminal. The first 8 sessions are
  * 600 ms apart; beyond that they go in waves of 8 offset by 8 s, so the slot
  * within a wave stays tight while total time never runs away (and the base
  * delay stays well below the hard timeout for any realistic count).
@@ -405,7 +415,7 @@ function scheduleResumeForPane(terminalId: number, paneInfo: RustPaneInfo, rws: 
     checkPidAlive,
     writeToTerminal,
     subscribeToFrames: onTerminalGrid,
-  });
+  }, paneInfo.agent === "codex" ? "codex" : "claude");
 }
 
 /** Re-fetch the diff from git. Null when the file was committed or discarded meanwhile. */

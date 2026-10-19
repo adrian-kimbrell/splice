@@ -290,6 +290,9 @@ pub fn run() {
                     if let Err(e) = attention::install_hook() {
                         tracing::warn!("Failed to install Claude hook: {}", e);
                     }
+                    if let Err(e) = attention::install_codex_integration() {
+                        tracing::warn!("Failed to install Codex integration: {}", e);
+                    }
                 }
             });
 
