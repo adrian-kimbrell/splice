@@ -28,6 +28,12 @@ const GIT_COMMIT_TIMEOUT_SECS: u64 = 120;
 async fn run_git_timeout(dir: &Path, args: &[&str], secs: u64) -> Result<std::process::Output, String> {
     let child = tokio::process::Command::new("git")
         .args(args)
+        // `git status` otherwise takes `.git/index.lock` and rewrites `.git/index`
+        // on every run. The explorer watches the workspace recursively, saw those
+        // writes, refreshed, ran `git status` again, and so on, forever. Optional
+        // locks only cover such opportunistic index refreshes; commands that must
+        // write (add, commit, checkout) still lock as usual.
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .current_dir(dir)
         .kill_on_drop(true)
         .output();
