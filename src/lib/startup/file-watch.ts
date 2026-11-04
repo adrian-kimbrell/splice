@@ -11,6 +11,7 @@ import { refreshGitStatus } from "../stores/git.svelte";
 import { readFile } from "../ipc/commands";
 import { isUnderRoot } from "../utils/path-utils";
 import { log } from "../utils/log";
+import { workCounters } from "../utils/jank-monitor";
 
 /** The Rust side already debounces by 150 ms; this coalesces bursts across watchers. */
 const TREE_CHANGE_DEBOUNCE_MS = 50;
@@ -31,6 +32,7 @@ export async function startFileWatchListeners(): Promise<() => void> {
         continue;
       }
       try {
+        workCounters.fileReloads++;
         const content = await readFile(changedPath);
         file.content = content;
         file.originalContent = content;
@@ -50,6 +52,7 @@ export async function startFileWatchListeners(): Promise<() => void> {
       log.debug("[watch] tree:changed", changedPath);
       for (const [wsId, w] of Object.entries(workspaceManager.workspaces)) {
         if (w.rootPath && isUnderRoot(changedPath, w.rootPath)) {
+          workCounters.treeReloads++;
           workspaceManager.loadFileTree(wsId);
           refreshGitStatus(wsId, w.rootPath);
         }

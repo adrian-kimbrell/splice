@@ -48,6 +48,7 @@
   import { startFileWatchListeners } from "../lib/startup/file-watch";
   import { startWindowCloseHandler } from "../lib/startup/window-close";
   import { focusPaneContent } from "../lib/utils/pane-focus";
+  import { startJankMonitor } from "../lib/utils/jank-monitor";
   import { openNewWindow, reopenRegisteredWindows } from "../lib/utils/new-window";
   import { isImagePath, toastFileReadError, readFileForWs, drainOpenPaths, pickAndOpenFolder, pickAndOpenFile, startOpenPathListener, startNativeDrop } from "../lib/utils/open-paths";
   import WelcomeScreen from "./WelcomeScreen.svelte";
@@ -452,7 +453,7 @@
     ui.explorerWidth = Math.max(SIDEBAR_MIN_WIDTH.explorer, settings.appearance.explorer_width ?? SIDEBAR_DEFAULT_WIDTH.explorer);
     ui.workspacesWidth = settings.appearance.workspaces_width ?? SIDEBAR_DEFAULT_WIDTH.workspaces;
 
-    const disposers: (() => void)[] = [];
+    const disposers: (() => void)[] = [startJankMonitor()];
 
     // Before workspaces restore, so no session event from a restored terminal's
     // Claude process is missed.

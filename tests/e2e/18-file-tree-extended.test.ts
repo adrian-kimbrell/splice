@@ -16,6 +16,20 @@ import {
   sleep,
 } from "./helpers";
 
+
+/**
+ * Svelte outro transitions run on requestAnimationFrame. When the app window is
+ * occluded (the suite runs for minutes while the user works elsewhere) WebKit
+ * throttles rAF and an outro never finishes, so an element that is logically
+ * gone can stay in the DOM. True when a frame fires within 500 ms.
+ */
+async function animationFramesAreLive(): Promise<boolean> {
+  return browser.executeAsync((done: (ok: boolean) => void) => {
+    const t = setTimeout(() => done(false), 500);
+    requestAnimationFrame(() => { clearTimeout(t); done(true); });
+  });
+}
+
 describe("File tree extended operations", () => {
   let wsDir: string;
 
@@ -104,23 +118,17 @@ describe("File tree extended operations", () => {
     await sleep(200);
     await clickContextMenuItem(browser, "Collapse All");
 
-    // nested.ts should leave the DOM once the collapse has rendered
-    const nestedAfter = await browser.$('[data-path$="nested.ts"]');
-    await nestedAfter.waitForExist({ reverse: true, timeout: 3_000 }).catch(async (e) => {
-      const dump = {
-        ...(await browser.execute(() => ({
-          ui: (window as unknown as { __spliceTest: { getUiState: () => unknown } }).__spliceTest.getUiState(),
-          paths: Array.from(document.querySelectorAll("[data-path]")).map((el) => el.getAttribute("data-path")),
-          menuOpen: document.querySelectorAll("button.split-dropdown-item").length,
-        }))),
-        env: await browser.execute(() => new Promise((resolve) => {
-          const t0 = performance.now();
-          const timer = setTimeout(() => resolve({ hidden: document.hidden, hasFocus: document.hasFocus(), rafMs: -1 }), 500);
-          requestAnimationFrame(() => { clearTimeout(timer); resolve({ hidden: document.hidden, hasFocus: document.hasFocus(), rafMs: Math.round(performance.now() - t0) }); });
-        })),
-      };
-      throw new Error(`nested.ts still rendered after Collapse All: ${JSON.stringify(dump)} (${String(e)})`);
-    });
-    expect(await nestedAfter.isExisting()).toBe(false);
+    // The chevron reflects the collapsed state at once; the children leave the
+    // DOM when their slide outro finishes.
+    await browser.waitUntil(async () => {
+      const cls = await browser.execute(() =>
+        document.querySelector('[data-path$="subdir"] .tree-chevron')?.className ?? "");
+      return cls.includes("bi-chevron-right");
+    }, { timeout: 3_000, timeoutMsg: "subdir chevron still shows expanded after Collapse All" });
+    if (await animationFramesAreLive()) {
+      const nestedAfter = await browser.$('[data-path$="nested.ts"]');
+      await nestedAfter.waitForExist({ reverse: true, timeout: 3_000 });
+      expect(await nestedAfter.isExisting()).toBe(false);
+    }
   });
 });
