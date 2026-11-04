@@ -78,9 +78,7 @@ describe("Zoomed pane focus", () => {
         paneId: el?.closest<HTMLElement>("[data-pane-id]")?.dataset.paneId ?? null,
       };
     });
-    expect(focused.isEditor).toBe(true);
-    expect(focused.visible).toBe(true);
-    expect(focused.paneId).toBe(paneId);
+    expect(focused).toEqual({ tag: "DIV", isEditor: true, visible: true, paneId });
   });
 
   it("app is still healthy", async () => {
