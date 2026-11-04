@@ -160,12 +160,16 @@
     renderer.setSearchMatches(converted, searchActiveIndex);
   });
 
+  /** Set in onMount: paints a frame that arrived while the workspace was hidden. */
+  let paintPendingFrame: (() => void) | null = null;
+
   // Re-fit terminal when its workspace becomes visible after a workspace/tab switch.
   // (`active` here means "this terminal's workspace is active", not the active pane —
   // pane focus on switch is handled centrally in App.svelte.)
   $effect(() => {
     if (active && renderer && containerEl) {
       requestAnimationFrame(() => {
+        paintPendingFrame?.();
         handleResize();
         // Still blank (never got a frame while hidden)? Ask again now that the
         // user is looking at it.
@@ -396,6 +400,17 @@
 
     // Listen for grid updates, throttle rendering to RAF
     let pendingFrame: Uint8Array | null = null;
+    const scheduleRender = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        if (pendingFrame && renderer) {
+          renderer.render(pendingFrame);
+          pendingFrame = null;
+        }
+      });
+    };
+    paintPendingFrame = () => { if (pendingFrame) scheduleRender(); };
 
     const gridUnlisten = await onTerminalGrid(
       terminalId,
@@ -413,15 +428,12 @@
         if (frameRetryTimer) { clearTimeout(frameRetryTimer); frameRetryTimer = null; }
         if (renderer) renderer.setLatestFrame(data);
         pendingFrame = data;
-        if (!rafId) {
-          rafId = requestAnimationFrame(() => {
-            rafId = 0;
-            if (pendingFrame && renderer) {
-              renderer.render(pendingFrame);
-              pendingFrame = null;
-            }
-          });
-        }
+        // A terminal in a workspace that is not on screen keeps the latest frame
+        // but does not paint it: painting a hidden canvas at up to 120 fps while
+        // an agent streams output there starved typing in the visible workspace.
+        // The `active` effect paints the kept frame when the workspace returns.
+        if (!active) return;
+        scheduleRender();
       },
     );
     if (destroyed) { gridUnlisten(); return; }

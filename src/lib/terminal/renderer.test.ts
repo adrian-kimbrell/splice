@@ -174,15 +174,31 @@ describe("TerminalRenderer", () => {
     expect(texts).toEqual(["X"]);
   });
 
-  it("unfocused_renders_are_always_full_repaints", () => {
-    const frame = buildFrame({ cols: 10, rows: 5 });
+  it("losing_focus_repaints_once_then_returns_to_dirty_rect", () => {
+    const frame = buildFrame({ cols: 10, rows: 5, cursorCol: 9, cursorRow: 4 });
     r.render(frame);
     r.setFocused(false);
     ctx.reset();
+    // Focus changed: one full repaint so the cursor switches to its hollow form.
     r.render(new Uint8Array(frame));
     expect(ctx.ops("fillRect").length).toBeGreaterThanOrEqual(1 + 50);
-    // hollow cursor when unfocused
     expect(ctx.ops("strokeRect").length).toBe(1);
+    // Next identical frame while still unfocused: dirty-rect, not another 50 cells.
+    // (An agent streaming in an unfocused pane used to force a full repaint per frame.)
+    ctx.reset();
+    r.render(new Uint8Array(frame));
+    expect(ctx.ops("fillRect").length).toBeLessThanOrEqual(2);
+  });
+
+  it("unfocused_panes_still_get_a_safety_repaint_about_once_a_second", () => {
+    const frame = buildFrame({ cols: 10, rows: 5, cursorCol: 9, cursorRow: 4 });
+    r.render(frame);
+    r.setFocused(false);
+    r.render(new Uint8Array(frame)); // the focus-change repaint
+    (r as unknown as { lastFullRedrawAt: number }).lastFullRedrawAt = performance.now() - 1500;
+    ctx.reset();
+    r.render(new Uint8Array(frame));
+    expect(ctx.ops("fillRect").length).toBeGreaterThanOrEqual(1 + 50);
   });
 
   it("rerender_forces_a_full_repaint_from_the_cached_frame", () => {
