@@ -9,6 +9,20 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { loadApp, openWorkspace, closeAllWorkspaces, pressKey, sleep } from "./helpers";
 
+
+/**
+ * Svelte outro transitions run on requestAnimationFrame. When the app window is
+ * occluded (the suite runs for minutes while the user works elsewhere) WebKit
+ * throttles rAF and an outro never finishes, so an element that is logically
+ * gone can stay in the DOM. True when a frame fires within 500 ms.
+ */
+async function animationFramesAreLive(): Promise<boolean> {
+  return browser.executeAsync((done: (ok: boolean) => void) => {
+    const t = setTimeout(() => done(false), 500);
+    requestAnimationFrame(() => { clearTimeout(t); done(true); });
+  });
+}
+
 describe("Command palette execution", () => {
   let wsDir: string;
 
@@ -154,21 +168,17 @@ describe("Command palette execution", () => {
 
     await browser.keys(["Escape"]);
 
-    // The palette is removed once its outro transition finishes, so wait rather
-    // than sampling the DOM after a fixed delay.
-    const palettAfter = await browser.$('input[placeholder="Type a command…"]');
-    await palettAfter.waitForExist({ reverse: true, timeout: 2_000 }).catch(async (e) => {
-      const state = {
-        ui: await browser.execute(() =>
-          (window as unknown as { __spliceTest: { getUiState: () => unknown } }).__spliceTest.getUiState()),
-        env: await browser.execute(() => new Promise((resolve) => {
-          const t0 = performance.now();
-          const timer = setTimeout(() => resolve({ hidden: document.hidden, hasFocus: document.hasFocus(), rafMs: -1 }), 500);
-          requestAnimationFrame(() => { clearTimeout(timer); resolve({ hidden: document.hidden, hasFocus: document.hasFocus(), rafMs: Math.round(performance.now() - t0) }); });
-        })),
-      };
-      throw new Error(`Palette still open after Escape; ui state: ${JSON.stringify(state)} (${String(e)})`);
-    });
-    expect(await palettAfter.isExisting()).toBe(false);
+    // The palette closes immediately in state; the DOM element leaves once its
+    // outro transition finishes.
+    await browser.waitUntil(async () => {
+      const st = await browser.execute(() =>
+        (window as unknown as { __spliceTest: { getUiState: () => { commandPaletteOpen: boolean } } }).__spliceTest.getUiState());
+      return st.commandPaletteOpen === false;
+    }, { timeout: 2_000, timeoutMsg: "palette still open (ui.commandPaletteOpen) after Escape" });
+    if (await animationFramesAreLive()) {
+      const palettAfter = await browser.$('input[placeholder="Type a command…"]');
+      await palettAfter.waitForExist({ reverse: true, timeout: 3_000 });
+      expect(await palettAfter.isExisting()).toBe(false);
+    }
   });
 });
