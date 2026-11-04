@@ -21,6 +21,7 @@
  * @exports registerPane, unregisterPane - Pane lifecycle for hit testing
  * @exports getDragActive, getHoverZone, isDragging - Reactive getters for UI overlay rendering
  */
+import type { SplitDirection } from "./layout.svelte";
 
 export interface TabDragData {
   filePath: string;
@@ -204,4 +205,18 @@ export function beginDrag(data: TabDragData, e: MouseEvent) {
 
 export function endDrag() {
   cleanup();
+}
+
+/**
+ * Which split a drop zone asks for. The outer 25% of a pane splits it on that
+ * side; the center (or no zone) means "move into this pane" and maps to null.
+ */
+export function zoneToSplit(zone: DropZone): { direction: SplitDirection; side: "before" | "after" } | null {
+  switch (zone) {
+    case "left":   return { direction: "horizontal", side: "before" };
+    case "right":  return { direction: "horizontal", side: "after" };
+    case "top":    return { direction: "vertical",   side: "before" };
+    case "bottom": return { direction: "vertical",   side: "after" };
+    default:       return null;
+  }
 }

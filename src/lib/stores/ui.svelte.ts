@@ -42,3 +42,31 @@ export const ui = $state({
    *  PTY-resize/refit until the drag ends, so the whole grid doesn't re-fit per frame. */
   sidebarResizing: false,
 });
+
+// --- Sidebar panels -------------------------------------------------------
+// The explorer can sit on either side (settings.appearance.explorer_side), so
+// layout code addresses panels by name and maps names to sides itself.
+
+export type SidebarPanel = "explorer" | "workspaces";
+
+export const SIDEBAR_MIN_WIDTH: Record<SidebarPanel, number> = { explorer: 150, workspaces: 62 };
+export const SIDEBAR_DEFAULT_WIDTH: Record<SidebarPanel, number> = { explorer: 240, workspaces: 220 };
+export const SIDEBAR_MAX_WIDTH = 500;
+
+export function isPanelVisible(panel: SidebarPanel): boolean {
+  return panel === "explorer" ? ui.explorerVisible : ui.workspacesVisible;
+}
+
+export function togglePanel(panel: SidebarPanel): void {
+  if (panel === "explorer") ui.explorerVisible = !ui.explorerVisible;
+  else ui.workspacesVisible = !ui.workspacesVisible;
+}
+
+export function panelWidth(panel: SidebarPanel): number {
+  return panel === "explorer" ? ui.explorerWidth : ui.workspacesWidth;
+}
+
+export function setPanelWidth(panel: SidebarPanel, width: number): void {
+  if (panel === "explorer") ui.explorerWidth = width;
+  else ui.workspacesWidth = width;
+}

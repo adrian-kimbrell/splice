@@ -107,11 +107,18 @@ describe("File tree extended operations", () => {
     // nested.ts should leave the DOM once the collapse has rendered
     const nestedAfter = await browser.$('[data-path$="nested.ts"]');
     await nestedAfter.waitForExist({ reverse: true, timeout: 3_000 }).catch(async (e) => {
-      const dump = await browser.execute(() => ({
-        ui: (window as unknown as { __spliceTest: { getUiState: () => unknown } }).__spliceTest.getUiState(),
-        paths: Array.from(document.querySelectorAll("[data-path]")).map((el) => el.getAttribute("data-path")),
-        menuOpen: document.querySelectorAll("button.split-dropdown-item").length,
-      }));
+      const dump = {
+        ...(await browser.execute(() => ({
+          ui: (window as unknown as { __spliceTest: { getUiState: () => unknown } }).__spliceTest.getUiState(),
+          paths: Array.from(document.querySelectorAll("[data-path]")).map((el) => el.getAttribute("data-path")),
+          menuOpen: document.querySelectorAll("button.split-dropdown-item").length,
+        }))),
+        env: await browser.execute(() => new Promise((resolve) => {
+          const t0 = performance.now();
+          const timer = setTimeout(() => resolve({ hidden: document.hidden, hasFocus: document.hasFocus(), rafMs: -1 }), 500);
+          requestAnimationFrame(() => { clearTimeout(timer); resolve({ hidden: document.hidden, hasFocus: document.hasFocus(), rafMs: Math.round(performance.now() - t0) }); });
+        })),
+      };
       throw new Error(`nested.ts still rendered after Collapse All: ${JSON.stringify(dump)} (${String(e)})`);
     });
     expect(await nestedAfter.isExisting()).toBe(false);

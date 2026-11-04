@@ -145,6 +145,11 @@ pub(crate) async fn handle_session_request(app: &AppHandle, json: serde_json::Va
     };
 
     let claude_pid = json.get("claude_pid").and_then(|v| v.as_u64()).map(|v| v as u32).unwrap_or(0);
+    // Which CLI owns the session: "claude" (default, the Claude hooks send none) or "codex".
+    let agent = match json.get("agent").and_then(|v| v.as_str()) {
+        Some("codex") => "codex",
+        _ => "claude",
+    };
 
     let state = app.state::<Mutex<AppState>>();
     if let Ok(mut locked) = state.lock() {
@@ -153,7 +158,7 @@ pub(crate) async fn handle_session_request(app: &AppHandle, json: serde_json::Va
             return;
         }
         locked.terminal_claude_sessions.insert(terminal_id, (session_id.clone(), claude_pid));
-        info!(terminal_id, session_id, claude_pid, "Stored Claude session for terminal");
+        info!(terminal_id, session_id, claude_pid, agent, "Stored agent session for terminal");
     };
 
     // Emit event so the frontend can cache the session ID without polling
@@ -161,6 +166,7 @@ pub(crate) async fn handle_session_request(app: &AppHandle, json: serde_json::Va
         "terminal_id": terminal_id,
         "session_id": session_id,
         "claude_pid": claude_pid,
+        "agent": agent,
     })) {
         warn!("Failed to emit terminal:claude-session: {}", e);
     }

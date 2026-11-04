@@ -35,7 +35,7 @@ vi.mock("./settings.svelte", () => {
   };
   return {
     settings: fakeSettings,
-    effectiveSettings: fakeSettings,
+    effectiveSettings: fakeSettings, defaultViewMode: () => "split" as const,
   };
 });
 
@@ -719,5 +719,43 @@ describe("restoreWorkspaceImpl", () => {
     // `term-{terminalId}` (the second resolve returned 456).
     expect(result.ws.panes["term-456"]).toBeDefined();
     expect(result.ws.panes["term-456"].kind).toBe("terminal");
+  });
+});
+
+describe("scheduleClaudeResume agent commands", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function frames(): SubscribeFn {
+    // Emit one frame right away so waitForShellReady sees a stable prompt.
+    return vi.fn(async (_id: number, cb: (data: Uint8Array) => void) => {
+      cb(new Uint8Array(20));
+      return () => {};
+    });
+  }
+
+  it("injects codex resume for a Codex session", async () => {
+    const writeToTerminal = vi.fn().mockResolvedValue(undefined);
+    scheduleClaudeResume(11, "01a1-thread", null, 1000, {
+      checkPidAlive: vi.fn().mockResolvedValue(false),
+      writeToTerminal,
+      subscribeToFrames: frames(),
+    }, "codex");
+    await vi.advanceTimersByTimeAsync(1000 + 600 + 50);
+    expect(writeToTerminal).toHaveBeenCalled();
+    expect(new TextDecoder().decode(writeToTerminal.mock.calls[0][1])).toBe("codex resume 01a1-thread\n");
+    cancelPendingResume(11);
+  });
+
+  it("defaults to claude --resume", async () => {
+    const writeToTerminal = vi.fn().mockResolvedValue(undefined);
+    scheduleClaudeResume(12, "sess-x", null, 1000, {
+      checkPidAlive: vi.fn().mockResolvedValue(false),
+      writeToTerminal,
+      subscribeToFrames: frames(),
+    });
+    await vi.advanceTimersByTimeAsync(1000 + 600 + 50);
+    expect(new TextDecoder().decode(writeToTerminal.mock.calls[0][1])).toBe("claude --resume sess-x\n");
+    cancelPendingResume(12);
   });
 });

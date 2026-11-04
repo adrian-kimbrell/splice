@@ -12,7 +12,7 @@
 
   const accentMap: Record<string, string> = {
     info: "var(--accent)",
-    success: "var(--ansi-green, #98c379)",
+    success: "var(--git-added)",
     error: "var(--ansi-red)",
     warning: "var(--ansi-yellow)",
   };
@@ -63,7 +63,7 @@
   .toast-message {
     flex: 1;
   }
-  .toast-success i { color: var(--ansi-green, #98c379); }
+  .toast-success i { color: var(--git-added); }
   .toast-error i { color: var(--ansi-red); }
   .toast-warning i { color: var(--ansi-yellow); }
   .toast-info i { color: var(--accent); }
@@ -71,8 +71,8 @@
   .toast-action {
     margin-left: 4px;
     padding: 2px 10px;
-    background: var(--accent, #00ff88);
-    color: #000;
+    background: var(--accent);
+    color: var(--accent-fg);
     border: none;
     border-radius: 3px;
     font-size: var(--ui-label);

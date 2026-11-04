@@ -197,6 +197,7 @@ async function setup() {
     if (typeof payload.explorerWidth === "number")      ui.explorerWidth     = payload.explorerWidth;
     if (typeof payload.zenMode === "boolean")           ui.zenMode           = payload.zenMode;
     if (typeof payload.commandPaletteOpen === "boolean") ui.commandPaletteOpen = payload.commandPaletteOpen;
+    if (typeof payload.zoomedPaneId === "string" || payload.zoomedPaneId === null) ui.zoomedPaneId = payload.zoomedPaneId;
     if (payload.sidebarMode === "files" || payload.sidebarMode === "search" || payload.sidebarMode === "problems") {
       ui.sidebarMode = payload.sidebarMode;
     }
@@ -420,6 +421,8 @@ async function setup() {
               terminalId: p.terminalId ?? null,
               activeFilePath: p.activeFilePath ?? null,
               filePaths: p.filePaths ?? [],
+              claudeSessionId: p.claudeSessionId ?? null,
+              agentKind: p.agentKind ?? null,
             }))
           : [],
       };

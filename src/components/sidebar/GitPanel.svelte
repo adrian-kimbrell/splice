@@ -1,7 +1,7 @@
 <script lang="ts">
   import { log } from "../../lib/utils/log";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
-  import { gitStore, refreshGitStatus, getGitEntry, type GitStatusKind } from "../../lib/stores/git.svelte";
+  import { refreshGitStatus, getGitEntry, stageFiles, unstageFiles, discardFiles } from "../../lib/stores/git.svelte";
   import type { GitFileStatus } from "../../lib/ipc/commands";
   import { pushToast } from "../../lib/stores/toasts.svelte";
   import GitLog from "./GitLog.svelte";
@@ -55,66 +55,12 @@
     }
   }
 
-  async function stageFile(filePath: string) {
-    try {
-      const { gitStage } = await import("../../lib/ipc/commands");
-      await gitStage(rootPath, [filePath]);
-      await doRefresh();
-    } catch (e) {
-      pushToast(`Failed to stage: ${e}`);
-    }
-  }
-
-  async function unstageFile(filePath: string) {
-    try {
-      const { gitUnstage } = await import("../../lib/ipc/commands");
-      await gitUnstage(rootPath, [filePath]);
-      await doRefresh();
-    } catch (e) {
-      pushToast(`Failed to unstage: ${e}`);
-    }
-  }
-
-  async function stageAll() {
-    const paths = [...unstagedFiles, ...untrackedFiles].map(f => f.path);
-    if (paths.length === 0) return;
-    try {
-      const { gitStage } = await import("../../lib/ipc/commands");
-      await gitStage(rootPath, paths);
-      await doRefresh();
-    } catch (e) {
-      pushToast(`Failed to stage all: ${e}`);
-    }
-  }
-
-  async function unstageAll() {
-    const paths = stagedFiles.map(f => f.path);
-    if (paths.length === 0) return;
-    try {
-      const { gitUnstage } = await import("../../lib/ipc/commands");
-      await gitUnstage(rootPath, paths);
-      await doRefresh();
-    } catch (e) {
-      pushToast(`Failed to unstage all: ${e}`);
-    }
-  }
-
-  async function discardFile(filePath: string) {
-    try {
-      const { ask } = await import("@tauri-apps/plugin-dialog");
-      const fileName = filePath.split("/").pop() ?? filePath;
-      const confirmed = await ask(
-        `Discard changes to "${fileName}"? This cannot be undone.`,
-        { title: "Discard Changes", kind: "warning" },
-      );
-      if (!confirmed) return;
-      const { gitDiscard } = await import("../../lib/ipc/commands");
-      await gitDiscard(rootPath, [filePath]);
-      await doRefresh();
-    } catch (e) {
-      pushToast(`Failed to discard: ${e}`);
-    }
-  }
+  // IPC, status refresh and failure toasts live in the git store.
+  const stageFile = (filePath: string) => stageFiles(wsId, rootPath, [filePath]);
+  const unstageFile = (filePath: string) => unstageFiles(wsId, rootPath, [filePath]);
+  const stagePaths = (paths: string[]) => stageFiles(wsId, rootPath, paths);
+  const unstageAll = () => unstageFiles(wsId, rootPath, stagedFiles.map(f => f.path));
+  const discardFile = (filePath: string) => discardFiles(wsId, rootPath, [filePath]);
 
   async function doCommit() {
     const msg = commitMessage.trim();
@@ -202,7 +148,7 @@
       ></textarea>
       <button
         class="w-full mt-1 px-2 py-1 rounded cursor-pointer transition-all duration-75"
-        style="background: var(--accent); color: #000; font-weight: 500;"
+        style="background: var(--accent); color: var(--accent-fg); font-weight: 500;"
         style:opacity={(!hasStaged || !commitMessage.trim() || committing) ? "0.4" : "1"}
         disabled={!hasStaged || !commitMessage.trim() || committing}
         onclick={doCommit}
@@ -249,7 +195,7 @@
             <button
               class="text-txt-dim hover:text-txt-bright cursor-pointer px-1"
               title="Stage All Modified"
-              onclick={() => { const paths = unstagedFiles.map(f => f.path); import("../../lib/ipc/commands").then(({ gitStage }) => gitStage(rootPath, paths)).then(doRefresh).catch(e => log.error("Failed to stage:", e)); }}
+              onclick={() => stagePaths(unstagedFiles.map(f => f.path))}
             >
               <i class="bi bi-plus-lg text-[11px]"></i>
             </button>
@@ -287,7 +233,7 @@
             <button
               class="text-txt-dim hover:text-txt-bright cursor-pointer px-1"
               title="Stage All Untracked"
-              onclick={() => { const paths = untrackedFiles.map(f => f.path); import("../../lib/ipc/commands").then(({ gitStage }) => gitStage(rootPath, paths)).then(doRefresh).catch(e => log.error("Failed to stage:", e)); }}
+              onclick={() => stagePaths(untrackedFiles.map(f => f.path))}
             >
               <i class="bi bi-plus-lg text-[11px]"></i>
             </button>

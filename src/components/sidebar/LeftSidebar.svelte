@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { log } from "../../lib/utils/log";
   import FileTree from "./FileTree.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import GitPanel from "./GitPanel.svelte";
@@ -9,7 +8,7 @@
   import { diagnosticsStore, getDiagnosticCounts, type LspDiagnostic } from "../../lib/stores/diagnostics.svelte";
   import { getTotalChangedCount } from "../../lib/stores/git.svelte";
   import { lspClient } from "../../lib/lsp/client";
-  import { dispatchEditorAction } from "../../lib/stores/editor-actions.svelte";
+  import { openFileAtLine, pickAndOpenFolder, relativeToRoot, toastFileReadError } from "../../lib/utils/open-paths";
 
   let {
     entries,
@@ -51,53 +50,33 @@
     return map;
   });
 
-  function shortPath(fullPath: string): string {
-    const ws = workspaceManager.activeWorkspace;
-    if (ws?.rootPath && fullPath.startsWith(ws.rootPath)) {
-      return fullPath.slice(ws.rootPath.length + 1);
-    }
-    return fullPath;
-  }
+  const shortPath = relativeToRoot;
 
   async function handleDiagnosticClick(filePath: string, line: number) {
     try {
-      const { readFile } = await import("../../lib/ipc/commands");
-      const content = await readFile(filePath);
-      const name = filePath.split("/").pop() ?? "untitled";
-      workspaceManager.openFileInWorkspace({ name, path: filePath, content });
-      setTimeout(() => dispatchEditorAction("goto-line-number", line + 1), 50);
+      await openFileAtLine(filePath, line + 1);
     } catch (e) {
-      log.error("Failed to navigate to diagnostic:", e);
+      toastFileReadError(filePath, e);
     }
   }
 
   function severityIcon(sev: number): string {
     switch (sev) {
-      case 1: return "bi-x-circle-fill text-red-400";
-      case 2: return "bi-exclamation-triangle-fill text-yellow-400";
-      case 3: return "bi-info-circle-fill text-blue-400";
+      case 1: return "bi-x-circle-fill sev-error";
+      case 2: return "bi-exclamation-triangle-fill sev-warning";
+      case 3: return "bi-info-circle-fill sev-info";
       default: return "bi-dot text-txt-dim";
     }
   }
 
-  async function handleOpenFolder() {
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({ directory: true, multiple: false });
-      if (selected) {
-        if (!workspaceManager.activeWorkspace) {
-          workspaceManager.createEmptyWorkspace();
-        }
-        await workspaceManager.openFolderInWorkspace(selected as string);
-        ui.explorerVisible = true;
-      }
-    } catch (e) {
-      log.error("Failed to open folder:", e);
-    }
-  }
+  const handleOpenFolder = pickAndOpenFolder;
 </script>
 
 <style>
+  /* Diagnostic severities use the theme's ANSI palette, not a fixed Tailwind red/yellow/blue. */
+  .sev-error { color: var(--ansi-red); }
+  .sev-warning { color: var(--ansi-yellow); }
+  .sev-info { color: var(--syn-fn); }
   .resize-strip {
     position: absolute;
     top: 0;
@@ -167,8 +146,8 @@
       <i class="bi bi-exclamation-triangle text-base"></i>
       {#if counts.errors > 0 || counts.warnings > 0}
         <span class="absolute top-1 right-0.5 text-[8px] leading-none font-bold"
-          class:text-red-400={counts.errors > 0}
-          class:text-yellow-400={counts.errors === 0}>
+          class:sev-error={counts.errors > 0}
+          class:sev-warning={counts.errors === 0}>
           {counts.errors > 0 ? counts.errors : counts.warnings}
         </span>
       {/if}
@@ -234,7 +213,7 @@
         <i class="bi bi-folder-plus text-2xl text-txt-dim mb-3 block"></i>
         <p class="text-xs text-txt-dim mb-3">No folder opened in this workspace.</p>
         <button
-          class="px-3 py-1.5 text-xs text-accent rounded cursor-pointer border border-accent bg-transparent hover:bg-accent hover:text-white transition-all duration-75"
+          class="px-3 py-1.5 text-xs text-accent rounded cursor-pointer border border-accent bg-transparent hover:bg-accent hover:text-[var(--accent-fg)] transition-all duration-75"
           style="max-width: 100px;"
           onclick={handleOpenFolder}
         >
@@ -246,7 +225,7 @@
         <i class="bi bi-folder-plus text-2xl text-txt-dim mb-3 block"></i>
         <p class="text-xs text-txt-dim mb-3">No folder opened.</p>
         <button
-          class="px-3 py-1.5 text-xs text-accent rounded cursor-pointer border border-accent bg-transparent hover:bg-accent hover:text-white transition-all duration-75"
+          class="px-3 py-1.5 text-xs text-accent rounded cursor-pointer border border-accent bg-transparent hover:bg-accent hover:text-[var(--accent-fg)] transition-all duration-75"
           style="max-width: 100px;"
           onclick={handleOpenFolder}
         >

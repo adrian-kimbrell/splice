@@ -158,8 +158,15 @@ describe("Command palette execution", () => {
     // than sampling the DOM after a fixed delay.
     const palettAfter = await browser.$('input[placeholder="Type a command…"]');
     await palettAfter.waitForExist({ reverse: true, timeout: 2_000 }).catch(async (e) => {
-      const state = await browser.execute(() =>
-        (window as unknown as { __spliceTest: { getUiState: () => unknown } }).__spliceTest.getUiState());
+      const state = {
+        ui: await browser.execute(() =>
+          (window as unknown as { __spliceTest: { getUiState: () => unknown } }).__spliceTest.getUiState()),
+        env: await browser.execute(() => new Promise((resolve) => {
+          const t0 = performance.now();
+          const timer = setTimeout(() => resolve({ hidden: document.hidden, hasFocus: document.hasFocus(), rafMs: -1 }), 500);
+          requestAnimationFrame(() => { clearTimeout(timer); resolve({ hidden: document.hidden, hasFocus: document.hasFocus(), rafMs: Math.round(performance.now() - t0) }); });
+        })),
+      };
       throw new Error(`Palette still open after Escape; ui state: ${JSON.stringify(state)} (${String(e)})`);
     });
     expect(await palettAfter.isExisting()).toBe(false);

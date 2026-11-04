@@ -146,3 +146,27 @@ unsafe fn position_traffic_lights(ns_window: *mut std::ffi::c_void) {
         btn.setFrameOrigin(r.origin);
     }
 }
+
+/// Position the traffic lights of a Tauri window now. Safe to call from any
+/// window event handler (those run on the main thread).
+pub fn fix_traffic_lights(window: &tauri::Window) {
+    if let Ok(ns_window) = window.ns_window() {
+        unsafe { position_traffic_lights(ns_window) };
+    }
+}
+
+/// For a window created at runtime: position now, then again shortly after, so
+/// AppKit's own post-creation titlebar passes (which can run after our first
+/// placement and before any layout our hook sees) do not leave the buttons at
+/// their default spot.
+pub fn fix_traffic_lights_soon(window: &tauri::Window) {
+    fix_traffic_lights(window);
+    let window = window.clone();
+    tauri::async_runtime::spawn(async move {
+        for delay_ms in [50u64, 250, 800] {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            let w = window.clone();
+            let _ = window.run_on_main_thread(move || fix_traffic_lights(&w));
+        }
+    });
+}

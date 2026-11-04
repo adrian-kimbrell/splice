@@ -21,9 +21,6 @@ export function unregisterCustomTheme(name: string): void {
   delete customThemeMap[name];
 }
 
-export function getCustomThemeNames(): string[] {
-  return Object.keys(customThemeMap);
-}
 
 export async function loadCustomThemes(): Promise<void> {
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;

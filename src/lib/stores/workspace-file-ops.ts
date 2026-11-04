@@ -1,10 +1,13 @@
 import { log } from "../utils/log";
 import type { OpenFile } from "./files.svelte";
 import type { Workspace } from "./workspace-types";
-import { generateId, findFirstLeaf, applyFileRename, markFileSaved, addOpenFile } from "./workspace-types";
-import { isFileReferencedInAnyPane, validateLayout } from "./workspace-tab-ops";
-import { cloneLayout, findSiblingLeaf, removeNodeFromTree, treeDepth, findShallowestLeaf, splitNodeInTree, MAX_SPLIT_DEPTH } from "./layout.svelte";
+import { generateId, applyFileRename, markFileSaved, addOpenFile } from "./workspace-types";
+import { isFileReferencedInAnyPane, validateLayout, removePaneFromLayout } from "./workspace-tab-ops";
+import { cloneLayout, treeDepth, findShallowestLeaf, splitNodeInTree, MAX_SPLIT_DEPTH } from "./layout.svelte";
 import { markSelfWrite } from "./self-writes";
+// Static on purpose: watch/unwatch must be counted reliably (the Rust watcher is
+// reference counted) and `commands.ts` has no import-time side effects.
+import { watchPath, unwatchPath, sftpWriteFile, writeFile } from "../ipc/commands";
 
 // --- Query helpers ---
 
@@ -88,17 +91,8 @@ export function openFileInWorkspace(ws: Workspace, file: OpenFile, targetPaneId?
     if (existing) {
       // Handle preview→pin promotion if needed
       if (existing.preview && !file.preview) existing.preview = false;
-      // Re-register watcher in case it was dropped (e.g. after an unwatch/reconnect)
-      if (!file.path.startsWith("untitled-") && !ws.sshConfig) {
-        import("../ipc/commands").then(({ watchPath }) => watchPath(file.path)).catch(() => {});
-      }
       return;
     }
-  }
-
-  // Watch file for external changes (local workspaces only)
-  if (!file.path.startsWith("untitled-") && !ws.sshConfig) {
-    import("../ipc/commands").then(({ watchPath }) => watchPath(file.path)).catch(() => {});
   }
 
   // Add to workspace-level openFiles (content source of truth)
@@ -113,6 +107,12 @@ export function openFileInWorkspace(ws: Workspace, file: OpenFile, targetPaneId?
     }
   } else {
     addOpenFile(ws, file);
+    // Exactly one watch per index entry: the Rust watcher is reference counted
+    // and release happens once, when the last pane drops the file. Watching on
+    // every open (re-click, preview→pin, second pane) leaked a reference each time.
+    if (isWatchable(ws, file.path)) {
+      watchPath(file.path).catch((e) => log.warn("Failed to watch file:", file.path, e));
+    }
   }
 
   if (paneId && ws.panes[paneId]) {
@@ -128,15 +128,7 @@ export function openFileInWorkspace(ws: Workspace, file: OpenFile, targetPaneId?
       if (existingPreviewIdx !== -1) {
         const oldPreviewPath = p.filePaths[existingPreviewIdx];
         p.filePaths.splice(existingPreviewIdx, 1);
-        // Remove from ws.openFiles if unreferenced by any pane
-        if (!isFileReferencedInAnyPane(ws, oldPreviewPath)) {
-          const fileIdx = ws.openFiles.findIndex((f) => f.path === oldPreviewPath);
-          if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
-          delete ws.openFileIndex[oldPreviewPath];
-          if (!oldPreviewPath.startsWith("untitled-") && !ws.sshConfig) {
-            import("../ipc/commands").then(({ unwatchPath }) => unwatchPath(oldPreviewPath)).catch(() => {});
-          }
-        }
+        releaseOpenFile(ws, oldPreviewPath);
       }
     }
 
@@ -169,37 +161,29 @@ export function closeFileInWorkspace(ws: Workspace, path: string, paneId?: strin
     }
 
     // If pane is now empty, close it (editor panes need no async terminal cleanup)
-    if (pane.filePaths.length === 0) {
-      const siblingLeafId = ws.layout ? findSiblingLeaf(ws.layout, targetPaneId!) : null;
-      delete ws.panes[targetPaneId!];
-
-      if (ws.layout) {
-        const removeResult = removeNodeFromTree(ws.layout, targetPaneId!);
-        if (!removeResult.found) log.warn(`closeFileInWorkspace: pane "${targetPaneId}" not found in layout`);
-        ws.layout = removeResult.tree;
-      }
-
-      const remainingPaneIds = Object.keys(ws.panes);
-      if (remainingPaneIds.length === 0) {
-        ws.layout = null;
-        ws.activePaneId = null;
-      } else if (ws.activePaneId === targetPaneId || !ws.panes[ws.activePaneId!]) {
-        ws.activePaneId = (siblingLeafId && ws.panes[siblingLeafId])
-          ? siblingLeafId
-          : findFirstLeaf(ws.layout);
-      }
-    }
+    if (pane.filePaths.length === 0) removePaneFromLayout(ws, targetPaneId!);
   }
 
-  // Only remove from ws.openFiles if no other pane references it
-  if (!isFileReferencedInAnyPane(ws, path)) {
-    const fileIdx = ws.openFiles.findIndex((f) => f.path === path);
-    if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
-    delete ws.openFileIndex[path];
-    // Unwatch file (local workspaces only)
-    if (!path.startsWith("untitled-") && !ws.sshConfig) {
-      import("../ipc/commands").then(({ unwatchPath }) => unwatchPath(path)).catch(() => {});
-    }
+  releaseOpenFile(ws, path);
+}
+
+/** Local, on-disk files get a watcher; untitled buffers and SSH files do not. */
+function isWatchable(ws: Workspace, path: string): boolean {
+  return !path.startsWith("untitled-") && !ws.sshConfig;
+}
+
+/**
+ * Drop a file from `openFiles`/`openFileIndex` and release its watcher, but only
+ * once no pane references it. Safe to call for paths that are still in use.
+ */
+export function releaseOpenFile(ws: Workspace, path: string): void {
+  if (isFileReferencedInAnyPane(ws, path)) return;
+  const fileIdx = ws.openFiles.findIndex((f) => f.path === path);
+  if (fileIdx !== -1) ws.openFiles.splice(fileIdx, 1);
+  if (!(path in ws.openFileIndex)) return; // never opened, or already released
+  delete ws.openFileIndex[path];
+  if (isWatchable(ws, path)) {
+    unwatchPath(path).catch((e) => log.warn("Failed to unwatch file:", path, e));
   }
 }
 
@@ -228,103 +212,72 @@ export function updateFileContent(ws: Workspace, path: string, content: string):
 
 // --- Save operations ---
 
-export async function saveActiveFile(ws: Workspace): Promise<void> {
-  if (!ws.activePaneId) return;
+/** The active editor pane's current file path, or null when there is none. */
+function activeEditorFilePath(ws: Workspace): string | null {
+  if (!ws.activePaneId) return null;
   const pane = ws.panes[ws.activePaneId];
-  if (!pane || pane.kind !== "editor" || !pane.activeFilePath) return;
-  const oldPath = pane.activeFilePath;
-  const file = ws.openFileIndex[oldPath];
-  if (!file) return;
+  if (!pane || pane.kind !== "editor" || !pane.activeFilePath) return null;
+  return pane.activeFilePath;
+}
 
-  let savePath = oldPath;
-
-  // Untitled files need a Save As dialog
-  if (oldPath.startsWith("untitled-")) {
-    try {
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const chosen = await save({ title: "Save File" });
-      if (!chosen) return; // User cancelled
-      savePath = chosen;
-    } catch {
-      // Not in Tauri (demo mode) — can't save untitled
-      return;
-    }
-  }
-
+/** Ask the user for a destination. Null when cancelled or outside Tauri. */
+async function pickSavePath(title: string): Promise<string | null> {
   try {
-    if (ws.sshConfig) {
-      const { sftpWriteFile } = await import("../ipc/commands");
-      await sftpWriteFile(ws.id, savePath, file.content);
-    } else {
-      const { writeFile } = await import("../ipc/commands");
-      await writeFile(savePath, file.content);
-    }
-    // If path changed (Save As from untitled), update index + all pane references
-    if (savePath !== oldPath) {
-      applyFileRename(ws, file, oldPath, savePath);
-    }
-    markFileSaved(file);
-  } catch (e) {
-    log.error("Failed to save file:", e);
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    return (await save({ title })) ?? null;
+  } catch {
+    return null; // Not in Tauri (demo mode)
   }
 }
 
-/** Always show save dialog, write file, update references. */
-export async function saveActiveFileAs(ws: Workspace): Promise<void> {
-  if (!ws.activePaneId) return;
-  const pane = ws.panes[ws.activePaneId];
-  if (!pane || pane.kind !== "editor" || !pane.activeFilePath) return;
-  const oldPath = pane.activeFilePath;
-  const file = ws.openFileIndex[oldPath];
-  if (!file) return;
-
-  try {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const chosen = await save({ title: "Save As" });
-    if (!chosen) return;
-
-    const { writeFile } = await import("../ipc/commands");
-    await writeFile(chosen, file.content);
-
-    if (chosen !== oldPath) {
-      applyFileRename(ws, file, oldPath, chosen);
-    }
-    markFileSaved(file);
-  } catch {
-    // Not in Tauri or user cancelled
+/**
+ * Write a buffer to disk (SFTP for SSH workspaces). Local writes are marked as
+ * self-writes first so the file watcher does not report our own save as an
+ * external change.
+ */
+async function writeBuffer(ws: Workspace, path: string, content: string): Promise<void> {
+  if (ws.sshConfig) {
+    await sftpWriteFile(ws.id, path, content);
+  } else {
+    markSelfWrite(path);
+    await writeFile(path, content);
   }
+}
+
+/** Save the active pane's file (Save As dialog for untitled buffers). */
+export async function saveActiveFile(ws: Workspace): Promise<void> {
+  const path = activeEditorFilePath(ws);
+  if (path) await saveFile(ws, path);
+}
+
+/** Always show the save dialog, write the file, and update references. */
+export async function saveActiveFileAs(ws: Workspace): Promise<void> {
+  const oldPath = activeEditorFilePath(ws);
+  if (!oldPath) return;
+  const chosen = await pickSavePath("Save As");
+  if (!chosen) return;
+  await saveFileTo(ws, oldPath, chosen);
 }
 
 /** Save a specific file by path. Returns true if saved, false if cancelled/failed. */
 export async function saveFile(ws: Workspace, path: string): Promise<boolean> {
+  if (!ws.openFileIndex[path]) return false;
+  let savePath = path;
+  if (path.startsWith("untitled-")) {
+    const chosen = await pickSavePath("Save File");
+    if (!chosen) return false;
+    savePath = chosen;
+  }
+  return saveFileTo(ws, path, savePath);
+}
+
+/** Write the buffer open under `path` to `savePath`, renaming the tab if they differ. */
+async function saveFileTo(ws: Workspace, path: string, savePath: string): Promise<boolean> {
   const file = ws.openFileIndex[path];
   if (!file) return false;
-
-  let savePath = path;
-
-  if (path.startsWith("untitled-")) {
-    try {
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const chosen = await save({ title: "Save File" });
-      if (!chosen) return false;
-      savePath = chosen;
-    } catch {
-      return false;
-    }
-  }
-
   try {
-    if (ws.sshConfig) {
-      const { sftpWriteFile } = await import("../ipc/commands");
-      await sftpWriteFile(ws.id, savePath, file.content);
-    } else {
-      const { writeFile } = await import("../ipc/commands");
-      markSelfWrite(savePath);
-      await writeFile(savePath, file.content);
-    }
-    if (savePath !== path) {
-      applyFileRename(ws, file, path, savePath);
-    }
+    await writeBuffer(ws, savePath, file.content);
+    if (savePath !== path) applyFileRename(ws, file, path, savePath);
     markFileSaved(file);
     return true;
   } catch (e) {
@@ -339,15 +292,8 @@ export async function saveFileQuiet(ws: Workspace, path: string): Promise<void> 
   const file = ws.openFileIndex[path];
   if (!file || !file.dirty) return;
   try {
-    if (ws.sshConfig) {
-      const { sftpWriteFile } = await import("../ipc/commands");
-      await sftpWriteFile(ws.id, path, file.content);
-    } else {
-      const { writeFile } = await import("../ipc/commands");
-      markSelfWrite(path);
-      await writeFile(path, file.content);
-    }
-    markFileSaved(file); // fixes Critical Issue 3: also clears file.preview
+    await writeBuffer(ws, path, file.content);
+    markFileSaved(file); // also clears file.preview
   } catch (e) {
     log.error("Auto-save failed:", e);
   }

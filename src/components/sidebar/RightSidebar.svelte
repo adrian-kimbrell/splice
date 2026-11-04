@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { log } from "../../lib/utils/log";
   import WorkspaceListItem from "./WorkspaceListItem.svelte";
   import WorkspaceIconPicker from "./WorkspaceIconPicker.svelte";
   import { requestCloseWorkspace } from "../../lib/utils/close-workspace";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
-  import { positionFixedMenu } from "../../lib/utils/context-menu";
+  import { showContextMenu } from "../../lib/utils/context-menu";
+  import { pickAndOpenFile } from "../../lib/utils/open-paths";
 
   let {
     side = "right",
@@ -55,7 +55,7 @@
     }
   }
 
-  function handleDragUp(e: MouseEvent) {
+  function handleDragUp() {
     window.removeEventListener("mousemove", handleDragMove);
     window.removeEventListener("mouseup", handleDragUp);
     if (isDraggingActive && dragId !== null && dragOverIndex !== null) {
@@ -122,39 +122,11 @@
   let iconPicker = $state<{ wsId: string; x: number; y: number } | null>(null);
 
   // --- Context menu ---
-  import { onDestroy } from "svelte";
-
-  let ctxMenuEl: HTMLDivElement | null = null;
-
-  function removeCtxMenu() {
-    if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; }
-  }
 
   function showCtxMenu(e: MouseEvent, items: { icon: string; label: string; action: string }[], targetWsId?: string) {
     e.preventDefault();
     e.stopPropagation();
-    removeCtxMenu();
-    ctxMenuEl = document.createElement("div");
-    ctxMenuEl.className = "split-dropdown ctx-menu-container";
-    ctxMenuEl.style.position = "fixed";
-    // Position menu away from the sidebar edge
-    ctxMenuEl.style.transform = side === "right" ? "translateX(-100%)" : "translateX(0)";
-    for (const item of items) {
-      const btn = document.createElement("button");
-      btn.className = "split-dropdown-item";
-      btn.dataset.action = item.action;
-      const icon = document.createElement("i");
-      icon.className = `bi ${item.icon}`;
-      const span = document.createElement("span");
-      span.textContent = item.label;
-      btn.appendChild(icon);
-      btn.appendChild(span);
-      ctxMenuEl.appendChild(btn);
-    }
-    ctxMenuEl.addEventListener("click", (ev) => {
-      const btn = (ev.target as HTMLElement).closest<HTMLElement>("[data-action]");
-      if (!btn) return;
-      const action = btn.dataset.action;
+    const run = (action: string) => {
       // Switch to target workspace before executing workspace-scoped actions
       if (targetWsId) workspaceManager.switchWorkspace(targetWsId);
       if (action === "new-workspace") handleCreateWorkspace();
@@ -163,11 +135,12 @@
       else if (action === "open-file") handleOpenFile();
       else if (action === "toggle-view-mode" && targetWsId) workspaceManager.toggleViewMode(targetWsId);
       else if (action === "set-icon" && targetWsId) iconPicker = { wsId: targetWsId, x: e.clientX, y: e.clientY };
-      removeCtxMenu();
-    });
-    document.body.appendChild(ctxMenuEl);
-    // Position + clamp with zoom (ui_scale) correction. See [[zoom-coords]].
-    positionFixedMenu(ctxMenuEl, e.clientX, e.clientY);
+    };
+    showContextMenu(
+      items.map((it) => ({ label: it.label, icon: it.icon, action: () => run(it.action) })),
+      e.clientX,
+      e.clientY,
+    );
   }
 
   function handleContextMenu(e: MouseEvent) {
@@ -189,36 +162,10 @@
     ], wsId);
   }
 
-  async function handleOpenFile() {
-    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    if (!isTauri) return;
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({ directory: false, multiple: false });
-      if (selected) {
-        // Ensure there's an active workspace
-        if (!workspaceManager.activeWorkspace) {
-          workspaceManager.createEmptyWorkspace();
-        }
-        const filePath = selected as string;
-        const name = filePath.split("/").pop() ?? filePath;
-        workspaceManager.openFileInWorkspace({ name, path: filePath, content: "" });
-      }
-    } catch (e) {
-      log.error("Failed to open file:", e);
-    }
-  }
+  const handleOpenFile = pickAndOpenFile;
 
-  function closeCtxMenu(e: MouseEvent) {
-    if (ctxMenuEl && !(e.target as HTMLElement).closest(".ctx-menu-container")) {
-      removeCtxMenu();
-    }
-  }
-
-  onDestroy(() => removeCtxMenu());
 </script>
 
-<svelte:document onclick={closeCtxMenu} />
 
 <div
   class="bg-sidebar flex flex-col overflow-hidden"
@@ -280,14 +227,14 @@
   <!-- Splice logo lockup at bottom -->
   <div class="shrink-0 flex items-center justify-center gap-1.5 py-2.5 opacity-20">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="14" height="14" fill="none">
-      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2"/>
-      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2" transform="rotate(60 16 16)"/>
-      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="white" stroke-width="2" transform="rotate(-60 16 16)"/>
+      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="var(--text-bright)" stroke-width="2"/>
+      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="var(--text-bright)" stroke-width="2" transform="rotate(60 16 16)"/>
+      <ellipse cx="16" cy="16" rx="14" ry="5.5" stroke="var(--text-bright)" stroke-width="2" transform="rotate(-60 16 16)"/>
       <circle cx="16" cy="16" r="2.5" fill="white"/>
       <path d="M18 4 L11 15 L15.5 15 L14 28 L21 17 L16.5 17 Z" fill="white"/>
     </svg>
     {#if !compact}
-      <span class="text-white text-[11px] font-medium tracking-wide">Splice</span>
+      <span class="text-txt-bright text-[11px] font-medium tracking-wide">Splice</span>
     {/if}
   </div>
 </div>

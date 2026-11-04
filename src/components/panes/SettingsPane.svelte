@@ -1,7 +1,8 @@
 <script lang="ts">
   import { log } from "../../lib/utils/log";
-  import { settings, debouncedSaveSettings } from "../../lib/stores/settings.svelte";
-  import { themeNames } from "../../lib/theme/themes";
+  import { settings, debouncedSaveSettings, type Settings } from "../../lib/stores/settings.svelte";
+  import { pushToast } from "../../lib/stores/toasts.svelte";
+  import { themeNames, type ThemeColors } from "../../lib/theme/themes";
   import { customThemeMap, loadCustomThemes, registerCustomTheme, unregisterCustomTheme } from "../../lib/theme/custom-themes.svelte";
   import { onMount } from "svelte";
 
@@ -12,8 +13,11 @@
     | { type: "number"; min: number; max: number; step?: number }
     | { type: "select"; options: (string | { label: string; value: string | number })[] };
 
+  /** "category.field" for every field of Settings, so a typo in a definition fails to compile. */
+  type SettingKey = { [C in keyof Settings]: `${C}.${keyof Settings[C] & string}` }[keyof Settings];
+
   interface SettingDef {
-    key: string;
+    key: SettingKey;
     category: string;
     title: string;
     description: string;
@@ -73,17 +77,21 @@
 
   const keybindings = [
     { keys: "⌘ N", action: "New File" },
-    { keys: "⌘ O", action: "Open Folder" },
+    { keys: "⌘ O", action: "Open File" },
+    { keys: "⌘ ⇧ O", action: "Open Folder" },
     { keys: "⌘ P", action: "Command Palette" },
     { keys: "⌘ B", action: "Toggle Explorer" },
     { keys: "⌘ ,", action: "Open Settings" },
-    { keys: "⌘ Z", action: "Toggle Pane Zoom" },
+    { keys: "⌘ \\", action: "Toggle Pane Zoom" },
+    { keys: "⌘ ⇧ \\", action: "Toggle Single View" },
     { keys: "⌘ 1–9", action: "Switch to Pane" },
     { keys: "⌘ ⌥ ↑↓←→", action: "Navigate Panes" },
     { keys: "⌘ ⌥ ⇧ ↑↓", action: "Switch Workspace" },
-    { keys: "⌘ =", action: "Zoom In" },
-    { keys: "⌘ –", action: "Zoom Out" },
-    { keys: "⌘ 0", action: "Reset Zoom" },
+    { keys: "⌘ =", action: "Pane Font Larger" },
+    { keys: "⌘ –", action: "Pane Font Smaller" },
+    { keys: "⌘ 0", action: "Reset Pane Font" },
+    { keys: "⌘ W", action: "Close Tab" },
+    { keys: "⌘ ⇧ F", action: "Find in Files" },
     { keys: "Esc", action: "Close Overlay / Unzoom" },
   ];
 
@@ -173,15 +181,22 @@
   });
 
   // --- Dynamic property access ---
-  function getValue(key: string): any {
+  function splitKey(key: SettingKey): [keyof Settings, string] {
     const [cat, field] = key.split(".");
-    return (settings as any)[cat]?.[field];
+    return [cat as keyof Settings, field];
   }
 
-  function setValue(key: string, value: any): void {
-    const [cat, field] = key.split(".");
-    (settings as any)[cat][field] = value;
-    emitSettingsChanged();
+  function getValue(key: SettingKey): unknown {
+    const [cat, field] = splitKey(key);
+    return (settings[cat] as Record<string, unknown>)[field];
+  }
+
+  function setValue(key: SettingKey, value: unknown): void {
+    const [cat, field] = splitKey(key);
+    (settings[cat] as Record<string, unknown>)[field] = value;
+    // Rust re-broadcasts `settings-changed` to the other windows after the save
+    // (and deliberately not to this one), so no frontend emit is needed.
+    debouncedSaveSettings();
   }
 
   /** Numeric inputs: ignore an empty field (Number("") is 0) and clamp to the control's range. */
@@ -190,22 +205,6 @@
     const n = Number(raw);
     if (!Number.isFinite(n)) return;
     setValue(def.key, Math.min(def.control.max, Math.max(def.control.min, n)));
-  }
-
-  // Auto-save settings on any change
-  $effect(() => {
-    JSON.stringify(settings);
-    debouncedSaveSettings();
-  });
-
-  // --- Cross-window settings sync ---
-  async function emitSettingsChanged(): Promise<void> {
-    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    if (!isTauri) return;
-    try {
-      const { emit } = await import("@tauri-apps/api/event");
-      await emit("settings-changed", $state.snapshot(settings));
-    } catch (_) {}
   }
 
   // --- Theme import/delete handlers ---
@@ -222,12 +221,13 @@
       const { importTheme } = await import("../../lib/ipc/commands");
       const { applyTheme } = await import("../../lib/theme/themes");
       const theme = await importTheme(filePath as string);
-      registerCustomTheme(theme.name, theme.colors as any);
+      // Imported themes are validated on the Rust side; the IPC type is a plain string map.
+      registerCustomTheme(theme.name, theme.colors as unknown as ThemeColors);
       setValue("appearance.theme", theme.name);
       await applyTheme(theme.name);
-    } catch (e: any) {
+    } catch (e) {
       log.error("Import failed:", e);
-      alert("Failed to import theme: " + (e?.message ?? e));
+      pushToast(`Failed to import theme: ${e instanceof Error ? e.message : String(e)}`, "error", 6000);
     }
   }
 
@@ -318,7 +318,7 @@
                     <label class="toggle">
                       <input
                         type="checkbox"
-                        checked={getValue(def.key)}
+                        checked={getValue(def.key) === true}
                         onchange={(e) => setValue(def.key, e.currentTarget.checked)}
                       />
                       <span class="track"></span>

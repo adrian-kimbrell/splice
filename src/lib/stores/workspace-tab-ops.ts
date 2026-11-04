@@ -4,6 +4,7 @@ import type { SplitDirection } from "./layout.svelte";
 import {
   splitNodeInTreeWithSide,
   removeNodeFromTree,
+  findSiblingLeaf,
   collectLeafIds,
   treeDepth,
   MAX_SPLIT_DEPTH,
@@ -25,11 +26,27 @@ function removeFileFromPane(ws: Workspace, paneId: string, filePath: string): vo
 function collapseEmptySourcePane(ws: Workspace, paneId: string): void {
   const pane = ws.panes[paneId];
   if (pane?.kind !== "editor" || (pane.filePaths?.length ?? 0) > 0) return;
+  removePaneFromLayout(ws, paneId);
+}
+
+/**
+ * Delete `paneId` and its layout leaf, then repair `activePaneId`: the spatial
+ * sibling when the closed pane was active, else the first leaf; a null layout
+ * when no panes remain. Callers kill terminals / release files themselves.
+ */
+export function removePaneFromLayout(ws: Workspace, paneId: string): void {
+  const siblingLeafId = ws.layout ? findSiblingLeaf(ws.layout, paneId) : null;
   delete ws.panes[paneId];
   if (ws.layout) {
     const result = removeNodeFromTree(ws.layout, paneId);
-    if (!result.found) log.warn(`collapseEmptySourcePane: "${paneId}" not found in layout`);
+    if (!result.found) log.warn(`removePaneFromLayout: "${paneId}" not found in layout`);
     ws.layout = result.tree;
+  }
+  if (Object.keys(ws.panes).length === 0) {
+    ws.layout = null;
+    ws.activePaneId = null;
+  } else if (ws.activePaneId === paneId || !ws.panes[ws.activePaneId!]) {
+    ws.activePaneId = siblingLeafId && ws.panes[siblingLeafId] ? siblingLeafId : findFirstLeaf(ws.layout);
   }
 }
 

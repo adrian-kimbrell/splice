@@ -23,12 +23,14 @@
 
 mod handlers;
 mod hook;
+pub mod codex;
 mod http;
 mod server;
 pub(crate) mod ssh_hook;
 mod token;
 
 pub use hook::install_hook;
+pub use codex::install_codex_integration;
 pub use server::start_server;
 pub use token::load_or_create_token;
 /// Raise an attention notification for a terminal (in-band OSC path, for SSH Claude).

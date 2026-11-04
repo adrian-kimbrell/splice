@@ -22,6 +22,7 @@
  * @exports flushSettingsSave - Immediate write-back for shutdown paths
  */
 import { log } from "../utils/log";
+import { getSettings, readProjectSettings, updateSettings, writeProjectSettings } from "../ipc/commands";
 
 export interface Settings {
   general: {
@@ -176,6 +177,11 @@ class EffectiveSettings {
 }
 export const effectiveSettings = new EffectiveSettings();
 
+/** View mode for a workspace that has no persisted preference of its own. */
+export function defaultViewMode(): "split" | "single" {
+  return effectiveSettings.general.default_single_view ? "single" : "split";
+}
+
 /**
  * Ensure `<workspaceRoot>/.splice/settings.json` exists (creating it with
  * `{}` if absent), then return its absolute path so a caller can open it
@@ -185,7 +191,6 @@ export async function ensureWorkspaceSettingsFile(workspaceRoot: string | null):
   if (!workspaceRoot) return null;
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   if (!isTauri) return null;
-  const { readProjectSettings, writeProjectSettings } = await import("../ipc/commands");
   const raw = await readProjectSettings(workspaceRoot).catch(() => "");
   if (!raw.trim()) {
     await writeProjectSettings(workspaceRoot, "{\n  \n}\n").catch((e) =>
@@ -205,7 +210,6 @@ export async function loadProjectSettings(workspaceRoot: string | null): Promise
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   if (!isTauri) return;
   try {
-    const { readProjectSettings } = await import("../ipc/commands");
     const raw = await readProjectSettings(workspaceRoot);
     if (!raw.trim()) {
       projectSettings = {};
@@ -232,7 +236,6 @@ export async function initSettings(): Promise<void> {
 
   settingsInitPromise = (async () => {
     try {
-      const { getSettings } = await import("../ipc/commands");
       const loaded = await getSettings();
       // Defensively merge each category (old settings.json may lack `general`)
       if (loaded.general) Object.assign(settings.general, loaded.general);
@@ -257,7 +260,6 @@ export function debouncedSaveSettings(): void {
   saveTimer = setTimeout(async () => {
     saveTimer = null;
     try {
-      const { updateSettings } = await import("../ipc/commands");
       await updateSettings($state.snapshot(settings));
     } catch (e) {
       log.error("Failed to save settings:", e);
@@ -271,7 +273,20 @@ export function flushSettingsSave(): void {
   saveTimer = null;
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   if (!isTauri || !settingsInitPromise) return;
-  import("../ipc/commands").then(({ updateSettings }) =>
-    updateSettings($state.snapshot(settings))
-  ).catch((e) => log.error("Failed to flush settings:", e));
+  updateSettings($state.snapshot(settings)).catch((e) => log.error("Failed to flush settings:", e));
+}
+
+/**
+ * Apply settings saved by another window. Rust broadcasts `settings-changed`
+ * after each save to every window except the sender.
+ */
+export async function startSettingsSync(): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<Settings>("settings-changed", (event) => {
+    const updated = event.payload;
+    if (updated.general) Object.assign(settings.general, updated.general);
+    if (updated.editor) Object.assign(settings.editor, updated.editor);
+    if (updated.appearance) Object.assign(settings.appearance, updated.appearance);
+    if (updated.terminal) Object.assign(settings.terminal, updated.terminal);
+  });
 }

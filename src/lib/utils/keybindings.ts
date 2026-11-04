@@ -17,6 +17,9 @@ import { ui } from "../stores/ui.svelte";
 import { workspaceManager } from "../stores/workspace.svelte";
 import { settings, debouncedSaveSettings } from "../stores/settings.svelte";
 import type { LayoutNode } from "../stores/layout.svelte";
+import { readFile, saveScreenshot } from "../ipc/commands";
+import { runAction } from "../actions";
+import { focusPaneContent } from "./pane-focus";
 
 function isInsideCodeMirror(el: Element | null): boolean {
   return !!el?.closest(".cm-editor");
@@ -135,18 +138,9 @@ export function findNeighbor(root: LayoutNode, paneId: string, dir: NavDirection
   return null; // No neighbor in that direction
 }
 
-/** Move DOM focus to the focusable element inside a pane (terminal canvas, editor, etc.) */
+/** Move DOM focus into a pane after the layout has settled. */
 function focusPane(paneId: string) {
-  requestAnimationFrame(() => {
-    const container = document.querySelector(`[data-pane-id="${paneId}"]`);
-    if (!container) return;
-    // Try terminal canvas first, then CodeMirror editor, then any focusable
-    const target =
-      container.querySelector<HTMLElement>("canvas[tabindex]") ??
-      container.querySelector<HTMLElement>(".cm-content") ??
-      container.querySelector<HTMLElement>("[tabindex]");
-    target?.focus();
-  });
+  requestAnimationFrame(() => focusPaneContent(paneId));
 }
 
 export async function enterZenMode() {
@@ -272,7 +266,6 @@ export function initKeybindings(): () => void {
       (async () => {
         try {
           const { toPng } = await import("html-to-image");
-          const { saveScreenshot } = await import("../ipc/commands");
           await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
           const dataUrl = await toPng(document.documentElement, {
             pixelRatio: window.devicePixelRatio || 1,
@@ -295,16 +288,21 @@ export function initKeybindings(): () => void {
       return;
     }
 
+    // The shortcuts below mirror native menu accelerators (src-tauri/src/lib.rs).
+    // On macOS the menu consumes the keystroke before the webview sees it; on
+    // other platforms this handler runs. Either way the action is implemented
+    // once, in the registry App.svelte fills on mount.
+
     // Cmd/Ctrl + S: Save Active File
     if (mod && e.key === "s") {
       e.preventDefault();
-      workspaceManager.saveActiveFile();
+      runAction("save");
     }
 
     // Cmd/Ctrl + N: New File
     if (mod && e.key === "n") {
       e.preventDefault();
-      workspaceManager.newUntitledFile();
+      runAction("new-file");
     }
 
     // Cmd/Ctrl + K: Chord prefix
@@ -318,7 +316,7 @@ export function initKeybindings(): () => void {
     // Cmd/Ctrl + P: Command Palette
     if (mod && e.key === "p") {
       e.preventDefault();
-      ui.commandPaletteOpen = !ui.commandPaletteOpen;
+      runAction("command-palette");
     }
 
     // Alt/Option + Cmd/Ctrl + T: Close Others
@@ -351,23 +349,19 @@ export function initKeybindings(): () => void {
     // Cmd/Ctrl + Shift + Enter: Toggle zen mode
     if (mod && e.shiftKey && e.key === "Enter") {
       e.preventDefault();
-      if (ui.zenMode) {
-        exitZenMode();
-      } else {
-        enterZenMode();
-      }
+      runAction("zen-mode");
     }
 
     // Cmd + B: Toggle explorer
     if (e.metaKey && e.key === "b") {
       e.preventDefault();
-      ui.explorerVisible = !ui.explorerVisible;
+      runAction("toggle-sidebar");
     }
 
     // Cmd/Ctrl + ,: Toggle the settings drawer
     if (mod && !e.shiftKey && e.code === "Comma") {
       e.preventDefault();
-      ui.settingsDrawerOpen = !ui.settingsDrawerOpen;
+      runAction("settings");
     }
 
     // Cmd/Ctrl + Shift + ,: Open workspace settings (.splice/settings.json)
@@ -379,7 +373,6 @@ export function initKeybindings(): () => void {
         const { ensureWorkspaceSettingsFile } = await import("../stores/settings.svelte");
         const path = await ensureWorkspaceSettingsFile(ws.rootPath);
         if (!path) return;
-        const { readFile } = await import("../ipc/commands");
         const content = await readFile(path).catch(() => "{\n  \n}\n");
         workspaceManager.openFileInWorkspace({
           name: "settings.json",
@@ -422,41 +415,37 @@ export function initKeybindings(): () => void {
     // Cmd/Ctrl + W: Close active tab
     if (mod && !e.shiftKey && e.key === "w") {
       e.preventDefault();
-      document.dispatchEvent(new CustomEvent("splice:close-active-tab"));
+      runAction("close-tab");
     }
 
     // Cmd/Ctrl + Shift + S: Save As
     if (mod && e.shiftKey && !e.altKey && e.key === "S") {
       e.preventDefault();
-      workspaceManager.saveActiveFileAs();
+      runAction("save-as");
     }
 
     // Cmd/Ctrl + Alt + S: Save All (e.code: Option+s is "ß" in e.key on macOS)
     if (mod && e.altKey && !e.shiftKey && e.code === "KeyS") {
       e.preventDefault();
-      workspaceManager.saveAllDirtyFiles();
+      runAction("save-all");
     }
 
     // Cmd/Ctrl + Shift + F: Find in Files
     if (mod && e.shiftKey && e.key === "F") {
       e.preventDefault();
-      ui.sidebarMode = "search";
-      ui.explorerVisible = true;
+      runAction("find-in-files");
     }
 
     // Cmd/Ctrl + Shift + M: Problems panel
     if (mod && e.shiftKey && e.key === "M") {
       e.preventDefault();
-      ui.sidebarMode = ui.sidebarMode === "problems" ? "files" : "problems";
-      ui.explorerVisible = true;
+      runAction("problems-panel");
     }
 
     // Cmd/Ctrl + Shift + H: Find & Replace
     if (mod && e.shiftKey && e.key === "H") {
       e.preventDefault();
-      ui.sidebarMode = "search";
-      ui.explorerVisible = true;
-      document.dispatchEvent(new CustomEvent("splice:open-replace"));
+      runAction("find-replace");
     }
 
     // Cmd/Ctrl + 1-9: Switch to pane by index
@@ -498,22 +487,18 @@ export function initKeybindings(): () => void {
       }
     }
 
-    // Cmd/Ctrl + =: Zoom in the focused pane's font
+    // Cmd/Ctrl + = / - / 0: the focused pane's font size
     if (mod && (e.key === "=" || e.key === "+")) {
       e.preventDefault();
-      bumpFocusedPaneFont(1);
+      runAction("zoom-in");
     }
-
-    // Cmd/Ctrl + -: Zoom out the focused pane's font
     if (mod && e.key === "-") {
       e.preventDefault();
-      bumpFocusedPaneFont(-1);
+      runAction("zoom-out");
     }
-
-    // Cmd/Ctrl + 0: Reset focused pane's font
     if (mod && e.key === "0") {
       e.preventDefault();
-      resetFocusedPaneFont();
+      runAction("zoom-reset");
     }
 
     // Cmd/Ctrl + Option/Alt + Shift + Left/Right: Switch workspace prev/next

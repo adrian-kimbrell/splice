@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { LayoutNode, PaneConfig } from "../../lib/stores/layout.svelte";
+  import { PANE_MIN_PX, type LayoutNode, type PaneConfig } from "../../lib/stores/layout.svelte";
   import type { Snippet } from "svelte";
   import {
     type DropZone,
@@ -14,6 +14,7 @@
   } from "../../lib/stores/drag.svelte";
   import { isCornerDragActive } from "../../lib/stores/corner-drag.svelte";
   import { clientToLayoutOffset } from "../../lib/utils/zoom";
+  import { focusPaneContent } from "../../lib/utils/pane-focus";
   import CornerDragOverlay from "./CornerDragOverlay.svelte";
   import PaneGrid from "./PaneGrid.svelte";
 
@@ -22,7 +23,6 @@
     panes,
     paneSnippet,
     isRoot = false,
-    isFirst = true,
     activePaneId = null,
     onPaneClick,
   }: {
@@ -30,12 +30,9 @@
     panes: Record<string, PaneConfig>;
     paneSnippet: Snippet<[PaneConfig]>;
     isRoot?: boolean;
-    isFirst?: boolean;
     activePaneId?: string | null;
     onPaneClick?: (paneId: string) => void;
   } = $props();
-
-  const trafficOffset = "0px";
 
   let dragging = $state(false);
   let containerEl = $state<HTMLDivElement>();
@@ -66,8 +63,6 @@
     const rect = containerEl?.getBoundingClientRect();
     if (!rect) return;
 
-    const MIN_PX = 80; // minimum pane size in pixels
-
     function handleMouseMove(e: MouseEvent) {
       if (!node || node.type !== "split" || !containerEl) return;
       // Offset in unzoomed layout px (clientX is visual px under ui_scale, the
@@ -76,11 +71,11 @@
       let ratio: number;
       if (node.direction === "horizontal") {
         ratio = offset.x / containerEl.offsetWidth;
-        const minRatio = MIN_PX / containerEl.offsetWidth;
+        const minRatio = PANE_MIN_PX / containerEl.offsetWidth;
         ratio = Math.max(minRatio, Math.min(1 - minRatio, ratio));
       } else {
         ratio = offset.y / containerEl.offsetHeight;
-        const minRatio = MIN_PX / containerEl.offsetHeight;
+        const minRatio = PANE_MIN_PX / containerEl.offsetHeight;
         ratio = Math.max(minRatio, Math.min(1 - minRatio, ratio));
       }
       node.ratio = ratio;
@@ -125,13 +120,10 @@
       data-pane-id={node.paneId}
       class="pane-leaf flex-1 flex overflow-hidden min-w-0 min-h-0 relative"
       class:pane-leaf--active={node.paneId === activePaneId}
-      style="--header-traffic-offset: {trafficOffset};"
       role="group"
       onclick={() => {
         onPaneClick?.(node.paneId);
-        // Focus the inner content element (terminal canvas or CodeMirror editor)
-        const target = leafEl?.querySelector<HTMLElement>('canvas[tabindex], .cm-content');
-        if (target) target.focus();
+        focusPaneContent(node.paneId);
       }}
       onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") onPaneClick?.(node.paneId); }}
     >
@@ -163,10 +155,10 @@
       <CornerDragOverlay {node} {containerEl} />
     {/if}
     <div
-      style="flex: 0 0 calc({node.ratio * 100}% - 2px); overflow: hidden; contain: layout style paint; {node.direction === 'vertical' ? 'min-height: 80px;' : 'min-width: 80px;'}"
+      style="flex: 0 0 calc({node.ratio * 100}% - 2px); overflow: hidden; contain: layout style paint; {node.direction === 'vertical' ? `min-height: ${PANE_MIN_PX}px;` : `min-width: ${PANE_MIN_PX}px;`}"
       class="flex min-w-0 min-h-0"
     >
-      <PaneGrid node={node.children[0]} {panes} {paneSnippet} {activePaneId} {onPaneClick} isFirst={isFirst} />
+      <PaneGrid node={node.children[0]} {panes} {paneSnippet} {activePaneId} {onPaneClick} />
     </div>
 
     <div
@@ -185,7 +177,7 @@
         if (node.type !== "split") return;
         const step = 0.02;
         const size = node.direction === "horizontal" ? (containerEl?.offsetWidth ?? 800) : (containerEl?.offsetHeight ?? 600);
-        const minRatio = 80 / size;
+        const minRatio = PANE_MIN_PX / size;
         if ((node.direction === "horizontal" && e.key === "ArrowLeft") ||
             (node.direction === "vertical" && e.key === "ArrowUp")) {
           e.preventDefault();
@@ -198,8 +190,8 @@
       }}
     ></div>
 
-    <div style="flex: 1; overflow: hidden; contain: layout style paint; {node.direction === 'vertical' ? 'min-height: 80px;' : 'min-width: 80px;'}" class="flex min-w-0 min-h-0">
-      <PaneGrid node={node.children[1]} {panes} {paneSnippet} {activePaneId} {onPaneClick} isFirst={false} />
+    <div style="flex: 1; overflow: hidden; contain: layout style paint; {node.direction === 'vertical' ? `min-height: ${PANE_MIN_PX}px;` : `min-width: ${PANE_MIN_PX}px;`}" class="flex min-w-0 min-h-0">
+      <PaneGrid node={node.children[1]} {panes} {paneSnippet} {activePaneId} {onPaneClick} />
     </div>
   </div>
 {/if}

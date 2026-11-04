@@ -54,7 +54,7 @@ unsafe fn inject_dock_menu() {
                         .unwrap_or(0)
                 );
                 let _ = crate::commands::workspace::register_window(label.clone());
-                let _ = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/".into()))
+                let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("/".into()))
                     // Empty title to match the main window (set in tauri.conf.json).
                     .title("")
                     .inner_size(1280.0, 800.0)
@@ -63,6 +63,9 @@ unsafe fn inject_dock_menu() {
                     .resizable(true)
                     .title_bar_style(tauri::TitleBarStyle::Overlay)
                     .build();
+                if let Ok(window) = built {
+                    crate::window_swizzle::fix_traffic_lights_soon(&window.as_ref().window());
+                }
             }
         }
 

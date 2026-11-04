@@ -162,25 +162,7 @@
     expanded = !expanded;
     if (expanded) expandedCtx?.add(entry.path);
     else expandedCtx?.delete(entry.path);
-    if (expanded && !children) {
-      loading = true;
-      try {
-        let result: FileEntry[];
-        if (sshWorkspaceId) {
-          const { sftpListDir } = await import("../../lib/ipc/commands");
-          result = await sftpListDir(sshWorkspaceId, entry.path);
-        } else {
-          const { readDirTree } = await import("../../lib/ipc/commands");
-          result = await readDirTree(entry.path);
-        }
-        entry.children = result;
-        children = result;
-      } catch (e) {
-        log.error("Failed to load directory:", e);
-      } finally {
-        loading = false;
-      }
-    }
+    if (expanded && !children) await reloadChildren();
   }
 
   function handleClick() {

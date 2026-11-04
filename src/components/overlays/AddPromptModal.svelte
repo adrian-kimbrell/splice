@@ -40,7 +40,7 @@
   <!-- Backdrop -->
   <div
     class="fixed inset-0 z-50 flex items-center justify-center"
-    style="background: rgba(0,0,0,0.5)"
+    style="background: var(--backdrop-sm)"
     role="dialog"
     aria-modal="true"
     aria-label="Saved Prompts"
@@ -61,7 +61,7 @@
           {#if view === "list"}
             <button
               class="text-[10px] px-2 py-0.5 rounded transition-colors cursor-pointer"
-              style="background: var(--accent); color: #000; font-weight: 500;"
+              style="background: var(--accent); color: var(--accent-fg); font-weight: 500;"
               onclick={() => { view = "add"; setTimeout(() => nameEl?.focus(), 0); }}
             >
               + New
@@ -153,7 +153,7 @@
           <button
             class="px-4 py-1.5 text-[11px] font-medium rounded transition-colors cursor-pointer"
             style={name.trim() && text.trim()
-              ? "background: var(--accent); color: #000;"
+              ? "background: var(--accent); color: var(--accent-fg);"
               : "background: var(--bg-input); color: var(--text-dim); cursor: default;"}
             disabled={!name.trim() || !text.trim()}
             onclick={save}
