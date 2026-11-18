@@ -128,7 +128,8 @@ Settings → Integrations → MCP Server (general.mcp_enabled, off by default)
 ```
 Remote access (`general.mcp_remote_access`) accepts a second token (`.mcp_remote_token`)
 for a cloud agent behind a tunnel; that scope can only `inbox_add` (plus `list_terminals`
-with `mcp_remote_read`). Outbound webhooks (`webhooks.json`, 0600) are POSTed with `curl`.
+with `mcp_remote_read`). A tunnel forwards the whole port, so every non-`/mcp` route refuses a request
+whose Host is not loopback (`mcp::addressed_from_outside`); keep that check on any new route. Outbound webhooks (`webhooks.json`, 0600) are POSTed with `curl`.
 
 ### Drag-and-Drop (Tabs/Panes)
 ```

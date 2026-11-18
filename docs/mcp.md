@@ -67,10 +67,10 @@ What a remote caller can do:
 
 So Grok Bot can deliver findings or a task request to your inbox, and you decide what happens next. "Regenerate" on the settings page replaces the token at once.
 
-The local token is refused when a request names any host other than `127.0.0.1` / `localhost`, so it cannot be used through the tunnel. Requests carrying a browser `Origin` header are refused outright.
+The local token is refused when a request names any host other than `127.0.0.1` / `localhost`, so it cannot be used through the tunnel. A tunnel forwards the whole port, so every other endpoint on it (the agent notification hooks) refuses such requests too: `/mcp` with the remote token is the only thing reachable from outside. Requests carrying a browser `Origin` header are refused outright.
 
 ## Limits
 
 - Request body 256 KB; task brief 100 KB; inbox item 64 KB, 200 items; webhook message 64 KB.
-- 40 requests a second for local agents, 5 for the remote token.
+- 60 requests a second for local agents, 20 for the remote token (answered with 429 and `Retry-After: 1` beyond that).
 - `spawn_agent` is not available in SSH workspaces (the brief is a local file).

@@ -373,14 +373,14 @@ pub struct Caller {
 /// An HTTP status and a short reason, for requests that do not get as far as JSON-RPC.
 pub type Rejection = (u16, &'static str);
 
-fn header<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
+pub(crate) fn header<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
     headers.lines().skip(1).find_map(|line| {
         let (k, v) = line.split_once(':')?;
         k.trim().eq_ignore_ascii_case(name).then(|| v.trim())
     })
 }
 
-fn host_is_loopback(host: &str) -> bool {
+pub(crate) fn host_is_loopback(host: &str) -> bool {
     let name = if let Some(rest) = host.strip_prefix('[') {
         rest.split(']').next().unwrap_or("")
     } else {
@@ -464,11 +464,21 @@ pub fn authorize(app: &AppHandle, method: &str, headers: &str, instance_token: &
     Ok(Caller { scope, terminal_id })
 }
 
+/// True when a request was addressed to something other than this machine's
+/// loopback name, i.e. it arrived through a tunnel or a forwarded port. A request
+/// with no Host header (HTTP/1.0 style, as some hook clients send) is local.
+pub fn addressed_from_outside(headers: &str) -> bool {
+    header(headers, "host").is_some_and(|h| !host_is_loopback(h))
+}
+
 /// Requests per second allowed for a caller.
 pub fn rate_limit(scope: Scope) -> u32 {
     match scope {
-        Scope::Local => 40,
-        Scope::Remote { .. } => 5,
+        Scope::Local => 60,
+        // A real MCP client opens with a burst (initialize, initialized, tools/list,
+        // ping, first calls): the official SDK client sent six requests in its first
+        // second. 5/s cut that off mid-handshake.
+        Scope::Remote { .. } => 20,
     }
 }
 
@@ -815,6 +825,14 @@ mod tests {
     fn only_post_is_served() {
         let h = req(&format!("X-Splice-Token: {LOCAL}\r\n"));
         assert_eq!(check_request("GET", &h, &gate(true, true)), Err((405, "Method Not Allowed")));
+    }
+
+    #[test]
+    fn only_requests_naming_another_host_count_as_outside() {
+        assert!(addressed_from_outside("POST /attention HTTP/1.1\r\nHost: abc.trycloudflare.com\r\n"));
+        assert!(!addressed_from_outside("POST /attention HTTP/1.1\r\nHost: 127.0.0.1:19876\r\n"));
+        assert!(!addressed_from_outside("POST /attention HTTP/1.1\r\nhost: localhost:19876\r\n"));
+        assert!(!addressed_from_outside("POST /attention HTTP/1.0\r\nContent-Length: 2\r\n"));
     }
 
     #[test]

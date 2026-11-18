@@ -166,6 +166,14 @@ async fn handle_connection(
         }
     }
 
+    // Everything below is for agents on this machine. With remote access on, a
+    // tunnel forwards the whole port, not just /mcp; a request that named another
+    // host came through one and is refused before the token is even looked at.
+    if crate::mcp::addressed_from_outside(header_str) {
+        let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+        return;
+    }
+
     // Validate X-Splice-Token header to reject requests from other local processes
     let provided_token = header_str.lines()
         .find(|l| l.to_ascii_lowercase().starts_with("x-splice-token:"))
@@ -263,6 +271,21 @@ async fn write_response(stream: &mut TcpStream, status: u16, reason: &str, body:
     let _ = stream.flush().await;
 }
 
+/// Read and discard up to `max` bytes, for at most `within`, then give up.
+async fn drain(stream: &mut TcpStream, max: usize, within: std::time::Duration) {
+    let mut scratch = [0u8; 16 * 1024];
+    let mut seen = 0usize;
+    let _ = tokio::time::timeout(within, async {
+        while seen < max {
+            match stream.read(&mut scratch).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => seen += n,
+            }
+        }
+    })
+    .await;
+}
+
 /// `POST /mcp`: one JSON-RPC message per request (see `crate::mcp`).
 #[allow(clippy::too_many_arguments)]
 async fn handle_mcp(
@@ -286,13 +309,22 @@ async fn handle_mcp(
     {
         let mut rl = rate_limiter.lock().await;
         if !rl.check(peer_ip, crate::mcp::rate_bucket(caller.scope), crate::mcp::rate_limit(caller.scope)) {
-            write_response(&mut stream, 429, "Too Many Requests", None).await;
+            let _ = stream
+                .write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await;
             return;
         }
     }
     let content_length = parse_content_length(header_str).unwrap_or(0);
-    if content_length == 0 || content_length > crate::mcp::MAX_BODY_BYTES {
-        write_response(&mut stream, if content_length == 0 { 400 } else { 413 }, "Bad Request", None).await;
+    if content_length == 0 {
+        write_response(&mut stream, 400, "Bad Request", None).await;
+        return;
+    }
+    if content_length > crate::mcp::MAX_BODY_BYTES {
+        write_response(&mut stream, 413, "Payload Too Large", None).await;
+        // The client is still sending. Closing now would reset the connection
+        // and it would never see the 413, so swallow a bounded amount first.
+        drain(&mut stream, 2 * 1024 * 1024, std::time::Duration::from_secs(2)).await;
         return;
     }
     let mut body = buf[header_end + 4..].to_vec();
@@ -339,6 +371,25 @@ mod tests {
         }
         assert!(!rl.check_at(ip, "/attention", 20, t0));
         assert!(rl.check_at(ip, "/attention", 20, t0 + std::time::Duration::from_millis(1001)));
+    }
+
+    #[tokio::test]
+    async fn drain_stops_at_the_byte_cap_and_at_the_deadline() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut server_side, _) = listener.accept().await.unwrap();
+        // More than the cap is available: drain returns after the cap.
+        client.write_all(&vec![7u8; 64 * 1024]).await.unwrap();
+        let started = Instant::now();
+        drain(&mut server_side, 1024, std::time::Duration::from_secs(5)).await;
+        assert!(started.elapsed() < std::time::Duration::from_secs(1), "the byte cap ends the drain");
+        // Nothing more arrives (after the rest is consumed): the deadline ends it.
+        drain(&mut server_side, 10 * 1024 * 1024, std::time::Duration::from_millis(150)).await;
+        let started = Instant::now();
+        drain(&mut server_side, 1024, std::time::Duration::from_millis(150)).await;
+        let waited = started.elapsed();
+        assert!(waited >= std::time::Duration::from_millis(140) && waited < std::time::Duration::from_secs(2), "{waited:?}");
     }
 
     #[tokio::test]

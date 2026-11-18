@@ -205,7 +205,7 @@ describe("MCP bridge", () => {
     const list = JSON.parse((await rpc("tools/list", {}, remote)).body);
     expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["inbox_add"]);
 
-    // Remote callers are limited to 5 requests a second, so pace these.
+    // Remote callers are rate limited (20 a second), so pace these.
     for (const name of ["spawn_agent", "read_terminal", "list_terminals", "send_webhook", "inbox_read"]) {
       await sleep(300);
       const res = await tool(name, { task: "x", terminal_id: callerTerminal, id: "x", name: "x", message: "x" }, remote);
@@ -214,7 +214,7 @@ describe("MCP bridge", () => {
 
     // A burst past the limit is refused with 429 and recovers a second later.
     await sleep(1100);
-    const burst = await Promise.all(Array.from({ length: 12 }, () => rpc("ping", {}, remote)));
+    const burst = await Promise.all(Array.from({ length: 60 }, () => rpc("ping", {}, remote)));
     expect(burst.some((r) => r.status === 429)).toBe(true);
     expect(burst.some((r) => r.status === 200)).toBe(true);
     await sleep(1100);
