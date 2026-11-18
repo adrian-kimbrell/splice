@@ -69,6 +69,9 @@ describe("MCP bridge", () => {
     };
   }
 
+  const listTerminals = async () =>
+    JSON.parse((await tool("list_terminals", {})).text) as { terminal_id: number; workspace: string; title: string }[];
+
   before(async () => {
     expect(configDir).not.toBe("");
     await loadApp(browser);
@@ -133,17 +136,18 @@ describe("MCP bridge", () => {
     expect(newId).toBeGreaterThan(0);
     expect(newId).not.toBe(callerTerminal);
 
-    const state = await api.state();
-    expect(state.workspaces.length).toBe(1);
-    const pane = state.workspaces[0]!.panes.find((p) => p.terminalId === newId);
-    expect(pane?.title).toBe("Claude task");
-
     // The command is typed once the shell is ready; echo prints the brief.
     await browser.waitUntil(async () => (await tool("read_terminal", { terminal_id: newId })).text.includes(`Please handle ${marker}`),
       { timeout: 15_000, interval: 500, timeoutMsg: "the task never appeared in the new terminal" });
 
-    const listed = JSON.parse((await tool("list_terminals", {})).text) as { terminal_id: number; workspace: string }[];
-    expect(listed.map((t) => t.terminal_id)).toEqual(expect.arrayContaining([callerTerminal, newId]));
+    // Verified through the tools, not the dev API's state: a second window may be
+    // open during the suite and either one can answer a dev-state request.
+    // list_terminals reads the saved workspace record, which is written on a debounce.
+    await browser.waitUntil(async () => {
+      const row = (await listTerminals()).find((t) => t.terminal_id === newId);
+      const caller = (await listTerminals()).find((t) => t.terminal_id === callerTerminal);
+      return row?.title === "Claude task" && row.workspace !== "" && row.workspace === caller?.workspace;
+    }, { timeout: 15_000, interval: 500, timeoutMsg: "the new pane never showed up as \"Claude task\" in the caller's workspace" });
   });
 
   it("spawn_agent new_workspace opens the folder as its own workspace", async () => {
@@ -153,11 +157,12 @@ describe("MCP bridge", () => {
     expect(res.isError).toBe(false);
     const newId = parseInt(/terminal (\d+)/.exec(res.text)?.[1] ?? "0", 10);
 
-    const state = await api.state();
-    const ws = state.workspaces.find((w) => w.rootPath === otherDir);
-    expect(ws).toBeDefined();
-    expect(ws!.terminalIds).toContain(newId);
-    expect(ws!.panes.find((p) => p.terminalId === newId)?.title).toBe("Codex task");
+    expect(newId).toBeGreaterThan(0);
+    const folder = otherDir.split("/").pop()!;
+    await browser.waitUntil(async () => {
+      const row = (await listTerminals()).find((t) => t.terminal_id === newId);
+      return row?.title === "Codex task" && row.workspace === folder;
+    }, { timeout: 15_000, interval: 500, timeoutMsg: "the new workspace never showed a \"Codex task\" terminal" });
     await browser.waitUntil(async () => (await tool("read_terminal", { terminal_id: newId })).text.includes(marker),
       { timeout: 15_000, interval: 500, timeoutMsg: "the task never appeared in the new workspace's terminal" });
   });
