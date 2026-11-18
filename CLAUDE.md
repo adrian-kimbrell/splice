@@ -10,7 +10,17 @@ npm run tauri:build        # Production build
 cargo test                 # Rust unit tests (400+ across terminal, attention, workspace, fs)
 npm test                   # Vitest frontend tests
 npm run test:e2e           # WebdriverIO E2E (requires build:e2e first)
+npm run test:remote        # all of the above on the test machine (see below)
 ```
+
+**Run tests on the test machine, not the dev Mac.** `scripts/test-remote.sh [unit] [rust] [e2e]`
+(no arguments = all three) rsyncs the working tree, committed or not, to `takeshi.local:~/splice-test`
+and runs the same steps as CI there. The E2E suite opens real windows and is sensitive to focus,
+occlusion and CPU load, so on a Mac that is in use it shows one random unrelated failure per run;
+on the test machine it is quiet and the dev Mac stays usable. Build caches persist there, so a
+warm full run takes about 8 minutes. `SPLICE_TEST_HOST` / `SPLICE_TEST_DIR` point it elsewhere.
+E2E needs the user logged in at that machine's console. The machine runs current stable Rust,
+so its clippy is stricter than an older local toolchain: keep `cargo clippy --all-targets -- -D warnings` clean there.
 
 ## Architecture Overview
 
