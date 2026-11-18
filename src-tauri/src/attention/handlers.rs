@@ -57,6 +57,7 @@ pub(crate) fn dispatch_attention(
         };
     }
 
+    crate::mcp::note_attention(terminal_id, &notification_type, &message);
     let event = AttentionEvent { terminal_id, notification_type: notification_type.clone(), message: message.clone() };
     if let Err(e) = app.emit("attention:notify", &event) {
         warn!("Failed to emit attention:notify: {}", e);
@@ -122,6 +123,7 @@ pub(crate) async fn handle_status_request(app: &AppHandle, json: serde_json::Val
     if !terminal_exists(app, terminal_id) {
         return;
     }
+    crate::mcp::note_status(terminal_id, &json);
     if let Err(e) = app.emit("claude:status", &json) {
         warn!("Failed to emit claude:status: {}", e);
     }

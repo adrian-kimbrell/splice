@@ -39,6 +39,10 @@ The **attention hook system** integrates directly with Claude Code and OpenAI Co
 
 ---
 
+### Agents that drive Splice (MCP)
+
+Turn on **Settings → Integrations → MCP Server** and the agent in a Splice terminal gets tools for the app it is running in. Tell Claude "open this in a new workspace and start working on it" and it calls `spawn_agent`: Splice opens the terminal or workspace, starts a second agent there, and hands it the brief as its first prompt. `list_terminals` and `read_terminal` let the first agent check on the second. The switch is off by default; when it is off nothing is served and nothing is registered. See [docs/mcp.md](docs/mcp.md) for the tools, the inbox, outbound webhooks, and connecting an outside agent such as Grok Bot.
+
 ## Terminal
 
 Splice ships a custom terminal emulator — no xterm.js, no DOM-per-character rendering.

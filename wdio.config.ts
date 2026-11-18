@@ -70,6 +70,8 @@ export const config: Options.Testrunner = {
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   async onPrepare() {
     configDir = mkdtempSync(join(tmpdir(), "splice-e2e-config-"));
+    // Specs that talk to the app's HTTP endpoints read the port and token from here.
+    process.env.SPLICE_E2E_CONFIG_DIR = configDir;
     // wdio runs under tsx, which injects itself into every Node child through
     // NODE_OPTIONS / TSX_*; a language server spawned by the app would inherit that
     // and crash on a tsconfig path that only exists in this repo. Give the app a
@@ -83,7 +85,7 @@ export const config: Options.Testrunner = {
     console.log(`[e2e] SPLICE_CONFIG_DIR=${configDir}`);
     appProcess = spawn(APP_BINARY, [], {
       // RUST_LOG from the caller wins, e.g. RUST_LOG=warn,splice_lib::lsp=debug npm run test:e2e
-      env: { ...appEnv, RUST_LOG: process.env.RUST_LOG ?? "warn", SPLICE_CONFIG_DIR: configDir },
+      env: { ...appEnv, RUST_LOG: process.env.RUST_LOG ?? "warn", SPLICE_CONFIG_DIR: configDir, SPLICE_E2E_AGENT_BIN: "echo" },
       stdio: "inherit",
       detached: false,
     });

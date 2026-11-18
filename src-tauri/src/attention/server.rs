@@ -155,6 +155,17 @@ async fn handle_connection(
         Err(_) => return,
     };
 
+    // The MCP endpoint has its own gate (setting, two tokens, larger bodies).
+    {
+        let mut first = header_str.lines().next().unwrap_or("").split_whitespace();
+        let method = first.next().unwrap_or("");
+        let target = first.next().unwrap_or("/");
+        if target == "/mcp" || target.starts_with("/mcp?") {
+            handle_mcp(stream, peer_ip, &app, &token, &rate_limiter, method, header_str, &buf, header_end).await;
+            return;
+        }
+    }
+
     // Validate X-Splice-Token header to reject requests from other local processes
     let provided_token = header_str.lines()
         .find(|l| l.to_ascii_lowercase().starts_with("x-splice-token:"))
@@ -234,6 +245,69 @@ async fn handle_connection(
         "/session" => handle_session_request(&app, json).await,
         "/status" => handle_status_request(&app, json).await,
         _ => handle_attention_request(&app, json).await,
+    }
+}
+
+async fn write_response(stream: &mut TcpStream, status: u16, reason: &str, body: Option<&str>) {
+    let head = match body {
+        Some(b) => format!(
+            "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            b.len()
+        ),
+        None => format!("HTTP/1.1 {status} {reason}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+    };
+    let _ = stream.write_all(head.as_bytes()).await;
+    if let Some(b) = body {
+        let _ = stream.write_all(b.as_bytes()).await;
+    }
+    let _ = stream.flush().await;
+}
+
+/// `POST /mcp`: one JSON-RPC message per request (see `crate::mcp`).
+#[allow(clippy::too_many_arguments)]
+async fn handle_mcp(
+    mut stream: TcpStream,
+    peer_ip: IpAddr,
+    app: &AppHandle,
+    token: &str,
+    rate_limiter: &Mutex<RateLimiter>,
+    method: &str,
+    header_str: &str,
+    buf: &[u8],
+    header_end: usize,
+) {
+    let caller = match crate::mcp::authorize(app, method, header_str, token) {
+        Ok(c) => c,
+        Err((status, reason)) => {
+            write_response(&mut stream, status, reason, None).await;
+            return;
+        }
+    };
+    {
+        let mut rl = rate_limiter.lock().await;
+        if !rl.check(peer_ip, crate::mcp::rate_bucket(caller.scope), crate::mcp::rate_limit(caller.scope)) {
+            write_response(&mut stream, 429, "Too Many Requests", None).await;
+            return;
+        }
+    }
+    let content_length = parse_content_length(header_str).unwrap_or(0);
+    if content_length == 0 || content_length > crate::mcp::MAX_BODY_BYTES {
+        write_response(&mut stream, if content_length == 0 { 400 } else { 413 }, "Bad Request", None).await;
+        return;
+    }
+    let mut body = buf[header_end + 4..].to_vec();
+    let remaining = content_length.saturating_sub(body.len());
+    if remaining > 0 {
+        let mut rest = vec![0u8; remaining];
+        match tokio::time::timeout(std::time::Duration::from_secs(10), stream.read_exact(&mut rest)).await {
+            Ok(Ok(_)) => body.extend_from_slice(&rest),
+            _ => return,
+        }
+    }
+    body.truncate(content_length);
+    match crate::mcp::handle_body(app, &caller, &body).await {
+        Some(json) => write_response(&mut stream, 200, "OK", Some(&json)).await,
+        None => write_response(&mut stream, 202, "Accepted", None).await,
     }
 }
 

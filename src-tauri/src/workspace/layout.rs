@@ -165,6 +165,17 @@ pub struct GeneralSettings {
     pub claude_notifications: bool,
     #[serde(default)]
     pub default_single_view: bool,
+    /// Serve the MCP endpoint (`POST /mcp` on the attention server) and register
+    /// it with the agent CLIs. Off by default.
+    #[serde(default)]
+    pub mcp_enabled: bool,
+    /// Accept the separate remote token (a cloud agent through a tunnel). Only
+    /// meaningful while `mcp_enabled` is on.
+    #[serde(default)]
+    pub mcp_remote_access: bool,
+    /// Let remote callers list terminals in addition to adding inbox items.
+    #[serde(default)]
+    pub mcp_remote_read: bool,
 }
 
 fn default_auto_save() -> String {
@@ -183,6 +194,9 @@ impl Default for GeneralSettings {
             restore_previous_session: true,
             claude_notifications: true,
             default_single_view: false,
+            mcp_enabled: false,
+            mcp_remote_access: false,
+            mcp_remote_read: false,
         }
     }
 }

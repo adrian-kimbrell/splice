@@ -43,6 +43,7 @@ fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_terminal(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Mutex<AppState>>,
     shell: String,
     cwd: String,
@@ -128,6 +129,9 @@ pub fn spawn_terminal(
     let session =
         crate::terminal::pty::PtySession::spawn(app, id, &shell, &canonical_cwd.to_string_lossy(), cols, rows, scrollback, &extra_args, attention_port, attention_token)?;
     state.terminals.insert(id, session);
+    // Which window owns this terminal: a request from an agent running here is
+    // routed to that window.
+    crate::mcp::note_terminal_window(id, window.label());
 
     info!(id, shell = %shell, cwd = %canonical_cwd.display(), "Spawned terminal");
     Ok(id)
@@ -155,6 +159,8 @@ pub fn write_to_terminal(
     w.write_all(&data).map_err(|e| e.to_string())?;
     // Snap to live only after a successful write
     scroll_offset.store(0, std::sync::atomic::Ordering::Relaxed);
+    // Whatever an agent in this terminal was waiting for has now been answered.
+    crate::mcp::note_input(id);
     Ok(())
 }
 
@@ -260,6 +266,7 @@ pub fn kill_terminal(state: State<'_, Mutex<AppState>>, id: u32) -> Result<(), S
         .remove(&id)
         .ok_or_else(|| format!("Terminal {} not found", id))?;
     state.terminal_claude_sessions.remove(&id);
+    crate::mcp::forget_terminal(id);
     Ok(())
 }
 

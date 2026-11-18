@@ -480,3 +480,92 @@ export async function sftpWriteFile(workspaceId: string, path: string, content: 
   return invoke("sftp_write_file", { workspaceId, path, content });
 }
 
+
+// --- MCP bridge, inbox, webhooks -------------------------------------------
+
+export async function mcpResolve(requestId: string, ok: boolean, value: unknown): Promise<void> {
+  return invoke("mcp_resolve", { requestId, ok, value });
+}
+
+export type CliRegistration =
+  | { state: "none" | "registered" | "not_found" }
+  | { state: "failed"; detail: string };
+
+export interface McpRegistration {
+  version: number;
+  shim: string;
+  claude: CliRegistration;
+  codex: CliRegistration;
+}
+
+export interface McpStatus {
+  enabled: boolean;
+  remote_enabled: boolean;
+  port: number;
+  remote_token: string | null;
+  registration: McpRegistration;
+}
+
+export async function mcpStatus(): Promise<McpStatus> {
+  return invoke("mcp_status");
+}
+
+export async function mcpReregister(): Promise<void> {
+  return invoke("mcp_reregister");
+}
+
+export async function mcpRegenerateRemoteToken(): Promise<string> {
+  return invoke("mcp_regenerate_remote_token");
+}
+
+export interface InboxItem {
+  id: string;
+  title: string;
+  body: string;
+  source: string;
+  remote: boolean;
+  /** Unix seconds. */
+  created_at: number;
+}
+
+export async function inboxList(): Promise<InboxItem[]> {
+  return invoke("inbox_list");
+}
+
+export async function inboxDelete(id: string): Promise<void> {
+  return invoke("inbox_delete", { id });
+}
+
+export async function inboxClear(): Promise<void> {
+  return invoke("inbox_clear");
+}
+
+/** Returns the shell command that starts `agent` with the inbox item as its first prompt. */
+export async function inboxHandoff(id: string, agent: "claude" | "codex"): Promise<string> {
+  return invoke("inbox_handoff", { id, agent });
+}
+
+export type WebhookAuth = "bearer" | "x-webhook-secret" | "none";
+
+export interface WebhookSummary {
+  name: string;
+  host: string;
+  auth: WebhookAuth;
+  has_key: boolean;
+}
+
+export async function webhooksList(): Promise<WebhookSummary[]> {
+  return invoke("webhooks_list");
+}
+
+export async function webhookSave(name: string, url: string, key: string, auth: WebhookAuth): Promise<void> {
+  return invoke("webhook_save", { name, url, key, auth });
+}
+
+export async function webhookDelete(name: string): Promise<void> {
+  return invoke("webhook_delete", { name });
+}
+
+export async function webhookSend(name: string, message: string): Promise<{ status: number; body: string }> {
+  return invoke("webhook_send", { name, message });
+}

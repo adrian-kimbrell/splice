@@ -198,7 +198,9 @@ async function setup() {
     if (typeof payload.zenMode === "boolean")           ui.zenMode           = payload.zenMode;
     if (typeof payload.commandPaletteOpen === "boolean") ui.commandPaletteOpen = payload.commandPaletteOpen;
     if (typeof payload.zoomedPaneId === "string" || payload.zoomedPaneId === null) ui.zoomedPaneId = payload.zoomedPaneId;
-    if (payload.sidebarMode === "files" || payload.sidebarMode === "search" || payload.sidebarMode === "problems") {
+    if (typeof payload.settingsDrawerOpen === "boolean") ui.settingsDrawerOpen = payload.settingsDrawerOpen;
+    if (payload.sidebarMode === "files" || payload.sidebarMode === "search" || payload.sidebarMode === "problems"
+      || payload.sidebarMode === "git" || payload.sidebarMode === "inbox") {
       ui.sidebarMode = payload.sidebarMode;
     }
   }));

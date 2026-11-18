@@ -47,6 +47,7 @@
   import { startClaudeWiring } from "../lib/startup/claude-wiring";
   import { startFileWatchListeners } from "../lib/startup/file-watch";
   import { startWindowCloseHandler } from "../lib/startup/window-close";
+  import { startMcpBridge } from "../lib/startup/mcp-bridge";
   import { focusPaneContent } from "../lib/utils/pane-focus";
   import { startJankMonitor } from "../lib/utils/jank-monitor";
   import { openNewWindow, reopenRegisteredWindows } from "../lib/utils/new-window";
@@ -473,6 +474,7 @@
         await startWindowCloseHandler(),
         await startFileWatchListeners(),
         await startNativeDrop(),
+        await startMcpBridge(),
       );
       // Drain anything macOS handed us during cold launch (before listeners were ready).
       drainOpenPaths();

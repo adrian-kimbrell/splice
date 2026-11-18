@@ -14,6 +14,7 @@ export const workCounters = {
   treeReloads: 0,
   gitRefreshes: 0,
   fileReloads: 0,
+  mcpRequests: 0,
 };
 
 const GAP_THRESHOLD_MS = 90;
@@ -45,9 +46,10 @@ export function startJankMonitor(): () => void {
         tree: workCounters.treeReloads - snapshot.treeReloads,
         git: workCounters.gitRefreshes - snapshot.gitRefreshes,
         files: workCounters.fileReloads - snapshot.fileReloads,
+        mcp: workCounters.mcpRequests - snapshot.mcpRequests,
       };
       log.debug(
-        `[jank] ${Math.round(gap)}ms frame gap | since last frame: terminal frames=${d.frames} (${d.kb} KB), tree reloads=${d.tree}, git refreshes=${d.git}, file reloads=${d.files}`,
+        `[jank] ${Math.round(gap)}ms frame gap | since last frame: terminal frames=${d.frames} (${d.kb} KB), tree reloads=${d.tree}, git refreshes=${d.git}, file reloads=${d.files}, mcp requests=${d.mcp}`,
       );
     }
     snapshot = { ...workCounters };

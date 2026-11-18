@@ -824,6 +824,30 @@ impl Grid {
     }
 }
 
+/// The last `n` non-blank rows of the active buffer (scrollback, then the live
+/// screen) as text, oldest first. Walks backwards and stops as soon as it has
+/// enough, so the cost is bounded by `n`, not by the scrollback length.
+pub fn last_text_lines(grid: &Grid, n: usize) -> Vec<String> {
+    let buf = grid.active();
+    let cols = grid.cols as usize;
+    let mut out: Vec<String> = Vec::with_capacity(n.min(512));
+    for row in buf.lines.iter().rev().chain(buf.scrollback.iter().rev()) {
+        if out.len() >= n {
+            break;
+        }
+        let text: String = row.cells[..cols.min(row.cells.len())]
+            .iter()
+            .map(|c| if c.ch == '\0' { ' ' } else { c.ch })
+            .collect();
+        let trimmed = text.trim_end();
+        if !trimmed.is_empty() {
+            out.push(trimmed.to_string());
+        }
+    }
+    out.reverse();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

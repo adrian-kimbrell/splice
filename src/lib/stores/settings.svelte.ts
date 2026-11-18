@@ -32,6 +32,12 @@ export interface Settings {
     claude_notifications: boolean;
     /** New workspaces open in single-view mode (one pane at a time) instead of the split grid. */
     default_single_view: boolean;
+    /** Serve the MCP endpoint and register it with the agent CLIs. Off by default. */
+    mcp_enabled: boolean;
+    /** Accept the remote token (a cloud agent through a tunnel). Needs mcp_enabled. */
+    mcp_remote_access: boolean;
+    /** Let remote callers list terminals as well as add inbox items. */
+    mcp_remote_read: boolean;
   };
   editor: {
     font_family: string;
@@ -76,6 +82,9 @@ const defaultSettings: Settings = {
     restore_previous_session: true,
     claude_notifications: true,
     default_single_view: false,
+    mcp_enabled: false,
+    mcp_remote_access: false,
+    mcp_remote_read: false,
   },
   editor: {
     font_family: "Menlo",

@@ -102,6 +102,24 @@ them only after the user trusts them once via `/hooks`). Both call
 `codex resume <id>` instead of `claude --resume <id>`.
 ```
 
+### MCP bridge (agents driving Splice)
+```
+Settings → Integrations → MCP Server (general.mcp_enabled, off by default)
+→ attention server answers POST /mcp (JSON-RPC, one message per request; 404 while off)
+→ agents reach it through a stdio shim (<config>/mcp/splice_mcp.py) registered with
+  `claude mcp add-json` / `codex mcp add`; the shim adds X-Splice-Token and
+  X-Splice-Terminal-Id from the terminal's env, and answers with an empty tool list
+  when Splice is closed or the server is off
+→ mcp/mod.rs: check_request (token → Scope::Local | Scope::Remote) → tool dispatch
+   list_terminals / read_terminal / inbox_* / send_webhook: served in Rust, no webview
+   spawn_agent: writes the brief to <config>/handoffs/, emits "mcp:request" to ONE window
+→ lib/startup/mcp-bridge.ts → lib/agents/spawn-agent.ts creates the terminal, waits for
+   the shell, types `claude "$(cat '<handoff>')"` → mcp_resolve answers the HTTP call
+```
+Remote access (`general.mcp_remote_access`) accepts a second token (`.mcp_remote_token`)
+for a cloud agent behind a tunnel; that scope can only `inbox_add` (plus `list_terminals`
+with `mcp_remote_read`). Outbound webhooks (`webhooks.json`, 0600) are POSTed with `curl`.
+
 ### Drag-and-Drop (Tabs/Panes)
 ```
 mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
@@ -135,6 +153,7 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 | `settings.rs` | 3 commands | Settings load/save, macOS traffic light position |
 | `git.rs` | 7 commands | Git status/stage/commit/diff via subprocess |
 | `themes.rs` | 3 commands | Custom theme import/list/delete |
+| `mcp.rs` | 12 commands | MCP bridge: window replies, status/registration, inbox, webhooks |
 
 ## Conventions
 
@@ -146,6 +165,7 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 - **Focusing a pane**: use `focusPaneContent(paneId)` from `lib/utils/pane-focus.ts`. A pane id appears more than once in the DOM (every workspace stays mounted; a zoomed pane is rendered twice) and only the visible copy can take focus.
 - **Context menus**: `showContextMenu(items, x, y)` from `lib/utils/context-menu.ts` for every right-click menu; never build a `.split-dropdown` by hand. Items run on click; the menu closes on outside mousedown/click and Escape.
 - **Terminal frame layout** is defined once in `lib/terminal/protocol.ts` (`decodeHeader`, `codepointAt`, `MODE_*` bits); mouse reports in `mouse.ts`, selection helpers in `selection.ts`, paste in `paste.ts`. These are pure and unit tested; keep DOM/IPC out of them.
+- **MCP tools**: declared once in `mcp/protocol.rs` (`TOOLS`: name, `Access`, description, schema) and executed in `mcp/mod.rs::call_tool`. `Access::Act` is local-only; a new tool that changes anything or reveals terminal contents must be `Act`. Serve tools from Rust state where possible; only layout changes go to the window (`ask_window`). Never run anything from an inbox item automatically, and hand inbox content to agents through `inbox::render_for_agent` (labels it third-party data). The E2E harness sets `SPLICE_E2E_AGENT_BIN=echo` (debug builds only) so spec 36 exercises `spawn_agent` without a real agent.
 - **Closing workspaces**: always go through `requestCloseWorkspace` (`lib/utils/close-workspace.ts`), which confirms before terminals are killed.
 - **Entry vs. content paths (Rust)**: commands that act on a directory *entry* (delete, rename, duplicate, copy destination, create) use `validate_entry_path` (canonical parent + verbatim leaf, so a symlink is handled as the link); commands that read or write *content* use `validate_path` (resolves the target).
 - **Config files**: parse leniently (`#[serde(default)]` on every settings/workspace field; `Workspace.layout` is `Option`, `None` = no panes) and never overwrite a file that failed to parse; back it up as `<name>.corrupt-<ts>` first. Same rule for `~/.claude/settings.json`, which is left untouched on a parse error.

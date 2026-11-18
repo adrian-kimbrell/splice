@@ -110,6 +110,16 @@ export function registerTestHelpers(deps: TestHelperDeps): void {
       for (const k of keys) node = node[k] as Record<string, unknown>;
       if (leaf && typeof node[leaf] === "boolean") node[leaf] = !node[leaf];
     },
+    /** Set a setting by dotted path and write it to Rust at once (no debounce). */
+    setSetting: async (path: string, value: unknown) => {
+      const keys = path.split(".");
+      const leaf = keys.pop();
+      let node: Record<string, unknown> = settings as unknown as Record<string, unknown>;
+      for (const k of keys) node = node[k] as Record<string, unknown>;
+      if (leaf) node[leaf] = value;
+      const { updateSettings } = await import("../ipc/commands");
+      await updateSettings(JSON.parse(JSON.stringify(settings)));
+    },
     /** Plain-object snapshot of the current settings (for E2E assertions). */
     getSettings: () => JSON.parse(JSON.stringify(settings)) as Record<string, unknown>,
     /** Return Rust-side AppState HashMap sizes (e2e debug command, only works in --features e2e build). */
