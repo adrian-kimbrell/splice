@@ -31,7 +31,7 @@
     "name": "Splice",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "macOS",
-    "softwareVersion": "0.8.0",
+    "softwareVersion": "0.8.1",
     "url": "https://www.spliceditor.xyz/",
     "releaseNotes": "https://www.spliceditor.xyz/releases",
     "downloadUrl": "https://github.com/adrian-kimbrell/splice/releases",
@@ -77,12 +77,51 @@
   <!-- Release list -->
   <section class="max-w-6xl mx-auto px-6 py-16 space-y-12">
 
+    <!-- v0.8.1 -->
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
+        <div class="flex items-center gap-4">
+          <span class="font-mono text-lg font-bold text-white">v0.8.1</span>
+          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
+        </div>
+        <span class="font-mono text-xs text-zinc-500">November 19, 2026</span>
+      </div>
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
+
+        <div>
+          <p class="text-sm text-zinc-400">A new Agents tab shows every Claude Code and Codex session across all your workspaces in one list, and the top bar matches the taller window chrome of macOS 26 and later.</p>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Agents</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span><strong class="text-zinc-200">Agents tab.</strong> The robot icon in the left sidebar (or <em>Show Agents</em> in the command palette) lists every terminal running Claude Code or Codex, grouped by workspace, with its state: needs permission, finished, working, idle or exited. Click one to jump to its workspace and terminal</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>An agent is listed as soon as it starts. Splice recognises it from the program running in the terminal, so Codex appears without any hook setup</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>The tab shows a badge with the number of agents waiting on you</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Fixes</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>On macOS 26 and later the top bar is taller and the window buttons sit centred in it, instead of a strip that looked too thin</span></li>
+          </ul>
+        </div>
+
+        <div class="pt-2 flex items-center gap-4">
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.8.1" class="btn-orange px-4 py-2 text-xs font-mono tracking-wide transition-colors inline-flex items-center gap-2">
+            <i class="bi bi-download"></i> Download v0.8.1
+          </a>
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.8.1" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono transition-colors">View on GitHub →</a>
+        </div>
+      </div>
+    </div>
+
     <!-- v0.8.0 -->
     <div class="card" style="border:1px solid #1f232a">
       <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.8.0</span>
-          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">November 19, 2026</span>
       </div>
