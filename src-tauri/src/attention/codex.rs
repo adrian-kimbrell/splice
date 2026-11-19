@@ -288,13 +288,11 @@ pub(crate) fn install_hooks(hooks_path: &std::path::Path, script_path: &str) -> 
 mod tests {
     use super::*;
 
-    fn tmp() -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("splice-codex-{}-{}", std::process::id(), rand_suffix()));
-        std::fs::create_dir_all(&d).unwrap();
-        d
-    }
-    fn rand_suffix() -> u128 {
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    /// One directory per test. Tests run in parallel, so the name must be unique
+    /// per call, not per instant: a pid + `SystemTime` nanos suffix collided on CI
+    /// (macOS clocks tick in microseconds) and one test read another's hooks.json.
+    fn tmp() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
     }
 
     #[test]
@@ -307,7 +305,7 @@ mod tests {
     #[test]
     fn notify_is_inserted_before_the_first_table_and_is_idempotent() {
         let d = tmp();
-        let cfg = d.join("config.toml");
+        let cfg = d.path().join("config.toml");
         std::fs::write(&cfg, "model = \"gpt-6\"\n\n[mcp_servers.x]\ncommand = \"y\"\n").unwrap();
         assert!(install_notify(&cfg, "/p/splice_codex_hook.py").unwrap());
         let text = std::fs::read_to_string(&cfg).unwrap();
@@ -322,7 +320,7 @@ mod tests {
     #[test]
     fn notify_is_created_when_config_is_missing_and_refreshed_when_stale() {
         let d = tmp();
-        let cfg = d.join("config.toml");
+        let cfg = d.path().join("config.toml");
         assert!(install_notify(&cfg, "/p/splice_codex_hook.py").unwrap());
         assert!(std::fs::read_to_string(&cfg).unwrap().starts_with("notify = ["));
         // A path change (older install location) is replaced.
@@ -335,7 +333,7 @@ mod tests {
     #[test]
     fn a_users_own_notify_is_left_alone() {
         let d = tmp();
-        let cfg = d.join("config.toml");
+        let cfg = d.path().join("config.toml");
         let original = "notify = [\"say\", \"done\"]\nmodel = \"x\"\n";
         std::fs::write(&cfg, original).unwrap();
         assert!(!install_notify(&cfg, "/p/splice_codex_hook.py").unwrap());
@@ -345,7 +343,7 @@ mod tests {
     #[test]
     fn hooks_are_merged_with_the_users_entries_and_idempotent() {
         let d = tmp();
-        let hooks = d.join("hooks.json");
+        let hooks = d.path().join("hooks.json");
         std::fs::write(&hooks, r#"{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"say done"}]}]}}"#).unwrap();
         assert!(install_hooks(&hooks, "/p/splice_codex_hook.py").unwrap());
         let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&hooks).unwrap()).unwrap();
@@ -365,7 +363,7 @@ mod tests {
     #[test]
     fn corrupted_hooks_json_is_never_overwritten() {
         let d = tmp();
-        let hooks = d.join("hooks.json");
+        let hooks = d.path().join("hooks.json");
         std::fs::write(&hooks, "{ not json").unwrap();
         assert!(install_hooks(&hooks, "/p/splice_codex_hook.py").is_err());
         assert_eq!(std::fs::read_to_string(&hooks).unwrap(), "{ not json");
@@ -374,10 +372,10 @@ mod tests {
     #[test]
     fn install_at_writes_script_config_and_hooks_once() {
         let d = tmp();
-        assert!(install_codex_at(&d).unwrap());
-        assert!(d.join("splice-hooks").join(SCRIPT_NAME).exists());
-        assert!(d.join("config.toml").exists());
-        assert!(d.join("hooks.json").exists());
-        assert!(!install_codex_at(&d).unwrap());
+        assert!(install_codex_at(d.path()).unwrap());
+        assert!(d.path().join("splice-hooks").join(SCRIPT_NAME).exists());
+        assert!(d.path().join("config.toml").exists());
+        assert!(d.path().join("hooks.json").exists());
+        assert!(!install_codex_at(d.path()).unwrap());
     }
 }

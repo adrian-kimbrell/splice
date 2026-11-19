@@ -15,6 +15,7 @@
 //! one window opens regardless of how many webviews are currently listening.
 
 mod attention;
+mod mcp;
 mod commands;
 #[cfg(debug_assertions)]
 mod dev_server;
@@ -103,6 +104,18 @@ macro_rules! splice_handlers {
         commands::settings::update_settings,
         commands::settings::read_project_settings,
         commands::settings::write_project_settings,
+        commands::mcp::mcp_resolve,
+        commands::mcp::mcp_status,
+        commands::mcp::mcp_reregister,
+        commands::mcp::mcp_regenerate_remote_token,
+        commands::mcp::inbox_list,
+        commands::mcp::inbox_delete,
+        commands::mcp::inbox_clear,
+        commands::mcp::inbox_handoff,
+        commands::mcp::webhooks_list,
+        commands::mcp::webhook_save,
+        commands::mcp::webhook_delete,
+        commands::mcp::webhook_send,
         commands::themes::import_theme,
         commands::themes::list_custom_themes,
         commands::themes::delete_custom_theme,

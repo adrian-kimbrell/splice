@@ -6,6 +6,7 @@
  */
 
 import { log } from "../utils/log";
+import { workCounters } from "../utils/jank-monitor";
 import { type GitFileStatus, gitDiscard, gitStage, gitStatus, gitUnstage } from "../ipc/commands";
 
 export type GitStatusKind = "modified" | "added" | "deleted" | "untracked" | "renamed" | "conflict" | "clean";
@@ -104,6 +105,7 @@ export async function refreshGitStatus(workspaceId: string, rootPath: string): P
   // overwriting the results of a faster later one.
   const gen = (refreshGenerations.get(workspaceId) ?? 0) + 1;
   refreshGenerations.set(workspaceId, gen);
+  workCounters.gitRefreshes++;
 
   try {
     const { repo_root, files } = await gitStatus(rootPath);

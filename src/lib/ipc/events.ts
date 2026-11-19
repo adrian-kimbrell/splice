@@ -11,6 +11,7 @@
  * All listeners return an `unlisten` function — call it in component cleanup to avoid leaks.
  */
 import { listen } from "@tauri-apps/api/event";
+import { workCounters } from "../utils/jank-monitor";
 
 export function onTerminalGrid(
   id: number,
@@ -22,6 +23,8 @@ export function onTerminalGrid(
     for (let i = 0; i < bin.length; i++) {
       bytes[i] = bin.charCodeAt(i);
     }
+    workCounters.terminalFrames++;
+    workCounters.terminalBytes += bytes.length;
     callback(bytes);
   });
 }

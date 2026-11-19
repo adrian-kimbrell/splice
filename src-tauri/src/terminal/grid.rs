@@ -445,9 +445,7 @@ impl Grid {
                 }
             }
             3 => {
-                for stop in &mut self.tab_stops {
-                    *stop = false;
-                }
+                self.tab_stops.fill(false);
             }
             _ => {}
         }
@@ -501,44 +499,32 @@ impl Grid {
             0 => {
                 if row < buf.lines.len() {
                     let len = buf.lines[row].cells.len();
-                    for c in col..len {
-                        buf.lines[row].cells[c] = blank;
-                    }
+                    buf.lines[row].cells[col.min(len)..].fill(blank);
                     repair_wide_boundaries(&mut buf.lines[row].cells, col.min(len), len);
                 }
-                for r in (row + 1)..buf.lines.len() {
-                    for cell in &mut buf.lines[r].cells {
-                        *cell = blank;
-                    }
+                for line in buf.lines.iter_mut().skip(row + 1) {
+                    line.cells.fill(blank);
                 }
             }
             1 => {
-                for r in 0..row {
-                    for cell in &mut buf.lines[r].cells {
-                        *cell = blank;
-                    }
+                for line in buf.lines.iter_mut().take(row) {
+                    line.cells.fill(blank);
                 }
                 if row < buf.lines.len() {
                     let len = buf.lines[row].cells.len();
-                    for c in 0..=col.min(len.saturating_sub(1)) {
-                        buf.lines[row].cells[c] = blank;
-                    }
+                    buf.lines[row].cells[..(col + 1).min(len)].fill(blank);
                     repair_wide_boundaries(&mut buf.lines[row].cells, 0, (col + 1).min(len));
                 }
             }
             2 => {
-                for r in 0..buf.lines.len() {
-                    for cell in &mut buf.lines[r].cells {
-                        *cell = blank;
-                    }
+                for line in buf.lines.iter_mut() {
+                    line.cells.fill(blank);
                 }
                 buf.cleared = true;
             }
             3 => {
-                for r in 0..buf.lines.len() {
-                    for cell in &mut buf.lines[r].cells {
-                        *cell = blank;
-                    }
+                for line in buf.lines.iter_mut() {
+                    line.cells.fill(blank);
                 }
                 buf.scrollback.clear();
                 buf.cleared = true;
@@ -822,6 +808,30 @@ impl Grid {
         let scrollback = self.primary.max_scrollback;
         *self = Grid::new(cols, rows, scrollback);
     }
+}
+
+/// The last `n` non-blank rows of the active buffer (scrollback, then the live
+/// screen) as text, oldest first. Walks backwards and stops as soon as it has
+/// enough, so the cost is bounded by `n`, not by the scrollback length.
+pub fn last_text_lines(grid: &Grid, n: usize) -> Vec<String> {
+    let buf = grid.active();
+    let cols = grid.cols as usize;
+    let mut out: Vec<String> = Vec::with_capacity(n.min(512));
+    for row in buf.lines.iter().rev().chain(buf.scrollback.iter().rev()) {
+        if out.len() >= n {
+            break;
+        }
+        let text: String = row.cells[..cols.min(row.cells.len())]
+            .iter()
+            .map(|c| if c.ch == '\0' { ' ' } else { c.ch })
+            .collect();
+        let trimmed = text.trim_end();
+        if !trimmed.is_empty() {
+            out.push(trimmed.to_string());
+        }
+    }
+    out.reverse();
+    out
 }
 
 #[cfg(test)]

@@ -9,6 +9,49 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { loadApp, openWorkspace, closeAllWorkspaces, pressKey, sleep } from "./helpers";
 
+
+/**
+ * Svelte outro transitions run on requestAnimationFrame. When the app window is
+ * occluded (the suite runs for minutes while the user works elsewhere) WebKit
+ * throttles rAF and an outro never finishes, so an element that is logically
+ * gone can stay in the DOM. True when a frame fires within 500 ms.
+ */
+async function animationFramesAreLive(): Promise<boolean> {
+  return browser.executeAsync((done: (ok: boolean) => void) => {
+    const t = setTimeout(() => done(false), 500);
+    requestAnimationFrame(() => { clearTimeout(t); done(true); });
+  });
+}
+
+async function getUiScale(): Promise<number> {
+  return await browser.execute(() =>
+    (window as unknown as { __spliceTest: { getUiScale: () => number } }).__spliceTest.getUiScale()
+  ) as number;
+}
+
+async function waitForUiScale(expected: number): Promise<void> {
+  await browser.waitUntil(async () => (await getUiScale()) === expected,
+    { timeout: 2_000, timeoutMsg: `ui_scale did not settle at ${expected}` });
+}
+
+/** Open the palette, filter to `name`, and run the highlighted (first) item. */
+async function runPaletteCommand(name: string): Promise<void> {
+  await pressKey(browser, "p", { meta: true });
+  await (await browser.$('input[placeholder="Type a command…"]')).waitForExist({ timeout: 2_000 });
+  await browser.execute((n: string) => {
+    const input = document.querySelector('input[placeholder="Type a command…"]') as HTMLInputElement | null;
+    if (!input) throw new Error("palette input not found");
+    input.value = n;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }, name);
+  await sleep(300);
+  await browser.execute(() => {
+    const input = document.querySelector('input[placeholder="Type a command…"]') as HTMLInputElement | null;
+    input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  await sleep(300);
+}
+
 describe("Command palette execution", () => {
   let wsDir: string;
 
@@ -69,41 +112,19 @@ describe("Command palette execution", () => {
   });
 
   it("executing Zoom In via palette increases ui_scale", async () => {
-    // Ensure we are at 100%
-    await pressKey(browser, "0", { meta: true });
-    await sleep(200);
+    // "Zoom In" here is the whole-window UI scale (appearance.ui_scale). ⌘0 is NOT
+    // its inverse: that chord resets the focused pane's font. Reset through the
+    // palette's own "Reset Zoom" and verify, or a 110% scale leaks into every spec
+    // that follows (spec 33 measures image geometry and sees it).
+    await runPaletteCommand("Reset Zoom");
+    await waitForUiScale(100);
 
-    const initialScale = await browser.execute(() =>
-      (window as unknown as { __spliceTest: { getUiScale: () => number } }).__spliceTest.getUiScale()
-    ) as number;
+    await runPaletteCommand("Zoom In");
+    await browser.waitUntil(async () => (await getUiScale()) > 100,
+      { timeout: 2_000, timeoutMsg: "ui_scale did not increase after Zoom In" });
 
-    // Open palette and filter for "Zoom In"
-    await pressKey(browser, "p", { meta: true });
-    await sleep(300);
-
-    await browser.execute(() => {
-      const input = document.querySelector('input[placeholder="Type a command…"]') as HTMLInputElement | null;
-      if (!input) return;
-      input.value = "Zoom In";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await sleep(300);
-
-    // Press Enter to execute the highlighted (first) item
-    await browser.execute(() => {
-      const input = document.querySelector('input[placeholder="Type a command…"]') as HTMLInputElement | null;
-      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    });
-    await sleep(300);
-
-    const newScale = await browser.execute(() =>
-      (window as unknown as { __spliceTest: { getUiScale: () => number } }).__spliceTest.getUiScale()
-    ) as number;
-    expect(newScale).toBeGreaterThan(initialScale);
-
-    // Reset zoom
-    await pressKey(browser, "0", { meta: true });
-    await sleep(200);
+    await runPaletteCommand("Reset Zoom");
+    await waitForUiScale(100);
   });
 
   it("executing Find in Files opens search sidebar", async () => {
@@ -154,21 +175,17 @@ describe("Command palette execution", () => {
 
     await browser.keys(["Escape"]);
 
-    // The palette is removed once its outro transition finishes, so wait rather
-    // than sampling the DOM after a fixed delay.
-    const palettAfter = await browser.$('input[placeholder="Type a command…"]');
-    await palettAfter.waitForExist({ reverse: true, timeout: 2_000 }).catch(async (e) => {
-      const state = {
-        ui: await browser.execute(() =>
-          (window as unknown as { __spliceTest: { getUiState: () => unknown } }).__spliceTest.getUiState()),
-        env: await browser.execute(() => new Promise((resolve) => {
-          const t0 = performance.now();
-          const timer = setTimeout(() => resolve({ hidden: document.hidden, hasFocus: document.hasFocus(), rafMs: -1 }), 500);
-          requestAnimationFrame(() => { clearTimeout(timer); resolve({ hidden: document.hidden, hasFocus: document.hasFocus(), rafMs: Math.round(performance.now() - t0) }); });
-        })),
-      };
-      throw new Error(`Palette still open after Escape; ui state: ${JSON.stringify(state)} (${String(e)})`);
-    });
-    expect(await palettAfter.isExisting()).toBe(false);
+    // The palette closes immediately in state; the DOM element leaves once its
+    // outro transition finishes.
+    await browser.waitUntil(async () => {
+      const st = await browser.execute(() =>
+        (window as unknown as { __spliceTest: { getUiState: () => { commandPaletteOpen: boolean } } }).__spliceTest.getUiState());
+      return st.commandPaletteOpen === false;
+    }, { timeout: 2_000, timeoutMsg: "palette still open (ui.commandPaletteOpen) after Escape" });
+    if (await animationFramesAreLive()) {
+      const palettAfter = await browser.$('input[placeholder="Type a command…"]');
+      await palettAfter.waitForExist({ reverse: true, timeout: 3_000 });
+      expect(await palettAfter.isExisting()).toBe(false);
+    }
   });
 });

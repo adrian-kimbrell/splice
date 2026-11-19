@@ -110,8 +110,10 @@ describe("Image viewer zoom", () => {
   it("a zoomed image is laid out at natural size × zoom", async () => {
     await chordOnViewer("=");
     await chordOnViewer("=");
+    // offsetWidth is layout px. getBoundingClientRect() is scaled by the root CSS
+    // zoom (appearance.ui_scale) and would read 220 instead of 200 at 110%.
     const width = await browser.execute((sel: string) =>
-      (document.querySelector(`${sel} img`) as HTMLImageElement).getBoundingClientRect().width, VIEWPORT);
+      (document.querySelector(`${sel} img`) as HTMLImageElement).offsetWidth, VIEWPORT);
     expect(Math.round(width)).toBe(Math.round(128 * 1.25 * 1.25));
     await chordOnViewer("0");
   });
@@ -122,6 +124,10 @@ describe("Image viewer zoom", () => {
     const dblclick = () => browser.execute((sel: string) => {
       document.querySelector(sel)?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
     }, VIEWPORT);
+    // Start from fit mode whatever the previous test left behind.
+    await (await browser.$('.image-toolbar button[aria-label="Fit to window"]')).click();
+    await sleep(150);
+    expect(await percent()).toBe(100);
     await dblclick();
     await sleep(150);
     const actual = await browser.$('.image-toolbar button[aria-label="Actual size"]');

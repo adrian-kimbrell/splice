@@ -6,7 +6,7 @@ import { clampSettings, SETTING_RANGES, type Settings } from "./settings.svelte"
 
 function base(): Settings {
   return {
-    general: { auto_save: "off", auto_save_delay: 1000, restore_previous_session: true, claude_notifications: true, default_single_view: false },
+    general: { auto_save: "off", auto_save_delay: 1000, restore_previous_session: true, claude_notifications: true, default_single_view: false, mcp_enabled: false, mcp_remote_access: false, mcp_remote_read: false },
     editor: { font_family: "Menlo", font_size: 15, tab_size: 4, word_wrap: false, line_numbers: true, minimap: false, insert_spaces: true, bracket_matching: true, auto_close_brackets: true, highlight_active_line: true, scroll_past_end: true, indent_guides: true },
     appearance: { theme: "x", font_size: 15, ui_scale: 100, show_status_bar: true, explorer_side: "left", explorer_width: 240, workspaces_width: 220 },
     terminal: { default_shell: "/bin/zsh", font_size: 15, cursor_style: "Block", cursor_blink: true, scrollback_lines: 10000, font_family: "Menlo", copy_on_select: false, show_full_path: false, name_follows_cwd: false },

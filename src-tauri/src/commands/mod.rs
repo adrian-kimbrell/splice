@@ -13,6 +13,7 @@
 pub mod dev;
 pub mod fs;
 pub mod git;
+pub mod mcp;
 pub mod settings;
 pub mod ssh;
 pub mod terminal;

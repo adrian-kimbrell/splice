@@ -516,6 +516,7 @@ pub fn close_workspace(
         for tid in &terminal_ids {
             state.terminals.remove(tid);
             state.terminal_claude_sessions.remove(tid);
+            crate::mcp::forget_terminal(*tid);
         }
         // Modify workspace list and compute active_roots in inner block
         // so that the mutable borrow of window_workspaces is released

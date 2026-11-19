@@ -2,6 +2,9 @@
   import FileTree from "./FileTree.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import GitPanel from "./GitPanel.svelte";
+  import InboxPanel from "./InboxPanel.svelte";
+  import { inbox } from "../../lib/stores/inbox.svelte";
+  import { settings } from "../../lib/stores/settings.svelte";
   import type { FileEntry } from "../../lib/stores/files.svelte";
   import { workspaceManager } from "../../lib/stores/workspace.svelte";
   import { ui } from "../../lib/stores/ui.svelte";
@@ -36,6 +39,11 @@
     onResizeStart?: (e: MouseEvent) => void;
   } = $props();
 
+  // The inbox tab only exists while the MCP server is on or something is waiting in it.
+  const showInbox = $derived(settings.general.mcp_enabled || inbox.items.length > 0);
+  $effect(() => {
+    if (!showInbox && ui.sidebarMode === "inbox") ui.sidebarMode = "files";
+  });
   const counts = $derived(getDiagnosticCounts());
   const gitChangedCount = $derived(getTotalChangedCount(workspaceManager.activeWorkspaceId ?? ""));
 
@@ -166,6 +174,23 @@
         </span>
       {/if}
     </button>
+    {#if showInbox}
+      <button
+        class="flex items-center justify-center w-6 h-full relative"
+        class:text-accent={ui.sidebarMode === "inbox"}
+        class:text-txt-dim={ui.sidebarMode !== "inbox"}
+        title="Inbox"
+        data-testid="inbox-tab"
+        onclick={() => { ui.sidebarMode = "inbox"; }}
+      >
+        <i class="bi bi-inbox text-base"></i>
+        {#if inbox.items.length > 0}
+          <span class="absolute top-1 right-0.5 text-[8px] leading-none font-bold text-accent">
+            {inbox.items.length}
+          </span>
+        {/if}
+      </button>
+    {/if}
     </div>
     <!-- Remaining space is draggable -->
     <div class="flex-1 h-full" data-tauri-drag-region></div>
@@ -179,6 +204,8 @@
       <SearchPanel />
     {:else if ui.sidebarMode === "git"}
       <GitPanel />
+    {:else if ui.sidebarMode === "inbox"}
+      <InboxPanel />
     {:else if ui.sidebarMode === "problems"}
       <!-- Problems panel -->
       <div class="flex flex-col h-full overflow-y-auto text-xs">

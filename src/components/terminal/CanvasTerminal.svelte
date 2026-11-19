@@ -30,7 +30,7 @@
   import { onMount, onDestroy, untrack } from "svelte";
   import { TerminalRenderer } from "../../lib/terminal/renderer";
   import { decodeHeader, mouseModeOf, MODE_APP_CURSOR_KEYS, MODE_BRACKETED_PASTE, MODE_MOUSE_SGR, MODE_FOCUS_EVENTS } from "../../lib/terminal/protocol";
-  import { encodeMouseButton, heldButton, cellToReport, encodeMouseEvent, MOUSE_MOTION, MOUSE_NO_BUTTON, MOUSE_WHEEL_UP, MOUSE_WHEEL_DOWN } from "../../lib/terminal/mouse";
+  import { encodeMouseButton, heldButton, cellToReport, encodeMouseEvent, reportsDragMotion, MOUSE_MOTION, MOUSE_NO_BUTTON, MOUSE_WHEEL_UP, MOUSE_WHEEL_DOWN } from "../../lib/terminal/mouse";
   import { wordRangeAt, joinSelectedLines } from "../../lib/terminal/selection";
   import { encodePaste } from "../../lib/terminal/paste";
   import type { TerminalSearchMatch } from "../../lib/ipc/commands";
@@ -160,12 +160,16 @@
     renderer.setSearchMatches(converted, searchActiveIndex);
   });
 
+  /** Set in onMount: paints a frame that arrived while the workspace was hidden. */
+  let paintPendingFrame: (() => void) | null = null;
+
   // Re-fit terminal when its workspace becomes visible after a workspace/tab switch.
   // (`active` here means "this terminal's workspace is active", not the active pane —
   // pane focus on switch is handled centrally in App.svelte.)
   $effect(() => {
     if (active && renderer && containerEl) {
       requestAnimationFrame(() => {
+        paintPendingFrame?.();
         handleResize();
         // Still blank (never got a frame while hidden)? Ask again now that the
         // user is looking at it.
@@ -396,6 +400,17 @@
 
     // Listen for grid updates, throttle rendering to RAF
     let pendingFrame: Uint8Array | null = null;
+    const scheduleRender = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        if (pendingFrame && renderer) {
+          renderer.render(pendingFrame);
+          pendingFrame = null;
+        }
+      });
+    };
+    paintPendingFrame = () => { if (pendingFrame) scheduleRender(); };
 
     const gridUnlisten = await onTerminalGrid(
       terminalId,
@@ -413,15 +428,12 @@
         if (frameRetryTimer) { clearTimeout(frameRetryTimer); frameRetryTimer = null; }
         if (renderer) renderer.setLatestFrame(data);
         pendingFrame = data;
-        if (!rafId) {
-          rafId = requestAnimationFrame(() => {
-            rafId = 0;
-            if (pendingFrame && renderer) {
-              renderer.render(pendingFrame);
-              pendingFrame = null;
-            }
-          });
-        }
+        // A terminal in a workspace that is not on screen keeps the latest frame
+        // but does not paint it: painting a hidden canvas at up to 120 fps while
+        // an agent streams output there starved typing in the visible workspace.
+        // The `active` effect paints the kept frame when the workspace returns.
+        if (!active) return;
+        scheduleRender();
       },
     );
     if (destroyed) { gridUnlisten(); return; }
@@ -542,6 +554,14 @@
     // release listeners live on `window` (so a drag that leaves the canvas still
     // ends), so without this every terminal in mouse mode received every release.
     let protocolPressActive = false;
+    // Motion is reported once per cell, not once per pixel of pointer travel.
+    let lastMotionCell = "";
+    const movedToNewCell = (cx: number, cy: number) => {
+      const key = `${cx},${cy}`;
+      if (key === lastMotionCell) return false;
+      lastMotionCell = key;
+      return true;
+    };
 
     const onMouseDown = (e: MouseEvent) => {
       if (!renderer) return;
@@ -563,9 +583,12 @@
       // right-click (button 2), which always opens Splice's context menu (matches
       // Terminal.app). Without this, a TUI app in mouse mode (e.g. Claude Code
       // fullscreen) eats every right-click and the menu never appears.
-      if (mouseMode > 0 && e.button !== 2) {
+      // Shift keeps the press for Splice's own selection (xterm convention), so text
+      // can be selected in an app that takes the mouse.
+      if (mouseMode > 0 && e.button !== 2 && !e.shiftKey) {
         const { cx, cy } = cellToReport(eventToCell(e));
         protocolPressActive = true;
+        lastMotionCell = `${cx},${cy}`;
         sendMouseEvent(encodeMouseButton(e), cx, cy, true);
         return;
       }
@@ -613,14 +636,15 @@
     const onMouseMove = (e: MouseEvent) => {
       const mouseMode = mouseModeOf(modeFlags);
 
-      // Mouse protocol motion events. Button-drag motion (mode 2) is forwarded
-      // only for a press that started on this canvas; any-motion (mode 3) only
-      // while the pointer is over it (see onCanvasMouseMove).
-      if (mouseMode > 0) {
+      // Mouse protocol motion events. Drag motion (modes 2 and 3) is forwarded for
+      // a press that started on this canvas, wherever the pointer goes; motion with
+      // no button (mode 3) only while the pointer is over it (see onCanvasMouseMove).
+      // An app that selects text itself (Codex) depends on the drag reports.
+      if (mouseMode > 0 && !isSelecting) {
         if (!renderer) return;
-        if (mouseMode === 2 && protocolPressActive && e.buttons !== 0) {
+        if (reportsDragMotion(mouseMode) && protocolPressActive && e.buttons !== 0) {
           const { cx, cy } = cellToReport(eventToCell(e));
-          sendMouseEvent(MOUSE_MOTION + heldButton(e.buttons), cx, cy, true);
+          if (movedToNewCell(cx, cy)) sendMouseEvent(MOUSE_MOTION + heldButton(e.buttons), cx, cy, true);
         }
         return;
       }
@@ -648,7 +672,7 @@
 
       // Mouse protocol: forward the release of a press that started here (right-click
       // never sends a press, see mousedown; a release elsewhere is not ours).
-      if (mouseMode > 0 && e.button !== 2) {
+      if (mouseMode > 0 && e.button !== 2 && !isSelecting) {
         if (!renderer || !protocolPressActive) return;
         protocolPressActive = false;
         const { cx, cy } = cellToReport(eventToCell(e));
@@ -694,7 +718,7 @@
       if (mouseMode !== 0) {
         if (mouseMode === 3 && !protocolPressActive) {
           const { cx, cy } = cellToReport(eventToCell(e));
-          sendMouseEvent(MOUSE_MOTION + MOUSE_NO_BUTTON, cx, cy, true);
+          if (movedToNewCell(cx, cy)) sendMouseEvent(MOUSE_MOTION + MOUSE_NO_BUTTON, cx, cy, true);
         }
         return;
       }

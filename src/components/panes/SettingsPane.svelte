@@ -5,6 +5,7 @@
   import { themeNames, type ThemeColors } from "../../lib/theme/themes";
   import { customThemeMap, loadCustomThemes, registerCustomTheme, unregisterCustomTheme } from "../../lib/theme/custom-themes.svelte";
   import { onMount } from "svelte";
+  import IntegrationsSettings from "./IntegrationsSettings.svelte";
 
   // --- Data-driven settings definitions ---
 
@@ -24,7 +25,7 @@
     control: SettingControl;
   }
 
-  const categories = ["General", "Appearance", "Editor", "Terminal", "Keymap"];
+  const categories = ["General", "Appearance", "Editor", "Terminal", "Integrations", "Keymap"];
 
   const allThemeNames = $derived([...themeNames, ...Object.keys(customThemeMap)]);
 
@@ -33,6 +34,7 @@
     Appearance: "bi-palette",
     Editor: "bi-code-slash",
     Terminal: "bi-terminal",
+    Integrations: "bi-plug",
     Keymap: "bi-keyboard",
   };
 
@@ -43,6 +45,11 @@
     { key: "general.restore_previous_session", category: "General", title: "Restore Previous Session", description: "Reopen the previous workspace on startup.", control: { type: "toggle" } },
     { key: "general.claude_notifications", category: "General", title: "Claude Notifications", description: "Send a macOS notification when Claude is waiting for input and Splice is in the background.", control: { type: "toggle" } },
     { key: "general.default_single_view", category: "General", title: "Default to Single View", description: "New workspaces open in single-view mode — one pane at a time instead of the split grid.", control: { type: "toggle" } },
+
+    // Integrations
+    { key: "general.mcp_enabled", category: "Integrations", title: "MCP Server", description: "Let coding agents in Splice terminals control Splice: start another agent in a new terminal or workspace, list and read terminals, use the inbox and webhooks. Registers a “splice” MCP server with Claude Code and Codex. Off by default.", control: { type: "toggle" } },
+    { key: "general.mcp_remote_access", category: "Integrations", title: "Remote Access", description: "Accept a separate token from outside agents (for example Grok Bot through a tunnel). Remote callers can only add inbox items. Requires the MCP server.", control: { type: "toggle" } },
+    { key: "general.mcp_remote_read", category: "Integrations", title: "Remote Callers Can List Terminals", description: "Also let remote callers see which terminals are open and whether an agent is waiting. They can never read terminal contents or start anything.", control: { type: "toggle" } },
 
     // Appearance
     { key: "appearance.theme", category: "Appearance", title: "Theme", description: "The color theme for the editor and UI.", control: { type: "select", options: themeNames } },
@@ -402,6 +409,9 @@
               {/if}
             {/each}
           </div>
+          {#if cat === "Integrations"}
+            <IntegrationsSettings />
+          {/if}
         {/if}
       </section>
     {/each}

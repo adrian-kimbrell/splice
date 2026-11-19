@@ -70,7 +70,7 @@ fn save_settings_to_disk(settings: &Settings) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<Settings, String> {
+pub fn get_settings(app: tauri::AppHandle, state: State<'_, Mutex<AppState>>) -> Result<Settings, String> {
     // Fast path: already loaded — return without touching disk
     {
         let s = state.lock().map_err(|e| e.to_string())?;
@@ -89,6 +89,11 @@ pub fn get_settings(state: State<'_, Mutex<AppState>>) -> Result<Settings, Strin
             info!("Loaded settings from disk");
         }
         s.settings_loaded = true;
+        // First load of this launch: if the MCP server is on, make sure the agent
+        // CLIs still point at it. A no-op (one small file read) when they do.
+        if s.settings.general.mcp_enabled {
+            crate::commands::mcp::sync_registration_in_background(app, true, false);
+        }
     }
     Ok(s.settings.clone())
 }
@@ -100,12 +105,18 @@ pub fn update_settings(
     state: State<'_, Mutex<AppState>>,
     settings: Settings,
 ) -> Result<(), String> {
-    let settings_clone = {
+    let (settings_clone, mcp_toggled) = {
         let mut state = state.lock().map_err(|e| e.to_string())?;
+        let was_enabled = state.settings_loaded && state.settings.general.mcp_enabled;
         state.settings = settings.clamped();
         state.settings_loaded = true;
-        state.settings.clone()
+        let now_enabled = state.settings.general.mcp_enabled;
+        (state.settings.clone(), (was_enabled != now_enabled).then_some(now_enabled))
     };
+    // The MCP switch changed: register with (or remove from) the agent CLIs.
+    if let Some(enabled) = mcp_toggled {
+        crate::commands::mcp::sync_registration_in_background(app.clone(), enabled, false);
+    }
 
     // Persist outside of lock
     save_settings_to_disk(&settings_clone)?;

@@ -94,6 +94,10 @@ export class TerminalRenderer {
 
   // Focus
   private _isFocused = true;
+  /** Focus state at the last render; a change forces one full repaint (cursor style). */
+  private lastRenderFocused = true;
+  /** Timestamp of the last full repaint, for the slow safety repaint of unfocused panes. */
+  private lastFullRedrawAt = 0;
 
   // Search highlighting
   private searchActiveIndex = -1;
@@ -398,10 +402,19 @@ export class TerminalRenderer {
     const canvasH = this.canvas.height / this.dpr;
 
     const prev = this.previousFrame;
-    // Always do a full repaint when unfocused — prevents dirty-region artifacts from
-    // accumulating when the GPU compositor invalidates the canvas backing store.
-    const fullRedraw = this.forceFullRedraw || !prev || prev.length !== data.length || !this._isFocused;
+    // Dirty-rect by default. A full repaint when: forced (font/size/theme/rerender),
+    // no previous frame, the grid size changed, or focus changed (the cursor style
+    // differs). Unfocused panes used to repaint fully on every frame as a guard
+    // against compositor invalidation; with an agent streaming in another pane
+    // that was ~10k cells per frame of main-thread work while typing elsewhere.
+    // They now get a dirty-rect render plus one safety repaint per second.
+    const now = performance.now();
+    const focusChanged = this._isFocused !== this.lastRenderFocused;
+    const staleUnfocused = !this._isFocused && now - this.lastFullRedrawAt > 1000;
+    const fullRedraw = this.forceFullRedraw || !prev || prev.length !== data.length || focusChanged || staleUnfocused;
     this.forceFullRedraw = false;
+    this.lastRenderFocused = this._isFocused;
+    if (fullRedraw) this.lastFullRedrawAt = now;
 
     // Extract previous cursor position for redraw
     const oldCursorCol = this.prevCursorCol;

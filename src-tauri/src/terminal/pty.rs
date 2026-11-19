@@ -264,7 +264,7 @@ impl PtySession {
                             } else {
                                 emu.grid.primary.scrolled_out
                             };
-                            let reply: Vec<u8> = emu.pending_reply.drain(..).collect();
+                            let reply: Vec<u8> = std::mem::take(&mut emu.pending_reply);
                             let title = emu.pending_title.take();
                             let bell = std::mem::replace(&mut emu.pending_bell, false);
                             let clipboard = emu.pending_clipboard.take();

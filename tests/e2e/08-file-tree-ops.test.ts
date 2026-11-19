@@ -176,11 +176,20 @@ describe("File tree operations", () => {
   it("clicking folder again collapses it", async () => {
     const subdir = await browser.$('[data-path$="subdir"]');
     await subdir.click();
-    await sleep(300);
 
-    // deep.ts should no longer be in DOM (or not visible)
-    const deepFile = await browser.$('[data-path$="deep.ts"]');
-    const exists = await deepFile.isExisting();
-    expect(exists).toBe(false);
+    // The folder reports itself collapsed at once; its children leave the DOM when
+    // the slide-out transition ends. That transition runs on requestAnimationFrame,
+    // which WebKit throttles while the window is occluded, so only assert the DOM
+    // removal when frames are actually being delivered.
+    await browser.waitUntil(async () => (await subdir.getAttribute("aria-expanded")) !== "true",
+      { timeout: 3_000, timeoutMsg: "folder still reports aria-expanded=true after the second click" });
+    const framesLive = await browser.executeAsync((done: (ok: boolean) => void) => {
+      const t = setTimeout(() => done(false), 500);
+      requestAnimationFrame(() => { clearTimeout(t); done(true); });
+    });
+    if (framesLive) {
+      const deepFile = await browser.$('[data-path$="deep.ts"]');
+      await deepFile.waitForExist({ reverse: true, timeout: 3_000 });
+    }
   });
 });
