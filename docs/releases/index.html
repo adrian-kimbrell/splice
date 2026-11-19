@@ -31,7 +31,7 @@
     "name": "Splice",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "macOS",
-    "softwareVersion": "0.7.0",
+    "softwareVersion": "0.8.0",
     "url": "https://www.spliceditor.xyz/",
     "releaseNotes": "https://www.spliceditor.xyz/releases",
     "downloadUrl": "https://github.com/adrian-kimbrell/splice/releases",
@@ -77,12 +77,62 @@
   <!-- Release list -->
   <section class="max-w-6xl mx-auto px-6 py-16 space-y-12">
 
+    <!-- v0.8.0 -->
+    <div class="card" style="border:1px solid #1f232a">
+      <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
+        <div class="flex items-center gap-4">
+          <span class="font-mono text-lg font-bold text-white">v0.8.0</span>
+          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
+        </div>
+        <span class="font-mono text-xs text-zinc-500">November 19, 2026</span>
+      </div>
+      <div class="p-6 space-y-6" style="background:#0b0c0e">
+
+        <div>
+          <p class="text-sm text-zinc-400">Agents can now drive Splice: an optional MCP server lets Claude Code or Codex start another agent in a new terminal or workspace, with an inbox for outside sources and outbound webhooks. Terminals also paint far less when they are hidden or unfocused, and text can be selected in Codex.</p>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">MCP server (off by default)</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span><strong class="text-zinc-200">Agents can hand work to other agents.</strong> Turn on <em>Settings &rsaquo; Integrations &rsaquo; MCP Server</em> and Splice registers itself with Claude Code and Codex. An agent can then start Claude or Codex on a task in a new terminal or a new workspace, list terminals and read their output</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span><strong class="text-zinc-200">Inbox.</strong> Agents and outside sources can leave items for you in a new sidebar panel. Nothing in the inbox runs by itself; you choose what to hand to an agent, and it is labelled as third-party content when you do</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span><strong class="text-zinc-200">Outbound webhooks.</strong> Save a webhook once and agents can post a message to it, for example to trigger a cloud agent's routine. Secrets stay in a private file and are never shown to agents</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span><strong class="text-zinc-200">Remote access.</strong> An optional second token lets a cloud agent behind a tunnel add inbox items and nothing else. Everything else on the port refuses requests that arrive through a tunnel</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>While the switch is off the endpoint does not exist, and agents see no Splice tools. See the <a href="https://github.com/adrian-kimbrell/splice/blob/main/docs/mcp.md" style="color:#8affca">MCP guide</a></span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Performance</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Terminals in hidden workspaces no longer paint every frame, and unfocused panes repaint only what changed. This was the likely cause of typing stutter with several agents running</span></li>
+          </ul>
+        </div>
+
+        <div>
+          <p class="font-mono text-xs text-orange uppercase tracking-widest mb-3">Fixes</p>
+          <ul class="space-y-2 text-sm text-zinc-400">
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span><strong class="text-zinc-200">Text can be selected and copied in Codex.</strong> Splice now sends drag movement to apps that track the mouse and select text themselves</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Shift+drag selects with Splice's own selection in any app that takes over the mouse</span></li>
+            <li class="flex gap-3"><span class="text-orange mt-0.5">—</span><span>Mouse movement is reported to terminal apps once per cell instead of once per pixel</span></li>
+          </ul>
+        </div>
+
+        <div class="pt-2 flex items-center gap-4">
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.8.0" class="btn-orange px-4 py-2 text-xs font-mono tracking-wide transition-colors inline-flex items-center gap-2">
+            <i class="bi bi-download"></i> Download v0.8.0
+          </a>
+          <a href="https://github.com/adrian-kimbrell/splice/releases/tag/v0.8.0" class="text-xs text-zinc-500 hover:text-zinc-300 font-mono transition-colors">View on GitHub →</a>
+        </div>
+      </div>
+    </div>
+
     <!-- v0.7.0 -->
     <div class="card" style="border:1px solid #1f232a">
       <div class="px-6 py-4 flex items-center justify-between" style="background:#101216;border-bottom:1px solid #1f232a">
         <div class="flex items-center gap-4">
           <span class="font-mono text-lg font-bold text-white">v0.7.0</span>
-          <span class="font-mono text-xs px-2 py-0.5 text-orange" style="border:1px solid #00ff88">Latest</span>
         </div>
         <span class="font-mono text-xs text-zinc-500">November 3, 2026</span>
       </div>
