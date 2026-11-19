@@ -8,6 +8,11 @@ Settings → Integrations → **MCP Server**.
 
 Splice then registers a server named `splice` with Claude Code and Codex, using their own CLIs (`claude mcp add-json --scope user`, `codex mcp add`). The settings page shows whether each registration worked. Agent sessions started after that see the tools; sessions already running need a restart. Turning the switch off removes both registrations.
 
+Two things are specific to Codex:
+
+- Codex starts MCP servers with a stripped environment, so Splice also adds `env_vars = ["SPLICE_ATTENTION_PORT", "SPLICE_ATTENTION_TOKEN", "SPLICE_TERMINAL_ID"]` to its `[mcp_servers.splice]` entry in `~/.codex/config.toml`. That is how the server learns which Splice window and terminal the agent runs in.
+- Codex asks for approval before it calls a Splice tool. A non-interactive `codex exec` run cannot ask, and refuses the call ("MCP tool call requires approval, but approval policy is never").
+
 When the switch is off, the endpoint answers 404 and nothing is registered. There is no extra process, thread, timer or port either way: the endpoint is one more route on the local server Splice already runs for agent notifications.
 
 ## Tools

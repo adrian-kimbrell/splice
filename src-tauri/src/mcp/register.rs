@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 pub const SERVER_NAME: &str = "splice";
 const SHIM_NAME: &str = "splice_mcp.py";
 /// Bump when the shim or the registration command changes, to re-register once.
-const REGISTRATION_VERSION: u32 = 1;
+const REGISTRATION_VERSION: u32 = 2;
 const CLI_TIMEOUT: Duration = Duration::from_secs(25);
 
 const SHIM_TEMPLATE: &str = r#"#!/usr/bin/env python3
@@ -253,10 +253,51 @@ fn register_codex(shim: &Path) -> CliState {
     let _ = run_in_login_shell(&format!("codex mcp remove {SERVER_NAME}"));
     let cmd = format!("codex mcp add {SERVER_NAME} -- python3 {}", sh_quote(&shim.to_string_lossy()));
     match run_in_login_shell(&cmd) {
-        Ok((true, _)) => CliState::Registered,
+        Ok((true, _)) => match forward_env_through_codex() {
+            Ok(()) => CliState::Registered,
+            Err(e) => CliState::Failed(format!("registered, but Codex will not pass the terminal's identity to Splice: {e}")),
+        },
         Ok((false, out)) => CliState::Failed(last_line(&out)),
         Err(e) => CliState::Failed(e),
     }
+}
+
+/// Codex starts an MCP server with a stripped environment: only variables named in
+/// the server's `env_vars` come through from the terminal. Without them the shim
+/// cannot tell which Splice instance or which terminal the agent runs in, and
+/// `codex mcp add` has no flag for this, so the line is added to the table it wrote.
+const CODEX_ENV_VARS: &str = r#"env_vars = ["SPLICE_ATTENTION_PORT", "SPLICE_ATTENTION_TOKEN", "SPLICE_TERMINAL_ID"]"#;
+
+/// `config` with `env_vars` set in the `[mcp_servers.splice]` table; `None` when
+/// it is already right. An error when the table is not there.
+pub(crate) fn with_codex_env_vars(config: &str) -> Result<Option<String>, String> {
+    let mut lines: Vec<&str> = config.lines().collect();
+    let header = format!("[mcp_servers.{SERVER_NAME}]");
+    let start = lines.iter().position(|l| l.trim() == header).ok_or("no splice entry in the Codex config")?;
+    let end = lines[start + 1..].iter().position(|l| l.trim_start().starts_with('[')).map_or(lines.len(), |i| start + 1 + i);
+    let existing = (start + 1..end).find(|&i| {
+        let t = lines[i].trim_start();
+        t.strip_prefix("env_vars").is_some_and(|rest| rest.trim_start().starts_with('='))
+    });
+    match existing {
+        Some(i) if lines[i].trim() == CODEX_ENV_VARS => return Ok(None),
+        Some(i) => lines[i] = CODEX_ENV_VARS,
+        None => lines.insert(start + 1, CODEX_ENV_VARS),
+    }
+    Ok(Some(lines.join("\n") + "\n"))
+}
+
+fn forward_env_through_codex() -> Result<(), String> {
+    let home = match std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => dirs::home_dir().ok_or("cannot find the home directory")?.join(".codex"),
+    };
+    let path = home.join("config.toml");
+    let config = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let Some(updated) = with_codex_env_vars(&config)? else { return Ok(()) };
+    let tmp = path.with_extension(format!("toml.tmp-{}", std::process::id()));
+    std::fs::write(&tmp, updated).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
 /// Bring the agents' configuration in line with the setting. Blocking (spawns the
@@ -326,6 +367,20 @@ mod tests {
         for needle in ["X-Splice-Token", "X-Splice-Terminal-Id", "SPLICE_ATTENTION_PORT", "ProxyHandler({})", "'tools': []"] {
             assert!(src.contains(needle), "shim lacks {needle}");
         }
+    }
+
+    #[test]
+    fn codex_entry_gets_env_vars_once_and_other_tables_are_untouched() {
+        let cfg = "model = \"x\"\n\n[mcp_servers.other]\ncommand = \"a\"\n\n[mcp_servers.splice]\ncommand = \"python3\"\nargs = [\"/s.py\"]\n\n[tui]\nk = 1\n";
+        let out = with_codex_env_vars(cfg).unwrap().unwrap();
+        assert!(out.contains(&format!("[mcp_servers.splice]\n{CODEX_ENV_VARS}\ncommand = \"python3\"")));
+        assert_eq!(out.replace(&format!("{CODEX_ENV_VARS}\n"), ""), cfg);
+        assert_eq!(with_codex_env_vars(&out).unwrap(), None);
+        // A stale list is replaced; another server's list is not mistaken for ours.
+        let stale = out.replace(CODEX_ENV_VARS, "env_vars = [\"OLD\"]").replace("command = \"a\"", "env_vars = [\"KEEP\"]");
+        let fixed = with_codex_env_vars(&stale).unwrap().unwrap();
+        assert!(fixed.contains(CODEX_ENV_VARS) && fixed.contains("env_vars = [\"KEEP\"]") && !fixed.contains("OLD"));
+        assert!(with_codex_env_vars("[mcp_servers.other]\n").is_err());
     }
 
     #[test]

@@ -38,3 +38,4 @@ import "./33-image-zoom.test.js";
 import "./34-explorer-refresh-loop.test.js";
 import "./35-zoom-focus.test.js";
 import "./36-mcp-bridge.test.js";
+import "./37-mouse-drag-reporting.test.js";

@@ -33,6 +33,11 @@ export function heldButton(buttons: number): number {
   return buttons & 1 ? 0 : buttons & 4 ? 1 : buttons & 2 ? 2 : MOUSE_NO_BUTTON;
 }
 
+/** True when the app asked for motion while a button is held (modes 1002 and 1003; 1003 includes 1002). */
+export function reportsDragMotion(mouseMode: number): boolean {
+  return mouseMode >= 2;
+}
+
 /** 0-based cell → 1-based, clamped report coordinates. */
 export function cellToReport(cell: { row: number; col: number }): { cx: number; cy: number } {
   return {

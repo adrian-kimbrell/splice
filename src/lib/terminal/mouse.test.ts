@@ -1,10 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { encodeMouseButton, heldButton, cellToReport, encodeMouseEvent, X10_MAX_COORD, MOUSE_NO_BUTTON } from "./mouse";
+import { encodeMouseButton, heldButton, cellToReport, encodeMouseEvent, X10_MAX_COORD, MOUSE_NO_BUTTON, reportsDragMotion } from "./mouse";
 
 const ev = (button: number, mods: Partial<{ shiftKey: boolean; altKey: boolean; ctrlKey: boolean }> = {}) =>
   ({ button, shiftKey: false, altKey: false, ctrlKey: false, ...mods });
 
 describe("mouse encoder", () => {
+  it("reports drag motion in button-drag and any-motion modes, not in click mode", () => {
+    expect([0, 1, 2, 3].map(reportsDragMotion)).toEqual([false, false, true, true]);
+  });
+
   it("maps DOM buttons and modifiers to xterm button numbers", () => {
     expect(encodeMouseButton(ev(0))).toBe(0);
     expect(encodeMouseButton(ev(1))).toBe(1);
