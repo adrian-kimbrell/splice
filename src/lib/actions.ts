@@ -41,7 +41,7 @@ export const MENU_ACTION_IDS = [
 ] as const;
 
 /** Commands that exist only in-app (shortcuts, palette, pane menu). */
-export const APP_ONLY_ACTION_IDS = ["search-project", "find-replace", "problems-panel"] as const;
+export const APP_ONLY_ACTION_IDS = ["search-project", "find-replace", "problems-panel", "agents-panel"] as const;
 
 export type MenuActionId = (typeof MENU_ACTION_IDS)[number];
 export type AppActionId = MenuActionId | (typeof APP_ONLY_ACTION_IDS)[number];

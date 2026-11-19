@@ -150,6 +150,7 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 | `ui.svelte.ts` | Transient UI state (sidebar visibility, zen mode) | App.svelte, TitleBar, sidebars |
 | `drag.svelte.ts` | Tab/pane drag-and-drop | PaneGrid, TabBar, App.svelte (callback) |
 | `attention.svelte.ts` | Claude notification state | TitleBar, TerminalTitlebar |
+| `agents.svelte.ts` | Per-terminal activity for the Agents panel (polled only while it is shown) | AgentsPanel |
 | `diagnostics.svelte.ts` | LSP diagnostic aggregation | LeftSidebar (problems panel) |
 | `files.svelte.ts` | FileEntry/OpenFile type definitions | workspace.svelte.ts, components |
 
@@ -157,7 +158,7 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 | Module | Commands | Purpose |
 |--------|----------|---------|
 | `fs/` | 21 commands | File I/O, directory tree, file watching, clipboard |
-| `terminal.rs` | 12 commands | PTY spawn/write/resize/kill, Claude hook install |
+| `terminal.rs` | 13 commands | PTY spawn/write/resize/kill, activity, Claude hook install |
 | `workspace.rs` | 11 commands | Layout persistence, window registry, workspace lifecycle |
 | `ssh.rs` | 6 commands | SSH connections, SFTP file operations |
 | `lsp/` | 5 commands | LSP server lifecycle, JSON-RPC bridge |
@@ -177,6 +178,7 @@ mousedown on tab → beginDrag() in drag.svelte.ts (captures payload)
 - **Context menus**: `showContextMenu(items, x, y)` from `lib/utils/context-menu.ts` for every right-click menu; never build a `.split-dropdown` by hand. Items run on click; the menu closes on outside mousedown/click and Escape.
 - **Terminal frame layout** is defined once in `lib/terminal/protocol.ts` (`decodeHeader`, `codepointAt`, `MODE_*` bits); mouse reports in `mouse.ts`, selection helpers in `selection.ts`, paste in `paste.ts`. These are pure and unit tested; keep DOM/IPC out of them.
 - **MCP tools**: declared once in `mcp/protocol.rs` (`TOOLS`: name, `Access`, description, schema) and executed in `mcp/mod.rs::call_tool`. `Access::Act` is local-only; a new tool that changes anything or reveals terminal contents must be `Act`. Serve tools from Rust state where possible; only layout changes go to the window (`ask_window`). Never run anything from an inbox item automatically, and hand inbox content to agents through `inbox::render_for_agent` (labels it third-party data). The E2E harness sets `SPLICE_E2E_AGENT_BIN=echo` (debug builds only) so spec 36 exercises `spawn_agent` without a real agent.
+- **Agents panel**: the list is derived in `lib/agents/agent-list.ts` (pure, unit tested) from pane session fields, the attention store, the status store and `terminal_activity` (Rust: is a program other than the shell in the foreground, is it Claude Code or Codex (`terminal/foreground.rs`, from the process's path and arguments), and how long since the terminal printed). A terminal counts as an agent when that process is an agent or its pane has `claudeSessionId`; "working" means it printed in the last 3 s. Poll through `watchAgentActivity()` so nothing runs while no view needs it.
 - **Closing workspaces**: always go through `requestCloseWorkspace` (`lib/utils/close-workspace.ts`), which confirms before terminals are killed.
 - **Entry vs. content paths (Rust)**: commands that act on a directory *entry* (delete, rename, duplicate, copy destination, create) use `validate_entry_path` (canonical parent + verbatim leaf, so a symlink is handled as the link); commands that read or write *content* use `validate_path` (resolves the target).
 - **Config files**: parse leniently (`#[serde(default)]` on every settings/workspace field; `Workspace.layout` is `Option`, `None` = no panes) and never overwrite a file that failed to parse; back it up as `<name>.corrupt-<ts>` first. Same rule for `~/.claude/settings.json`, which is left untouched on a parse error.

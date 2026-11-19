@@ -155,6 +155,11 @@ export const api = {
     return req("POST", "/dev/split-pane", { direction });
   },
 
+  /** Raise an attention notification for a terminal, as an agent's hook would. */
+  notify(terminalId: number, notifType: "permission" | "idle", message = ""): Promise<{ ok: boolean }> {
+    return req("POST", "/dev/notify", { terminalId, notifType, message });
+  },
+
   /** Write a command to a terminal PTY. */
   runTerminal(cmd: string, terminalId?: number): Promise<{ ok: boolean }> {
     return req("POST", "/dev/run-terminal", { cmd, terminalId });

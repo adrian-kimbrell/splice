@@ -86,6 +86,21 @@ export async function getTerminalCwd(id: number): Promise<string | null> {
   return invoke<string | null>("get_terminal_cwd", { id });
 }
 
+export interface TerminalActivity {
+  id: number;
+  /** A program other than the shell holds the foreground; null = unknown. */
+  program_running: boolean | null;
+  /** Milliseconds since the terminal last printed anything; null = never. */
+  quiet_ms: number | null;
+  /** The agent CLI running in the foreground, recognised from the process itself. */
+  agent: "claude" | "codex" | null;
+}
+
+/** Cheap status for many terminals at once (Agents panel). Unknown ids are left out. */
+export async function terminalActivity(ids: number[]): Promise<TerminalActivity[]> {
+  return invoke("terminal_activity", { ids });
+}
+
 /** Dev-only: returns the last n non-blank lines from the terminal's scrollback+live buffer. */
 export async function getTerminalLastLines(id: number, n: number): Promise<string[]> {
   return invoke("get_terminal_last_lines", { id, n });

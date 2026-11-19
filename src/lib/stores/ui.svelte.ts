@@ -29,7 +29,7 @@ export const ui = $state({
   workspacesWidth: 220,
   commandPaletteOpen: false,
   zoomedPaneId: null as string | null,
-  sidebarMode: "files" as "files" | "search" | "problems" | "git" | "inbox",
+  sidebarMode: "files" as "files" | "search" | "problems" | "git" | "inbox" | "agents",
   zenMode: false,
   zenSnapshot: null as { explorerVisible: boolean; workspacesVisible: boolean } | null,
   /** PR/screenshot mode: hides recent files and projects for clean screenshots */

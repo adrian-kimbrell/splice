@@ -23,7 +23,7 @@ use crate::terminal::emitter::{spawn_emitter, EmitterNotify};
 use crate::terminal::term::Emulator;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -88,9 +88,36 @@ pub struct PtySession {
     pub version: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
     pub scroll_offset: Arc<AtomicI32>,
+    /// Unix milliseconds of the last bytes read from the PTY (0 = none yet).
+    pub last_output_ms: Arc<AtomicU64>,
     pub notify: Arc<EmitterNotify>,
     _reader_handle: JoinHandle<()>,
     _emitter_handle: JoinHandle<()>,
+}
+
+pub fn unix_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+impl PtySession {
+    /// The program holding the terminal's foreground (an agent, an editor, a
+    /// build): its pid, or `Some(None)` when only the shell is there. `None` when
+    /// it cannot be told right now.
+    pub fn foreground_program(&self) -> Option<Option<i32>> {
+        let shell = self.child_pid? as i64;
+        // try_lock: a resize may hold the master for an ioctl; never wait on it.
+        let master = self.master.try_lock().ok()?;
+        #[cfg(unix)]
+        {
+            let leader = master.process_group_leader()?;
+            Some((leader as i64 != shell).then_some(leader))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (&master, shell);
+            None
+        }
+    }
 }
 
 impl Drop for PtySession {
@@ -205,6 +232,8 @@ impl PtySession {
         let version = Arc::new(AtomicU32::new(0));
         let running = Arc::new(AtomicBool::new(true));
         let scroll_offset = Arc::new(AtomicI32::new(0));
+        let last_output_ms = Arc::new(AtomicU64::new(0));
+        let reader_last_output = Arc::clone(&last_output_ms);
         let notify = Arc::new(EmitterNotify::new());
 
         // Reader thread: read PTY bytes and feed to emulator
@@ -240,6 +269,7 @@ impl PtySession {
                         break;
                     }
                     Ok(n) => {
+                        reader_last_output.store(unix_ms(), Ordering::Relaxed);
                         // The VTE parser runs on arbitrary PTY bytes. A panic on some exotic
                         // sequence must NOT brick the pane: an uncaught panic here would drop
                         // the write guard poisoned, kill this thread, and leave the emitter
@@ -361,6 +391,7 @@ impl PtySession {
             version,
             running,
             scroll_offset,
+            last_output_ms,
             notify,
             _reader_handle: reader_handle,
             _emitter_handle: emitter_handle,
