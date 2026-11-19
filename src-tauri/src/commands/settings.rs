@@ -209,3 +209,16 @@ mod tests {
     }
 }
 
+
+/// True when the window chrome should use the taller top strip (macOS 26+).
+#[tauri::command]
+pub fn chrome_tall() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::window_swizzle::tall_chrome()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}

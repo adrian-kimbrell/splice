@@ -19,6 +19,7 @@
     { name: "Open Folder…", shortcut: "⇧⌘O", action() { runAction("open-folder"); } },
     { name: "Toggle Sidebar", shortcut: "⌘B", action() { runAction("toggle-sidebar"); } },
     { name: "New Terminal", shortcut: "", action() { runAction("new-terminal"); } },
+    { name: "Show Agents", shortcut: "", action() { runAction("agents-panel"); } },
     { name: "Find in Files", shortcut: "⇧⌘F", action() { runAction("find-in-files"); } },
     { name: "Go to Line…", shortcut: "⌘G", action() { runAction("goto-line"); } },
     { name: "Preferences: Open Settings", shortcut: "⌘,", action() { runAction("settings"); } },

@@ -176,7 +176,7 @@
 >
   <!-- Header strip — only needed on left side to clear macOS traffic lights -->
   {#if side === 'left'}
-    <div class="shrink-0 border-b border-border" style="height: 32px; padding-left: 80px;" data-tauri-drag-region></div>
+    <div class="shrink-0 border-b border-border" style="height: var(--chrome-bar-height); padding-left: calc(var(--traffic-clear) + 10px);" data-tauri-drag-region></div>
   {/if}
 
   <!-- Resize strip on inner edge -->

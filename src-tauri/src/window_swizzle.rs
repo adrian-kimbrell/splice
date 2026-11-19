@@ -18,6 +18,37 @@ pub static TRAFFIC_Y: AtomicI32 = AtomicI32::new(19);
 
 static INSTALL_ONCE: Once = Once::new();
 
+/// macOS 26 and later draw larger traffic lights in a window with much rounder
+/// corners; the 32 pt top strip that suits earlier versions looks thin there.
+pub const TALL_CHROME_SINCE: u32 = 26;
+/// Height of the app's top strip in tall mode. Keep in step with
+/// `--chrome-bar-height` in `app.css`.
+const TALL_BAR_HEIGHT: f64 = 40.0;
+const TALL_TRAFFIC_X: f64 = 18.0;
+
+/// Major version from a `sw_vers -productVersion` string ("27.2.1" → 27).
+pub fn parse_major(version: &str) -> Option<u32> {
+    version.trim().split('.').next()?.parse().ok()
+}
+
+/// The real OS major version, asked once. A subprocess sees the true version even
+/// when the app's own SDK makes the in-process API report a compatibility number.
+pub fn macos_major() -> u32 {
+    static MAJOR: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *MAJOR.get_or_init(|| {
+        std::process::Command::new("/usr/bin/sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()
+            .and_then(|o| parse_major(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or(0)
+    })
+}
+
+pub fn tall_chrome() -> bool {
+    macos_major() >= TALL_CHROME_SINCE
+}
+
 /// Install the swizzle. Idempotent — safe to call multiple times.
 /// Must be called from the main thread before any window is shown.
 pub unsafe fn install() {
@@ -122,8 +153,11 @@ unsafe fn position_traffic_lights(ns_window: *mut std::ffi::c_void) {
     let close_rect = NSView::frame(&close);
     let button_height = close_rect.size.height;
 
-    // Resize the NSTitlebarContainerView to make room for our offset.
-    let bar_height = button_height + y;
+    // Resize the NSTitlebarContainerView to make room for our offset. In tall mode
+    // the buttons sit centred on the taller strip and a little further in.
+    let tall = tall_chrome();
+    let x = if tall { TALL_TRAFFIC_X } else { x };
+    let bar_height = if tall { TALL_BAR_HEIGHT } else { button_height + y };
     let mut bar_rect = NSView::frame(&container);
     bar_rect.size.height = bar_height;
     bar_rect.origin.y = NSWindow::frame(win).size.height - bar_height;
@@ -169,4 +203,17 @@ pub fn fix_traffic_lights_soon(window: &tauri::Window) {
             let _ = window.run_on_main_thread(move || fix_traffic_lights(&w));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn major_version_is_parsed_from_sw_vers_output() {
+        assert_eq!(parse_major("27.2.1\n"), Some(27));
+        assert_eq!(parse_major("15.5"), Some(15));
+        assert_eq!(parse_major("26"), Some(26));
+        assert_eq!(parse_major(""), None);
+    }
 }

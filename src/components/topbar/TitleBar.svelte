@@ -219,7 +219,7 @@
 
   .title-bar {
     flex-shrink: 0;
-    height: 32px;
+    height: var(--chrome-bar-height);
     background: var(--bg-sidebar);
     border-radius: var(--radius-lg);
     border: 1px solid color-mix(in srgb, var(--text-dim) 22%, transparent);

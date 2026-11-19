@@ -401,6 +401,39 @@ pub fn get_terminal_cwd(state: State<'_, Mutex<AppState>>, id: u32) -> Option<St
     cwd_of_pid(pid)
 }
 
+/// What a terminal is doing right now, for the Agents panel.
+#[derive(serde::Serialize)]
+pub struct TerminalActivity {
+    pub id: u32,
+    /// A program other than the shell holds the foreground; `None` = unknown.
+    pub program_running: Option<bool>,
+    /// Milliseconds since the terminal last printed anything; `None` = never.
+    pub quiet_ms: Option<u64>,
+    /// `"claude"` or `"codex"` when that CLI is the foreground program.
+    pub agent: Option<&'static str>,
+}
+
+/// One cheap call for many terminals: no subprocess, no waiting on a busy lock.
+/// Unknown ids are left out.
+#[tauri::command]
+pub fn terminal_activity(state: State<'_, Mutex<AppState>>, ids: Vec<u32>) -> Vec<TerminalActivity> {
+    let Ok(state) = state.lock() else { return Vec::new() };
+    let now = crate::terminal::pty::unix_ms();
+    ids.into_iter()
+        .filter_map(|id| {
+            let session = state.terminals.get(&id)?;
+            let last = session.last_output_ms.load(std::sync::atomic::Ordering::Relaxed);
+            let foreground = session.foreground_program();
+            Some(TerminalActivity {
+                id,
+                program_running: foreground.map(|pid| pid.is_some()),
+                quiet_ms: (last > 0).then(|| now.saturating_sub(last)),
+                agent: foreground.flatten().and_then(crate::terminal::foreground::agent_of),
+            })
+        })
+        .collect()
+}
+
 #[cfg(target_os = "macos")]
 fn cwd_of_pid(pid: u32) -> Option<String> {
     // lsof -a -p PID -d cwd -Fn  →  lines: "p<pid>", "fcwd", "n<path>"

@@ -504,6 +504,10 @@
         ui.sidebarMode = ui.sidebarMode === "problems" ? "files" : "problems";
         ui.explorerVisible = true;
       },
+      "agents-panel": () => {
+        ui.sidebarMode = ui.sidebarMode === "agents" ? "files" : "agents";
+        ui.explorerVisible = true;
+      },
       "replace": () => dispatchEditorAction("replace"),
       "goto-line": () => dispatchEditorAction("goto-line"),
       "format-document": () => dispatchEditorAction("format-document"),

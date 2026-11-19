@@ -3,6 +3,8 @@
   import SearchPanel from "./SearchPanel.svelte";
   import GitPanel from "./GitPanel.svelte";
   import InboxPanel from "./InboxPanel.svelte";
+  import AgentsPanel from "./AgentsPanel.svelte";
+  import { attentionStore } from "../../lib/stores/attention.svelte";
   import { inbox } from "../../lib/stores/inbox.svelte";
   import { settings } from "../../lib/stores/settings.svelte";
   import type { FileEntry } from "../../lib/stores/files.svelte";
@@ -117,10 +119,10 @@
 
 <div class="bg-sidebar flex flex-col overflow-hidden" style="grid-column: {side === 'left' ? 1 : 5}; grid-row: 1; border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow: hidden; position: relative;">
   <!-- Tab strip — also serves as drag region; left padding clears the macOS traffic lights -->
-  <div class="flex items-center border-b border-border shrink-0" style="height: 32px;" data-tauri-drag-region>
+  <div class="flex items-center border-b border-border shrink-0" style="height: var(--chrome-bar-height);" data-tauri-drag-region>
     <!-- Traffic-light spacer — fixed width, non-interactive drag region -->
     {#if side === 'left'}
-      <div style="width: 70px; flex-shrink: 0; height: 100%;" data-tauri-drag-region></div>
+      <div style="width: var(--traffic-clear); flex-shrink: 0; height: 100%;" data-tauri-drag-region></div>
     {:else}
       <div style="width: 8px; flex-shrink: 0; height: 100%;" data-tauri-drag-region></div>
     {/if}
@@ -174,6 +176,23 @@
         </span>
       {/if}
     </button>
+    <button
+      class="flex items-center justify-center w-6 h-full relative"
+      class:text-accent={ui.sidebarMode === "agents"}
+      class:text-txt-dim={ui.sidebarMode !== "agents"}
+      title="Agents"
+      data-testid="agents-tab"
+      onclick={() => { ui.sidebarMode = "agents"; }}
+    >
+      <i class="bi bi-robot text-base"></i>
+      {#if attentionStore.count > 0}
+        <span class="absolute top-1 right-0.5 text-[8px] leading-none font-bold"
+          class:sev-error={attentionStore.hasPermission}
+          class:sev-warning={!attentionStore.hasPermission}>
+          {attentionStore.count}
+        </span>
+      {/if}
+    </button>
     {#if showInbox}
       <button
         class="flex items-center justify-center w-6 h-full relative"
@@ -206,6 +225,8 @@
       <GitPanel />
     {:else if ui.sidebarMode === "inbox"}
       <InboxPanel />
+    {:else if ui.sidebarMode === "agents"}
+      <AgentsPanel />
     {:else if ui.sidebarMode === "problems"}
       <!-- Problems panel -->
       <div class="flex flex-col h-full overflow-y-auto text-xs">

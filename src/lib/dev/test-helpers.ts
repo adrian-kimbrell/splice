@@ -40,6 +40,19 @@ export function registerTestHelpers(deps: TestHelperDeps): void {
     },
     /** Switch the active workspace by ID. */
     switchToWorkspace: (id: string) => workspaceManager.switchWorkspace(id),
+    /** Every terminal id in this window, in workspace order. */
+    getTerminalIds: () => workspaceManager.workspaceList.flatMap((w) => w.terminalIds),
+    /** Mark a terminal as hosting an agent session, as the SessionStart hook would. */
+    setAgentSession: (terminalId: number, agent: "claude" | "codex") => {
+      for (const ws of Object.values(workspaceManager.workspaces)) {
+        const pane = ws.panes[`term-${terminalId}`];
+        if (!pane) continue;
+        pane.claudeSessionId = `e2e-session-${terminalId}`;
+        pane.agentKind = agent;
+        return true;
+      }
+      return false;
+    },
     /** Return the currently active workspace ID. */
     getActiveWorkspaceId: () => workspaceManager.activeWorkspaceId,
     /** Open a file as a permanent (non-preview) tab in the active pane. */

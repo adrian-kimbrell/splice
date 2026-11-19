@@ -48,6 +48,10 @@
   --topbar-height: 35px;
   --titlebar-height: 32px;
   --sidebar-header-height: 32px;
+  /* The strip along the window's top edge (sidebar tab strip, title bar) and the
+     width kept clear for the traffic lights. Taller on macOS 26+, set in main.ts. */
+  --chrome-bar-height: 32px;
+  --traffic-clear: 70px;
 
   --bg-topbar: var(--bg-editor);
   --tree-line: var(--text-dim);
@@ -119,6 +123,11 @@
   /* Easing */
   --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
 }
+:root[data-chrome="tall"] {
+  --chrome-bar-height: 40px;
+  --traffic-clear: 80px;
+}
+
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 

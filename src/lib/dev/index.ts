@@ -200,7 +200,7 @@ async function setup() {
     if (typeof payload.zoomedPaneId === "string" || payload.zoomedPaneId === null) ui.zoomedPaneId = payload.zoomedPaneId;
     if (typeof payload.settingsDrawerOpen === "boolean") ui.settingsDrawerOpen = payload.settingsDrawerOpen;
     if (payload.sidebarMode === "files" || payload.sidebarMode === "search" || payload.sidebarMode === "problems"
-      || payload.sidebarMode === "git" || payload.sidebarMode === "inbox") {
+      || payload.sidebarMode === "git" || payload.sidebarMode === "inbox" || payload.sidebarMode === "agents") {
       ui.sidebarMode = payload.sidebarMode;
     }
   }));
